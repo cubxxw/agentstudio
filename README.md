@@ -2,6 +2,10 @@
 
 <h1 align="center">AgentStudio</h1>
 
+**New: a conversation-first personal workspace.** Start from a sentence and keep progress,
+decisions and verified Markdown results together. Run `pnpm build:personal && pnpm start:personal`,
+then open `http://127.0.0.1:18740`. See [setup and boundaries](docs/personal/README.md).
+
 **English** · [简体中文](README.zh-CN.md)
 
 <p align="center">

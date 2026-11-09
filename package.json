@@ -8,6 +8,10 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev:personal": "pnpm --filter @agentstudio/personal dev",
+    "build:personal": "pnpm --filter @agentstudio/personal build",
+    "start:personal": "pnpm --filter @agentstudio/personal start",
+    "test:personal": "pnpm --filter @agentstudio/personal test",
     "dev:up": "node dev/stack.mjs up",
     "dev:down": "node dev/stack.mjs down",
     "dev:status": "node dev/stack.mjs status",

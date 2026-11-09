@@ -1,0 +1,24 @@
+{
+  "synthetic": true,
+  "checks": [
+    "explicit memory persists after reload",
+    "connection address is saved through the interface",
+    "no remote submission precedes approval",
+    "exact submitted material is readable before deciding",
+    "repeated decision delivers once",
+    "remote task identity remains attached to the result",
+    "credential is saved without returning its value",
+    "approval names the credential identity without exposing it",
+    "authenticated submission uses the server-held credential",
+    "IME composition Enter does not send",
+    "Shift Enter inserts a newline",
+    "lost response keeps the original draft",
+    "retry after a lost response reuses the durable request",
+    "search reaches the last of 120 persisted things",
+    "history selection remains usable at 390px"
+  ],
+  "remoteId": "thr_faef1a68-04bb-42c3-84ca-2a4806e118a6",
+  "deduplicatedId": "thr_a6c5a8d2-55b5-4487-b9cd-0048e29c2dc1",
+  "historyCount": 120,
+  "consoleErrors": []
+}

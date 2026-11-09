@@ -1,0 +1,334 @@
+import http from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, extname, join, resolve, sep } from 'node:path';
+import { APIError, PersonalStore, digest, id, now } from './store.mjs';
+import { PersonalWorker, codexAvailable, discoverMCP, initializeMCP } from './runtime.mjs';
+import { validateBearerToken } from './vault.mjs';
+
+const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repoDir = resolve(appDir, '../..');
+const terminal = ['completed', 'failed', 'cancelled', 'blocked', 'unknown'];
+
+function invalid(message) { throw new APIError(400, 'bad_request', message); }
+
+function textValue(value, name, maximum, optional = false) {
+  if (optional && value == null) return '';
+  if (typeof value !== 'string' || value.length > maximum || (!optional && !value.trim())) invalid(`${name} 必须是长度不超过 ${maximum} 的文本`);
+  return value.trim();
+}
+
+function validateInput(store, body) {
+  const text = textValue(body.text, 'text', 30_000, true);
+  const mode = body.mode || 'codex';
+  if (!['codex', 'local', 'connection'].includes(mode)) invalid('mode 必须是 codex、local 或 connection');
+  if (!Array.isArray(body.attachments ?? []) || (body.attachments?.length || 0) > 20) invalid('每次最多上传 20 份文本资料');
+  const attachments = (body.attachments || []).map((item) => {
+    const name = textValue(item?.name, '附件名称', 200);
+    if (typeof item.text !== 'string' || item.text.length > 500_000 || !item.text.trim()) invalid('附件正文必须是长度不超过 500000 的非空文本');
+    return { name, text: item.text };
+  });
+  if (!text && !attachments.length) invalid('请输入任务或上传文本资料');
+  if (!Array.isArray(body.memoryIds ?? []) || (body.memoryIds?.length || 0) > 20) invalid('memoryIds 必须是最多 20 个显式记忆 ID');
+  for (const memoryId of body.memoryIds || []) store.require('memory', memoryId);
+  if (mode === 'connection') {
+    store.require('connection', body.connectionId);
+  }
+  let action = null;
+  if (body.action) {
+    const validateCall = (call) => {
+      if (!call || typeof call !== 'object') invalid('工具调用必须是对象');
+      const toolName = textValue(call.toolName, 'toolName', 200);
+      if (!call.arguments || typeof call.arguments !== 'object' || Array.isArray(call.arguments) || JSON.stringify(call.arguments).length > 100_000) invalid('工具 arguments 必须是不超过 100000 字符的 JSON 对象');
+      return { toolName, arguments: call.arguments };
+    };
+    action = validateCall(body.action);
+    if (body.action.verification) {
+      action.verification = validateCall(body.action.verification);
+      if (body.action.verification.expected) {
+        const { path, equals } = body.action.verification.expected;
+        if (typeof path !== 'string' || (path !== '' && !path.startsWith('/')) || !Object.hasOwn(body.action.verification.expected, 'equals')) invalid('verification.expected 必须包含 JSON Pointer path 和 equals');
+        action.verification.expected = { path, equals };
+      }
+    }
+  }
+  return { text, mode, attachments, connectionId: mode === 'connection' ? body.connectionId : null,
+    memoryIds: body.memoryIds || [], action, clientId: body.clientId };
+}
+
+function endpointURL(value) {
+  let parsed;
+  try { parsed = new URL(value); } catch { invalid('请输入有效的 JSON-RPC 端点 URL'); }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) invalid('连接仅接受无账号、密码或查询参数的 HTTP(S) URL');
+  if (parsed.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) invalid('远端连接必须使用 HTTPS；HTTP 仅用于本机回环地址');
+  return parsed.href;
+}
+
+async function readJSON(request) {
+  if (!request.headers['content-type']?.split(';')[0].trim().startsWith('application/json')) throw new APIError(415, 'unsupported_media_type', '请求必须使用 application/json');
+  let size = 0, chunks = [];
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 2_000_000) throw new APIError(413, 'request_too_large', '请求内容最多 2 MB');
+    chunks.push(chunk);
+  }
+  try {
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (!body || typeof body !== 'object' || Array.isArray(body)) invalid('请求正文必须是 JSON 对象');
+    return body;
+  } catch (error) { if (error instanceof APIError) throw error; invalid('请求正文不是有效 JSON'); }
+}
+
+function publicConnection(connection) {
+  return { id: connection.id, name: connection.name, type: connection.type, url: connection.url, createdAt: connection.createdAt,
+    auth: { type: connection.credentialRef ? 'bearer' : 'none', configured: Boolean(connection.credentialRef), identityVerified: false },
+    status: 'configured', capabilities: connection.type === 'a2a' ? ['message/send', 'tasks/get'] : ['tools/list', 'approved tools/call'] };
+}
+
+export async function createPersonalServer(options = {}) {
+  const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
+  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs']) {
+    build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
+  }
+  try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
+  catch { build.uiEntrySha256 = null; }
+  const dataDir = resolve(options.dataDir || process.env.PERSONAL_DATA_DIR || join(repoDir, '.local/personal'));
+  const host = options.host || '127.0.0.1';
+  if (!['127.0.0.1', '::1', 'localhost'].includes(host)) throw new Error('Personal workspace must bind to a loopback address');
+  const port = options.port ?? Number(process.env.PERSONAL_PORT || 18740);
+  const store = new PersonalStore(dataDir);
+  store.recover();
+  const clients = new Set();
+  const notify = (event = {}) => {
+    options.onChange?.(event);
+    for (const response of clients) response.write(`event: invalidation\ndata: ${JSON.stringify(event)}\n\n`);
+  };
+  const worker = new PersonalWorker(store, options, notify);
+  const codex = codexAvailable(options.codexCommand);
+  let shuttingDown = false;
+  const json = (response, status, body) => {
+    response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify(store.vault.redact(body)));
+  };
+
+  const server = http.createServer(async (request, response) => {
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    try {
+      const boundPort = server.address()?.port || port;
+      const allowedHosts = new Set([`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`]);
+      if (!allowedHosts.has(request.headers.host)) throw new APIError(403, 'forbidden_host', '仅允许本机访问');
+      const origin = request.headers.origin;
+      if (origin && ![`http://127.0.0.1:${boundPort}`, `http://localhost:${boundPort}`, `http://[::1]:${boundPort}`, 'http://127.0.0.1:18741', 'http://localhost:18741'].includes(origin)) {
+        throw new APIError(403, 'forbidden_origin', '不允许此网页访问本机资料');
+      }
+      if (request.headers['sec-fetch-site'] === 'cross-site') throw new APIError(403, 'forbidden_origin', '不允许跨站访问');
+      const url = new URL(request.url, `http://${request.headers.host}`);
+      const path = url.pathname;
+      const method = request.method;
+      let match;
+      if (method === 'GET' && path === '/api/health') return json(response, 200, { ok: true, service: 'agentstudio-personal', durableQueue: true, build });
+      if (method === 'GET' && path === '/api/bootstrap') {
+        return json(response, 200, {
+          threads: store.list('thread').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt }) => ({ id: threadId, title, status, summary, updatedAt })),
+          connections: store.list('connection').map(publicConnection), memories: store.list('memory'),
+          settings: { defaultMode: 'codex', codexAvailable: codex.available, codexVersion: codex.version },
+          runtime: { localOnly: true, database: 'SQLite WAL', queue: 'single-process', localMode: '本地统计与摘录，无需模型',
+            codexBoundary: '继承本机 Codex 提供商配置，shell 使用 read-only；独立 cwd 不是文件系统隔离，CLI 已配置工具仍遵守其自身权限。结果仅证明文档已保存。',
+            connectionBoundary: 'A2A message/send 与 tasks/get；MCP 2025 握手、会话 ID、JSON/SSE 响应、tools/list 与精确批准后的 tools/call。可选本机加密保存的 Bearer；无任意认证头、OAuth、反向请求、2026 新协议或远端回调。' },
+        });
+      }
+      if (method === 'GET' && path === '/api/events') {
+        response.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+        response.write('retry: 2000\nevent: invalidation\ndata: {}\n\n');
+        clients.add(response);
+        const heartbeat = setInterval(() => response.write(': heartbeat\n\n'), 20_000);
+        heartbeat.unref();
+        request.on('close', () => { clearInterval(heartbeat); clients.delete(response); });
+        return;
+      }
+      if (method === 'POST' && path === '/api/threads') {
+        const body = await readJSON(request);
+        const thread = store.idempotent('threads:create', body.clientId, body, () => store.createThread(validateInput(store, body)));
+        notify({ threadId: thread.id }); worker.kick();
+        return json(response, 201, thread);
+      }
+      if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, store.require('thread', match[1]));
+      if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/messages$/))) {
+        const threadId = match[1], body = await readJSON(request);
+        const result = store.idempotent(`threads:${threadId}:messages`, body.clientId, body, () => {
+          const input = validateInput(store, body);
+          const thread = store.require('thread', threadId);
+          store.appendRun(thread, input); return store.put('thread', thread);
+        });
+        notify({ threadId }); worker.kick(); return json(response, 200, result);
+      }
+      if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/(retry|reconcile|cancel)$/))) {
+        const threadId = match[1], action = match[2], body = await readJSON(request);
+        const record = store.idempotent(`threads:${threadId}:${action}`, body.clientId, body, () => {
+          const thread = store.require('thread', threadId);
+          const run = body.runId ? thread.runs.find((item) => item.id === body.runId) : action === 'cancel'
+            ? thread.runs.find((item) => ['running', 'verifying'].includes(item.status)) || thread.runs.find((item) => item.status === 'needs_input') || thread.runs.find((item) => item.status === 'queued') || thread.runs.find((item) => store.unresolved(item)) || thread.runs.at(-1)
+            : thread.runs.find((item) => store.unresolved(item)) || thread.runs.at(-1);
+          if (!run) invalid('没有可以处理的运行记录');
+          if (action === 'cancel') {
+            if (terminal.includes(run.status) && run.status !== 'unknown' && run.status !== 'blocked') return { thread, runId: run.id };
+            const uncertain = run.mode === 'connection' && ['sending', 'delivered', 'unknown'].includes(run.deliveryState);
+            run.status = 'cancelled'; run.finishedAt = now(); thread.status = 'cancelled';
+            thread.summary = uncertain ? '已停止本机等待；远端执行未获取消确认，请在远端核查' : '任务已取消';
+            run.requiresReconciliation = uncertain;
+            if (uncertain) run.error = thread.summary;
+            for (const decision of thread.decisions.filter((item) => item.runId === run.id && item.state === 'pending')) {
+              decision.state = 'cancelled'; decision.version += 1;
+            }
+            store.event(thread, 'cancelled', thread.summary, { runId: run.id });
+          } else {
+            if (!terminal.includes(run.status)) throw new APIError(409, 'active_run', '任务仍在进行中');
+            if (run.mode === 'connection' && run.externalTaskId) {
+              run.status = 'queued'; run.phase = 'reconcile'; delete run.error; delete run.finishedAt;
+              thread.status = 'queued'; thread.summary = '已排队核查原远端任务，不会重新提交';
+              store.event(thread, 'queued', thread.summary, { runId: run.id });
+            } else {
+              if (action === 'reconcile') throw new APIError(409, 'no_remote_task', '没有远端 taskId，无法自动核查；请检查远端记录');
+              if (run.status === 'unknown' || ['sending', 'delivered', 'unknown'].includes(run.deliveryState)) throw new APIError(409, 'unknown_execution', '上次执行结果未知，不能重复提交；请先人工核查');
+              const message = thread.messages.find((item) => item.id === run.messageId);
+              store.appendRun(thread, { ...message, mode: run.mode, connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id });
+            }
+          }
+          store.refreshThread(thread);
+          thread.updatedAt = now(); store.put('thread', thread);
+          return { thread, runId: run.id };
+        });
+        // Older persisted idempotency records contained only the thread snapshot.
+        const result = record.thread || record;
+        if (action === 'cancel') worker.cancel(threadId, record.runId || result.runs.at(-1)?.id);
+        notify({ threadId }); worker.kick(); return json(response, 200, result);
+      }
+      if (method === 'POST' && (match = path.match(/^\/api\/decisions\/([^/]+)$/))) {
+        const decisionId = match[1], body = await readJSON(request);
+        const result = store.idempotent(`decisions:${decisionId}`, body.clientId, body, () => {
+          const thread = store.list('thread').find((item) => item.decisions.some((decision) => decision.id === decisionId));
+          if (!thread) throw new APIError(404, 'not_found', '找不到这条确认');
+          const decision = thread.decisions.find((item) => item.id === decisionId);
+          if (decision.version !== body.version) throw new APIError(409, 'version_conflict', '确认卡已更新，请刷新后操作');
+          if (decision.state !== 'pending') throw new APIError(409, 'already_decided', '这条确认已经处理');
+          if (!['approve', 'reject'].includes(body.choice)) invalid('choice 必须是 approve 或 reject');
+          const run = thread.runs.find((item) => item.id === decision.runId);
+          if (run.status !== 'needs_input') throw new APIError(409, 'inactive_decision', '任务当前无法接收确认');
+          decision.state = 'decided'; decision.version += 1; decision.decision = { choice: body.choice, decidedAt: now() };
+          run.status = body.choice === 'approve' ? 'queued' : 'cancelled';
+          thread.status = run.status; thread.summary = body.choice === 'approve' ? '决定已记录，等待发送；尚未执行' : '未发送给远端代理';
+          if (body.choice === 'reject') run.finishedAt = now();
+          store.event(thread, 'decision', thread.summary, { runId: run.id, decisionId });
+          store.refreshThread(thread);
+          thread.updatedAt = now(); return store.put('thread', thread);
+        });
+        notify({ threadId: result.id }); worker.kick(); return json(response, 200, result);
+      }
+      if (method === 'GET' && (match = path.match(/^\/api\/artifacts\/([^/]+)(\/download)?$/))) {
+        const artifact = store.require('artifact', match[1]);
+        if (digest(artifact.body) !== artifact.sha256) throw new APIError(500, 'artifact_corrupted', '成果哈希校验失败，无法作为已验证结果返回');
+        if (!match[2]) return json(response, 200, artifact);
+        response.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+        response.setHeader('Content-Disposition', `attachment; filename="${artifact.id}.md"`);
+        response.end(artifact.body); return;
+      }
+      if (method === 'GET' && path === '/api/memories') return json(response, 200, { memories: store.list('memory') });
+      if (method === 'POST' && path === '/api/memories') {
+        const body = await readJSON(request), text = textValue(body.text, '记忆', 5000);
+        const memory = store.idempotent('memories:create', body.clientId, body, () => store.put('memory', { id: id('mem'), text, createdAt: now(), source: 'explicit_user' }));
+        notify(); return json(response, 201, memory);
+      }
+      if (method === 'DELETE' && (match = path.match(/^\/api\/memories\/([^/]+)$/))) {
+        store.delete('memory', match[1]); notify(); return json(response, 200, { ok: true });
+      }
+      if (method === 'GET' && path === '/api/connections') return json(response, 200, { connections: store.list('connection').map(publicConnection) });
+      if (method === 'POST' && path === '/api/connections') {
+        const body = await readJSON(request), name = textValue(body.name, '连接名称', 100), urlValue = endpointURL(body.url);
+        if (!['a2a', 'mcp'].includes(body.type)) invalid('连接类型必须是 a2a 或 mcp');
+        if (body.headers !== undefined || body.authorization !== undefined || body.authHeader !== undefined) invalid('连接仅支持可选 Bearer token，不支持自定义认证头');
+        const token = validateBearerToken(body.token);
+        const fingerprint = token ? store.vault.fingerprint(token, body.type, urlValue) : null;
+        const existing = store.list('connection').find((item) => item.url === urlValue && item.type === body.type &&
+          (token ? item.credentialFingerprint === fingerprint : !item.credentialRef));
+        let candidate = existing || { id: id('con'), name, url: urlValue, type: body.type, createdAt: now(), credentialVersion: token ? 1 : 0 };
+        try {
+          if (!existing && token) candidate = { ...candidate, credentialRef: store.vault.create(token, candidate), credentialFingerprint: fingerprint };
+          if (candidate.type === 'mcp') candidate = await initializeMCP(store, candidate, undefined, false);
+          const makeConnection = () => store.list('connection').find((item) => item.url === urlValue && item.type === body.type &&
+            (token ? item.credentialFingerprint === fingerprint : !item.credentialRef)) || store.put('connection', candidate);
+          const safeInput = token ? { ...body, token: undefined, authFingerprint: fingerprint } : body;
+          const connection = body.clientId ? store.idempotent('connections:create', body.clientId, safeInput, makeConnection) : store.transaction(makeConnection);
+          if (!existing && connection.id !== candidate.id) store.vault.removeForConnection(candidate.id);
+          notify(); return json(response, 201, publicConnection(connection));
+        } catch (error) {
+          if (!existing && !store.get('connection', candidate.id)) store.vault.removeForConnection(candidate.id);
+          throw error;
+        }
+      }
+      if (method === 'DELETE' && (match = path.match(/^\/api\/connections\/([^/]+)$/))) {
+        const connectionId = match[1];
+        if (store.list('thread').some((thread) => thread.runs.some((run) => run.connectionId === connectionId &&
+          (!['completed', 'failed', 'cancelled'].includes(run.status) || (run.status === 'cancelled' && ['sending', 'delivered', 'unknown'].includes(run.deliveryState) && !['canceled', 'cancelled'].includes(run.remoteStatus)))))) {
+          throw new APIError(409, 'connection_in_use', '此连接仍有进行中或待核查任务，请先处理任务');
+        }
+        store.delete('connection', connectionId);
+        store.vault.removeForConnection(connectionId);
+        notify(); return json(response, 200, { ok: true });
+      }
+      if (method === 'GET' && (match = path.match(/^\/api\/connections\/([^/]+)\/tools$/))) {
+        const connection = store.require('connection', match[1]);
+        if (connection.type !== 'mcp') invalid('仅 MCP 连接支持工具发现');
+        return json(response, 200, await discoverMCP(store, connection));
+      }
+      if (path.startsWith('/api/')) throw new APIError(404, 'not_found', '找不到这个 API');
+      if (method !== 'GET' && method !== 'HEAD') throw new APIError(405, 'method_not_allowed', '不支持此请求方法');
+      const distDir = options.staticDir || join(appDir, 'dist');
+      let decoded;
+      try { decoded = decodeURIComponent(path); } catch { invalid('路径编码无效'); }
+      let filename = resolve(distDir, `.${decoded}`);
+      if (filename !== distDir && !filename.startsWith(`${distDir}${sep}`)) throw new APIError(403, 'forbidden', '路径不允许');
+      try { if (!(await stat(filename)).isFile()) filename = join(distDir, 'index.html'); }
+      catch { filename = join(distDir, 'index.html'); }
+      let content;
+      try { content = await readFile(filename); } catch { throw new APIError(503, 'ui_not_built', '请先构建 personal 前端，API 已启动'); }
+      const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
+      response.setHeader('Content-Type', `${mime[extname(filename)] || 'application/octet-stream'}${['.html', '.js', '.css'].includes(extname(filename)) ? '; charset=utf-8' : ''}`);
+      response.end(method === 'HEAD' ? undefined : content);
+    } catch (error) {
+      if (response.headersSent) { response.end(); return; }
+      const expected = error instanceof APIError;
+      json(response, expected ? error.status : 500, { error: { code: expected ? error.code : 'internal_error', message: expected ? error.message : '本机服务遇到错误，任务状态已保留，请刷新核查' } });
+    }
+  });
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 10_000;
+  worker.start();
+  return {
+    server, store, worker,
+    listen: () => new Promise((resolveListen, reject) => {
+      server.once('error', reject);
+      server.listen(port, host, () => { server.removeListener('error', reject); resolveListen(server.address()); });
+    }),
+    address: () => server.address(),
+    async close() {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      for (const client of clients) client.end();
+      const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
+      server.closeIdleConnections();
+      await worker.close(); await stopped; store.close();
+    },
+  };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const app = await createPersonalServer();
+  try {
+    const address = await app.listen();
+    console.log(`AgentStudio personal: http://127.0.0.1:${address.port}`);
+  } catch (error) { await app.close(); throw error; }
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0); });
+}

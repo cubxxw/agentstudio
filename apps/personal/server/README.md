@@ -1,0 +1,104 @@
+# Personal workspace server
+
+This Node 22.13+ service runs the personal workspace without Matrix, Postgres, Docker, or additional server dependencies. It binds to loopback and serves `apps/personal/dist` plus `/api`. Run from the repository root:
+
+```sh
+pnpm --filter @agentstudio/personal build
+node apps/personal/server/index.mjs
+node --test apps/personal/server/*.test.mjs
+```
+
+Default URL: `http://127.0.0.1:18740`. `PERSONAL_PORT` and `PERSONAL_DATA_DIR` override the port and `.local/personal` data directory. Development uses the personal package's `dev` command and a Vite proxy on port 18741.
+
+`createPersonalServer({dataDir, port, host})` is exported from `index.mjs`; it returns `{server, store, worker, listen(), address(), close()}`. Test-only process arguments and observers can be supplied through `codexCommand`, `codexArgs`, and `onChange`.
+
+## Execution and routing
+
+- `mode: "codex"` is the default. Without configured connections, it invokes the user's local Codex CLI and saves its actual final assistant output. With connections, one Codex planning turn chooses a useful local document, an A2A submission, an MCP action, or a specific question. A document plan includes the Markdown itself. An invalid plan blocks the task; it cannot dispatch a remote action. Runs record `requestedMode`, `chosenExecutor`, and `routingReason` when automatically routed.
+- `mode: "local"` explicitly runs deterministic statistics and organization without a model. The report includes counts, duplicate-line statistics, and complete uploaded Markdown originals. It makes no semantic judgments.
+- `mode: "connection"` selects a specific `connectionId`. A2A prepares a submission preview. MCP can accept an exact `action` or ask Codex to prepare one from the discovered catalog and this thread. Missing parameters produce a specific question in a `blocked` thread; a new message can supply the answer.
+- Every A2A submission and every MCP tool call requires a versioned approval of the exact endpoint and payload. `readOnlyHint`, descriptions, model routing, and prior approval of another run cannot grant permission. Optional readback calls and expected values are included in that same preview.
+- Only the current thread, its uploaded text, and explicitly selected `memoryIds` enter the model prompt. Attachment context includes `id` and `citeAs: "#source-<id>"` for links to current-thread source previews. Source text and catalogs are marked untrusted. Those labels and prompts are instructions, not a tool sandbox.
+
+Messages sent while a run is queued, running, or verifying are saved as durable followup runs in the same thread. The response says the supplement was saved, not that the current run read it. One worker executes those runs in order. Each run's input ends at its own `messageId`; an earlier queued run cannot inspect later messages or uploads, including when it starts after those messages were saved. The cutoff also applies to local organization and remote previews. A new message while an unapproved preview is pending cancels that old card with an explicit reason; the replacement run must prepare and obtain its own approval. Unknown execution remains a reconciliation barrier, so saved followups cannot advance past it and new submissions are rejected until it is resolved.
+
+Codex runs `exec --json --ephemeral --skip-git-repo-check -s read-only -C <per-run workspace> -`, receiving context through stdin. A successful result requires an assistant item, a completed turn, and exit code 0. No bypass flag, provider switch, or global permission expansion is added. The user's configured provider and CLI tools remain in effect. An empty working directory is **not** filesystem isolation, and read-only shell policy does not independently restrict every configured remote tool. Missing CLI, authentication/configuration errors, and provider quota failures block execution. The server does not interpret a model's claim of execution as an external receipt.
+
+## REST and events
+
+All JSON uses camelCase. Errors are `{error:{code,message}}`. Mutating task, message, decision, retry, cancel, and memory requests require a unique 8–160 character `clientId`. Repeating the same route/key returns its original response; different content with the same key returns 409. Clients should reload the authoritative snapshot after a retry or reconnect.
+
+| Route | Request / response |
+| --- | --- |
+| `GET /api/health` | Service health only |
+| `GET /api/bootstrap` | `{threads,connections,memories,settings,runtime}` |
+| `GET /api/threads/:id` | Full thread with messages, runs, artifacts, decisions, and events |
+| `POST /api/threads` | `{text,clientId,mode?,connectionId?,attachments?:[{name,text}],memoryIds?:[],action?}` → full thread |
+| `POST /api/threads/:id/messages` | Same input, new run in the existing thread |
+| `POST /api/threads/:id/retry` | `{clientId,runId?}`; safe retry, or original A2A task readback when its taskId is known |
+| `POST /api/threads/:id/reconcile` | `{clientId,runId?}`; `tasks/get` on an existing A2A taskId, never `message/send` |
+| `POST /api/threads/:id/cancel` | `{clientId,runId?}`; defaults to the currently running/verifying run, then pending/queued work; cancels that recorded run's local execution/waiting, without claiming remote cancellation |
+| `POST /api/decisions/:id` | `{choice:"approve"\|"reject",version,clientId}` → full thread |
+| `GET /api/artifacts/:id` | Metadata plus Markdown `body`, verified against its SHA-256 before returning |
+| `GET /api/artifacts/:id/download` | Markdown attachment |
+| `GET/POST /api/memories` | List / create `{text,clientId}`; explicit user-saved memory only |
+| `DELETE /api/memories/:id` | Remove memory |
+| `GET/POST /api/connections` | List / add `{name,type:"a2a"\|"mcp",url,token?,clientId?}`; optional Bearer token is never returned |
+| `DELETE /api/connections/:id` | Remove an unused connection; unresolved external tasks retain their connection |
+| `GET /api/connections/:id/tools` | MCP initialization/discovery; returns `{tools,protocolVersion,supported,notice}` |
+| `GET /api/events` | SSE `invalidation` events containing optional `threadId`; reconnect and reload snapshots |
+
+Requests are limited to 2 MB; text to 30,000 characters; each of up to 20 attachments to 500,000 characters; explicit memory selection to 20 IDs. Uploads are text only. The server does not fetch arbitrary attachment URLs or extract binary files.
+
+## MCP action and readback
+
+Supported MCP revisions are `2025-03-26`, `2025-06-18`, and `2025-11-25`: `initialize`, `notifications/initialized`, `tools/list`, and approved `tools/call` over Streamable HTTP. Both JSON and a matching JSON-RPC result within SSE are supported. Session IDs and negotiated versions are retained in the private store; session IDs are omitted from browser connection records. A 404 during tool discovery can establish a new session; a tool mutation is never automatically resubmitted. Optional Bearer authorization covers initialization, the initialized notification, discovery, calls, and readback. Server-initiated requests, 2026 protocol revisions, OAuth, and arbitrary authentication headers are not implemented.
+
+Advanced clients may send this instead of asking the planner to construct the action:
+
+```json
+{
+  "toolName": "set_value",
+  "arguments": {"key": "explicit-owned-key", "value": "expected-value"},
+  "verification": {
+    "toolName": "read_value",
+    "arguments": {"key": "explicit-owned-key"},
+    "expected": {
+      "path": "/structuredContent/value",
+      "equals": "expected-value"
+    }
+  }
+}
+```
+
+Both calls and the expected comparison appear in the approval. `expected.path` is a JSON Pointer into the full readback result. Without `expected`, a readback is an observation, not proof of the desired effect. Without any readback, `verificationState` is `not_provided`. `isError: true` fails the task; mismatched readback blocks it. Neither result can be labeled completed. A failure receipt can still be preserved as an artifact.
+
+The primary artifact displays the service's `content` text directly, preserving its Markdown headings, tables, code, and links. Source service URL, tool name, and the limited verification scope accompany it. Nontext results are described accurately and public web resource links are retained; no document or directory is invented. Complete **credential-redacted original results** remain in `run.remoteReceipt.result`, with optional credential-redacted readback in `run.remoteReceipt.readback.result`, for expandable execution records. Known Bearer strings echoed by a service are removed before persistence, prompts, payloads, and API output. Projection makes no additional model call.
+
+Tool-name and top-level required/type/enum checks reject malformed plans; they are not a complete JSON Schema validator or a security boundary. The remote server remains responsible for its actual tool authorization and schema enforcement.
+
+## Persistence, uncertainty, and receipt scope
+
+The service owns a durable single-process queue. SQLite WAL with `synchronous=FULL` stores threads, decisions, idempotency records, and immutable artifacts; a separate SQLite connection holds an OS-backed `BEGIN EXCLUSIVE` worker lock. The service never unlinks that lock inode or opens/closes it through ordinary filesystem descriptors. Directory permissions are 0700; database, WAL, shared-memory, and lock files are 0600. Browser closure does not stop work. A second process using the same directory is rejected.
+
+Queued work resumes after restart, subject to preceding unresolved runs. Interrupted local organization becomes `blocked` and can be retried. Interrupted Codex or remote execution becomes `unknown`; mutations that may have been submitted are not replayed. An A2A taskId is retained for read-only reconciliation, and every `tasks/get` result must match that exact taskId and task shape. Without a known taskId, inspect the original remote system before creating another action. A local cancel does not claim the remote effect was canceled: an unresolved remote run retains `requiresReconciliation`, and the thread remains `unknown` while its saved followups wait. A canceled local Codex process allows its queued followups to continue. Late results cannot revive a canceled run, and replaying an old cancel cannot cancel a later run because its process effect remains bound to the original run ID.
+
+`decision.decision` records the person's choice. `deliveryState` records transport, `actionState` records the returned execution status, and verification fields describe their limited evidence:
+
+- `run.verification.scope: "local_artifact_readback"` means the saved Markdown was read back and its SHA-256 matched. This is never evidence of a remote account or side effect.
+- A2A `run.remoteVerification.scope` is `a2a_tasks_get` or `a2a_message_response`. It records the remote protocol response; `externalEffectsVerified` remains false. A2A decision `verificationState: "verified"` refers to the locally saved artifact, not an independent external acceptance.
+- MCP `run.externalVerification.scope: "mcp_explicit_readback"` records the approved readback and optional expected-field match. `externalEffectsVerified: true` is limited to that reported JSON field matching the approved expected value; it does not prove unrelated external effects.
+
+## Local access and authentication limits
+
+The server trusts the owner of this Mac and has no separate multi-user login. It checks loopback Host/Origin, rejects cross-site browser requests, and does not allow arbitrary network binding. It is not a hosted or LAN service. Connection URLs cannot contain credentials, query parameters, or fragments; non-loopback endpoints require HTTPS. A2A `configured` means its address was saved, not that its health or account identity was verified. MCP creation performs a real initialization handshake. Real authenticated accounts require separate acceptance; synthetic local protocol tests do not establish it.
+
+Bearer is the only supported connection credential. Optional `token` accepts 8–8000 visible ASCII characters with no whitespace, CRLF, or control characters; an omitted or empty token means unauthenticated. Arbitrary header configuration and OAuth are unsupported. Authorization is added only on the server's request to the configured endpoint, with redirects disabled. Token strings are never placed on connection objects, thread/decision payloads, model catalogs, logs, or public API records. Public connections expose only `auth:{type:"none"|"bearer",configured,identityVerified:false}`. Approval previews expose `identity:{label,authentication,identityVerified:false}`; the user-entered label is not a verified remote username.
+
+`vault.mjs` encrypts immutable credential records with AES-256-GCM, a fresh nonce per record, and authenticated connection ID/type/endpoint/version binding. Each workspace has its own 32-byte `vault/master.key`; encrypted records are under `vault/credentials/`. Files are 0600 and directories 0700. Creation uses an exclusive atomic link and file/directory fsync; existing keys or records are not overwritten on failure. A key is generated only in a Git-ignored location or outside a Git repository. Missing, damaged, or unreadable keys/records block credential use; they do not trigger replacement-key generation over existing credentials. A failed connection handshake removes its newly created credential; a failed duplicate request cannot replace an existing account. Safely deleting an unused connection removes its encrypted record, while unresolved tasks preserve the account's reconciliation channel. Filesystem cleanup failure leaves encrypted data for a retry rather than deleting another account's credential.
+
+This vault is **not Keychain** and does not isolate credentials from processes already running as the same OS user. Protect the master key and encrypted records together in backups; losing the original key makes the records unusable. No credential-agent or sandbox separation is claimed. The CLI's actual configured permissions remain the boundary described above.
+
+Private stable `credentialRef`/version and keyed fingerprints are omitted from browser records and model context. A different token on the same endpoint creates a separate connection; credentials on an existing connection are not silently rotated or overwritten. A private decision binding checks connection ID, endpoint, credential reference, and version before dispatch, so an old approval cannot authorize a different credential identity. Remote account identity and permissions are determined by the submitted token and the remote service. There is no general account-identity proof endpoint, and `identityVerified` remains false.
+
+Protocol references: [MCP 2025-11-25 transport](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-11-25/basic/transports.mdx), [SQLite POSIX lock descriptor caveat](https://www.sqlite.org/howtocorrupt.html#_posix_advisory_locks_canceled_by_a_separate_thread_doing_close_).

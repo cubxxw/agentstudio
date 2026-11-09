@@ -2,6 +2,10 @@
 
 <h1 align="center">AgentStudio</h1>
 
+**新增：以对话为主的个人工作间。** 从一句话开始，把进展、决定与可下载成果留在同一件事里。
+运行 `pnpm build:personal && pnpm start:personal`，打开 `http://127.0.0.1:18740`。
+安装、实际能力与边界见[运行说明](docs/personal/README.md)。
+
 [English](README.md) · **简体中文**
 
 <p align="center">

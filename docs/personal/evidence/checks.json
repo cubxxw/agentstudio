@@ -1,0 +1,32 @@
+{
+  "synthetic": true,
+  "checks": [
+    "unsent draft survives reload",
+    "explicit local mode stays local after send",
+    "typing during send is preserved",
+    "full source survives beyond long content",
+    "Chinese punctuation retains Markdown emphasis",
+    "Chinese punctuation retains Markdown strikethrough",
+    "Markdown tables remain structured",
+    "code remains a code block",
+    "source HTML never executes",
+    "source link remains reachable",
+    "Markdown result downloads as a file",
+    "download bytes match saved SHA-256",
+    "reader closes into unchanged draft",
+    "reader position returns",
+    "internal fragment does not become a task route",
+    "missing executor never creates successful output",
+    "offline state preserves editable draft",
+    "reconnection reloads authoritative state",
+    "390px conversation has no page overflow",
+    "390px reader has no page overflow",
+    "reduced-motion preference is observed",
+    "closed narrow sidebar is outside keyboard navigation",
+    "report citation opens the original saved source",
+    "Escape closes only the top source and retains the report"
+  ],
+  "threadId": "thr_f6c14412-441e-420e-b621-b8a297d5e3ac",
+  "blockedId": "thr_f4be61c9-f39c-4b2d-873c-c966434f8152",
+  "consoleErrors": []
+}
