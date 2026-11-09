@@ -16,7 +16,7 @@ GET-476 · 2026-11-10。记录实际证据及版本，不用自评分数代替�
 | 实际成果浏览器 | **9/9 通过** | 实际报告中的引用来源、嵌套 Escape、⌘N 上下文、390px 与三份实际成果下载 SHA 均核对，页面异常 0；[real-checks.json](evidence/real-checks.json)。独立于合成服务浏览器用例，不合并成总分母。 |
 | 类型与构建 | **最终通过** | TypeScript + Vite 产物 `index-CE-xrIXC.js` / `index-CZmQGdkB.css`。首次 CSS 类型声明错误与后来的嵌套 dialog 问题均已修复，最终结果属于修复后验证。 |
 | 既有模块回归 | **core 99、desktop 43、dev 4 通过** | 较早代码检查轮次；core 另 1 项集成测试 skipped。不是最终完整旧栈或 Go/Matrix 运行验收。 |
-| 远端 CI / 合并 | **待 fork PR 后运行及读回** | 已配置同套浏览器检查；上述本地通过不代替远端 CI。本机 GitHub 身份对目标仓库为只读，拟通过普通 fork PR 交付，目标合并须维护者执行；没有切换身份或扩大权限，也未声称已合并。 |
+| 远端 CI / 合并 | **按关联 PR 的最新提交独立核对** | 首个实现提交 `23534bc214b8b187dee0b65ce8afa31deb219091` 的[完整 fork CI](https://github.com/kubbot/agentstudio/actions/runs/42678233493)已通过 Go、TypeScript、旧模块回归及同套浏览器检查。CLI 身份只读；已在本人现有浏览器确认目标仓库维护者登录，并启用此前因 fork 默认停用的既有 CI 工作流（仅 contents:read）。最新目标仓库 CI、合并 SHA 与合并后 CI 状态见[关联 PR](https://github.com/cubxxw/agentstudio/pull/1)，不能用本机或 fork 结果代称。 |
 
 ## 实际执行，不以假服务替代
 
