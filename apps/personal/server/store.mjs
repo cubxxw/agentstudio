@@ -1,0 +1,223 @@
+import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync, chmodSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomUUID, createHash } from 'node:crypto';
+import { CredentialVault } from './vault.mjs';
+
+export const now = () => new Date().toISOString();
+export const id = (prefix) => `${prefix}_${randomUUID()}`;
+export const digest = (text) => createHash('sha256').update(text).digest('hex');
+
+export class APIError extends Error {
+  constructor(status, code, message) { super(message); this.status = status; this.code = code; }
+}
+
+// SQLite owns the durable queue, transcripts, decisions, and immutable deliverables.
+// A separate rollback-journal SQLite connection holds an OS-backed exclusive lock
+// for the entire worker lifetime. Never unlink its inode: process death releases it.
+export class PersonalStore {
+  constructor(dataDir) {
+    this.dataDir = dataDir;
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    chmodSync(dataDir, 0o700);
+    this.lockPath = join(dataDir, 'worker-lock.sqlite');
+    this.lockDb = new DatabaseSync(this.lockPath);
+    // Never open/close this inode through fs: POSIX close would release another
+    // SQLite connection's process lock. SQLite must manage every descriptor.
+    try { chmodSync(this.lockPath, 0o600); this.lockDb.exec('PRAGMA busy_timeout=0; BEGIN EXCLUSIVE;'); }
+    catch { this.lockDb.close(); this.lockDb = null; throw new Error('Personal workspace is already open in another process'); }
+    this.databasePath = join(dataDir, 'personal.sqlite');
+    try {
+      this.db = new DatabaseSync(this.databasePath);
+      chmodSync(this.databasePath, 0o600);
+      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
+      CREATE TABLE IF NOT EXISTS documents(kind TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(kind,id));
+      CREATE TABLE IF NOT EXISTS idempotency(route TEXT NOT NULL, key TEXT NOT NULL, fingerprint TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(route,key));`);
+      this.secureFiles();
+      this.vault = new CredentialVault(dataDir);
+    } catch (error) {
+      this.db?.close(); this.db = null;
+      this.lockDb.close(); this.lockDb = null;
+      throw error;
+    }
+  }
+
+  secureFiles() {
+    for (const path of [this.databasePath, `${this.databasePath}-wal`, `${this.databasePath}-shm`]) {
+      if (existsSync(path)) chmodSync(path, 0o600);
+    }
+  }
+
+  get(kind, key) {
+    const row = this.db.prepare('SELECT body FROM documents WHERE kind=? AND id=?').get(kind, key);
+    return row ? JSON.parse(row.body) : null;
+  }
+
+  require(kind, key) {
+    const value = this.get(kind, key);
+    if (!value) throw new APIError(404, 'not_found', '找不到这条记录');
+    return value;
+  }
+
+  list(kind) {
+    return this.db.prepare('SELECT body FROM documents WHERE kind=? ORDER BY rowid DESC').all(kind).map((row) => JSON.parse(row.body));
+  }
+
+  put(kind, value) {
+    value = this.vault ? this.vault.redact(value) : value;
+    this.db.prepare('INSERT INTO documents(kind,id,body) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body')
+      .run(kind, value.id, JSON.stringify(value));
+    this.secureFiles();
+    return value;
+  }
+
+  delete(kind, key) { this.db.prepare('DELETE FROM documents WHERE kind=? AND id=?').run(kind, key); }
+
+  transaction(fn) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try { const result = fn(); this.db.exec('COMMIT'); return result; }
+    catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  idempotent(route, key, input, fn) {
+    if (typeof key !== 'string' || key.length < 8 || key.length > 160) {
+      throw new APIError(400, 'bad_request', 'clientId 必须是 8–160 字符的唯一请求标识');
+    }
+    const fingerprint = digest(JSON.stringify(input));
+    return this.transaction(() => {
+      const previous = this.db.prepare('SELECT fingerprint,body FROM idempotency WHERE route=? AND key=?').get(route, key);
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) throw new APIError(409, 'idempotency_conflict', '相同 clientId 的请求内容不同');
+        return JSON.parse(previous.body);
+      }
+      const result = this.vault.redact(fn());
+      this.db.prepare('INSERT INTO idempotency(route,key,fingerprint,body) VALUES(?,?,?,?)').run(route, key, fingerprint, JSON.stringify(result));
+      return result;
+    });
+  }
+
+  updateThread(threadId, fn) {
+    return this.transaction(() => {
+      const thread = this.require('thread', threadId);
+      fn(thread);
+      this.refreshThread(thread);
+      thread.updatedAt = now();
+      return this.put('thread', thread);
+    });
+  }
+
+  event(thread, type, text, extra = {}) {
+    thread.events.push({ id: id('evt'), type, text, createdAt: now(), ...extra });
+  }
+
+  unresolved(run) {
+    return run.status === 'unknown' || (run.requiresReconciliation && !['queued', 'running', 'verifying'].includes(run.status));
+  }
+
+  nextQueuedRun(thread) {
+    const index = thread.runs.findIndex((run) => run.status === 'queued');
+    if (index < 0 || thread.runs.slice(0, index).some((run) => ['queued', 'running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run))) return null;
+    return thread.runs[index];
+  }
+
+  refreshThread(thread) {
+    const unknown = thread.runs.find((run) => this.unresolved(run));
+    const queued = thread.runs.filter((run) => run.status === 'queued');
+    const active = thread.runs.find((run) => ['running', 'verifying'].includes(run.status));
+    const pending = thread.runs.find((run) => run.status === 'needs_input');
+    if (unknown) {
+      thread.status = 'unknown';
+      thread.summary = queued.length ? '原任务结果尚未确认；补充已保存，核查后再继续' : unknown.error || '远端执行尚未确认，请先核查原任务';
+    } else if (active) {
+      thread.status = active.status;
+      if (queued.length) thread.summary = '补充已保存，会在当前运行结束后接着处理';
+    } else if (pending) {
+      thread.status = 'needs_input';
+      if (queued.length) thread.summary = '等待核对当前预览；补充已保存，之后接着处理';
+    } else if (queued.length) {
+      thread.status = 'queued';
+      thread.summary = queued.length > 1 || thread.runs.length > 1 ? '补充已保存，会按顺序接着处理' : '等待开始';
+    } else if (thread.runs.length) thread.status = thread.runs.at(-1).status;
+  }
+
+  createThread(input) {
+    const thread = {
+      id: id('thr'), title: input.text.split('\n')[0].slice(0, 60) || '整理资料',
+      status: 'queued', summary: '等待开始', createdAt: now(), updatedAt: now(),
+      messages: [], runs: [], artifacts: [], decisions: [], events: [], memoryIds: input.memoryIds || [],
+    };
+    this.appendRun(thread, input);
+    return this.put('thread', thread);
+  }
+
+  appendRun(thread, input) {
+    if (thread.runs.some((run) => this.unresolved(run) || run.requiresReconciliation)) {
+      throw new APIError(409, 'unknown_execution', '原任务执行结果尚未确认，请先核查，补充内容不会重新提交该操作');
+    }
+    const pending = thread.runs.filter((run) => run.status === 'needs_input');
+    if (!input.reuseMessageId) for (const previous of pending) {
+      previous.status = 'cancelled'; previous.finishedAt = now(); previous.cancellationReason = '用户补充了要求，旧预览已失效';
+      for (const decision of thread.decisions.filter((item) => item.runId === previous.id && item.state === 'pending')) {
+        decision.state = 'cancelled'; decision.version += 1; decision.cancellationReason = previous.cancellationReason;
+      }
+      this.event(thread, 'cancelled', previous.cancellationReason, { runId: previous.id });
+    }
+    const message = input.reuseMessageId ? thread.messages.find((item) => item.id === input.reuseMessageId) : {
+      id: id('msg'), role: 'user', text: input.text, createdAt: now(),
+      attachments: (input.attachments || []).map((item) => ({ id: id('att'), name: item.name, text: item.text, size: Buffer.byteLength(item.text) })),
+    };
+    if (!input.reuseMessageId) thread.messages.push(message);
+    const run = { id: id('run'), status: 'queued', mode: input.mode || 'codex', connectionId: input.connectionId || null,
+      messageId: message.id, memoryIds: input.memoryIds || thread.memoryIds || [], createdAt: now(),
+      action: input.action || null, phase: 'prepare', deliveryState: 'not_sent', actionState: 'not_started', verificationState: 'not_started' };
+    thread.runs.push(run);
+    thread.status = 'queued'; thread.summary = '等待开始'; thread.updatedAt = now();
+    this.event(thread, 'queued', run.mode === 'local' ? '已排队：本地整理，无需模型' : '任务已排队', { runId: run.id });
+    this.refreshThread(thread);
+    return run;
+  }
+
+  saveArtifact(threadId, runId, title, body, source) {
+    body = this.vault.redactString(body);
+    const artifact = { id: id('art'), threadId, runId, title, mimeType: 'text/markdown', size: Buffer.byteLength(body),
+      sha256: digest(body), createdAt: now(), source, body };
+    this.put('artifact', artifact);
+    const readback = this.require('artifact', artifact.id);
+    if (digest(readback.body) !== artifact.sha256) throw new Error('Artifact readback mismatch');
+    artifact.verifiedAt = now();
+    this.put('artifact', artifact);
+    const { body: _body, ...metadata } = artifact;
+    return metadata;
+  }
+
+  recover() {
+    for (const thread of this.list('thread')) {
+      let changed = false;
+      for (const run of thread.runs) {
+        if (!['running', 'verifying'].includes(run.status)) continue;
+        run.status = run.mode === 'local' ? 'blocked' : 'unknown';
+        run.error = run.mode === 'local' ? '服务重启中断了本地整理，可重试' : '服务重启时任务尚未确认结果；先核查，避免重复执行';
+        run.finishedAt = now();
+        if (run.deliveryState === 'sending') run.deliveryState = 'unknown';
+        if (run.actionState === 'running') run.actionState = 'unknown';
+        thread.status = run.status; thread.summary = run.error;
+        const decision = thread.decisions.find((item) => item.runId === run.id && item.state === 'decided');
+        if (decision) {
+          decision.deliveryState = run.deliveryState;
+          decision.actionState = run.actionState;
+          decision.verificationState = 'unknown';
+        }
+        this.event(thread, 'recovery', run.error, { runId: run.id });
+        changed = true;
+      }
+      if (changed) { this.refreshThread(thread); thread.updatedAt = now(); this.put('thread', thread); }
+    }
+  }
+
+  close() {
+    if (!this.db) return;
+    this.vault?.close();
+    this.db.close(); this.db = null;
+    this.lockDb.close(); this.lockDb = null;
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "checks": [
+    "actual model chat citation opens saved source",
+    "actual model report citation opens nested source",
+    "closing source returns to report",
+    "global shortcut leaves focused report in context",
+    "actual report fits 390px",
+    "actual saved result thr_d4ca285f-7abd-4a2b-a993-54e0faf877c5 matches download hash",
+    "actual saved result thr_5255c64f-3a30-42b3-b4bb-f35ed3753459 matches download hash",
+    "actual saved result thr_b9483931-2b05-4c5a-9e67-fc8c7d5016a5 matches download hash",
+    "no browser page errors"
+  ],
+  "hashes": [
+    {
+      "threadId": "thr_d4ca285f-7abd-4a2b-a993-54e0faf877c5",
+      "artifactId": "art_4119b581-2489-4aa5-822f-4e6846ef40cf",
+      "size": 1871,
+      "sha256": "ad1427b5c1ce2c487e973bd27e13602a279fde770208e76255ad966a0b58691b"
+    },
+    {
+      "threadId": "thr_5255c64f-3a30-42b3-b4bb-f35ed3753459",
+      "artifactId": "art_fd6815fa-f636-4156-8338-a34f26141418",
+      "size": 1627,
+      "sha256": "c835c58c7aade99f0984f2789e854cf716460a3acb2a199dd8363aaf81e67cc5"
+    },
+    {
+      "threadId": "thr_b9483931-2b05-4c5a-9e67-fc8c7d5016a5",
+      "artifactId": "art_3cf402ff-fd6f-442a-b272-5c9d7b32696e",
+      "size": 400,
+      "sha256": "b11084069f1e62ff172a8d93ff09fb5de4199d7815484846c597694b426502b4"
+    }
+  ],
+  "errors": [],
+  "syntheticInput": true,
+  "realExecutors": [
+    "Codex CLI",
+    "public DeepWiki MCP"
+  ]
+}

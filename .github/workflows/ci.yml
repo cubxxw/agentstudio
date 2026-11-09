@@ -46,5 +46,29 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @agentstudio/core build
       - run: pnpm -r --if-present typecheck
+      - run: pnpm --filter @agentstudio/personal build
       - run: pnpm run test:dev
       - run: pnpm -r --if-present test
+      - name: Install browser for personal workspace acceptance
+        run: pnpm --filter @agentstudio/desktop exec playwright install --with-deps chromium
+      - name: Check the complete personal workspace journey
+        shell: bash
+        run: |
+          node dev/personal-qa.mjs > "$RUNNER_TEMP/personal-qa.log" 2>&1 &
+          personal_qa_pid=$!
+          trap 'kill "$personal_qa_pid" 2>/dev/null || true' EXIT
+          node --input-type=module -e '
+            for (let attempt = 0; attempt < 100; attempt++) {
+              try { if ((await fetch("http://127.0.0.1:18745/api/health")).ok) process.exit(0); } catch {}
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            process.exit(1);
+          '
+          node dev/personal-browser.mjs
+          node dev/personal-browser.mjs edges
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: personal-browser-evidence
+          path: output/playwright/personal/
+          if-no-files-found: ignore

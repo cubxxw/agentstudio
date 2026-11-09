@@ -1,5 +1,23 @@
 # Clients: screens, behaviour and test ids
 
+## Personal conversation workspace
+
+`apps/personal` is an additive single-user runtime; see [setup](personal/README.md).
+The retained desktop/mobile IDs below remain unchanged.
+
+| Element | `data-testid` |
+|---|---|
+| App / new / sample | `personal-app`, `personal-new`, `personal-sample` |
+| Search / attention / list / row | `personal-search`, `personal-attention-filter`, `personal-thread-list`, `personal-thread-row` (`data-thread-id`) |
+| Composer / text / send / file / mode | `personal-composer`, `personal-composer-input`, `personal-composer-send`, `personal-attachment-input`, `personal-mode-menu` |
+| Timeline / message / state / retry | `personal-timeline`, `personal-message`, `personal-current-state`, `personal-retry` |
+| Decision / approve / reject | `personal-decision`, `personal-decision-approve`, `personal-decision-reject` |
+| Artifact / results / reader | `personal-artifact`, `personal-open-result`, `personal-reader` |
+| Details / history | `personal-details`, `personal-execution-details` |
+| Preferences / close | `personal-settings`, `personal-modal-close` |
+| Connection / fields / save | `personal-add-connection`, `personal-connection-name`, `personal-connection-type`, `personal-connection-url`, `personal-connection-save` |
+| Memory / save | `personal-memory-input`, `personal-memory-save` |
+
 The desktop (Electron) and mobile (Expo) apps implement the same flows on top of `@agentstudio/core`. E2e tests select elements only by `data-testid`. On React Native the same strings go in `testID`, which react-native-web renders as `data-testid`. The `data-*` attributes below (`data-room-name`, `data-sender`, `data-own`, `data-step-type`, `data-network`, `data-state`) go in react-native-web's `dataSet` prop, so the mobile web build renders the same attributes as desktop (native ignores `dataSet`). The ids below are a contract: do not rename them.
 
 ## Startup and configuration

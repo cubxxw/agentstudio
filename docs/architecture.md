@@ -1,5 +1,10 @@
 # AgentStudio architecture (v0.1)
 
+> `apps/personal` adds a local, single-user conversation workspace with one Node/SQLite
+> process, without Matrix. See [runtime and boundaries](personal/README.md) and
+> [the design decision](personal/design.md). The architecture below describes the retained
+> Matrix/Electron/Expo path. Account data is not automatically imported or migrated.
+
 AgentStudio is an open-source inbox for your chats and your AI agents. Agents show up as contacts. When an agent needs a decision, it sends an approval card. You can forward any message, with its context, to an agent and get reply drafts back.
 
 v0.1 runs locally on macOS. Desktop (Electron) comes first, then mobile (Expo / React Native).
