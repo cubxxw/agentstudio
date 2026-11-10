@@ -29,7 +29,7 @@ const profile = await mkdtemp(join(output, "profile-"));
 const exportsDirectory = join(output, "exports");
 const env = {
   ...process.env,
-  AGENTSTUDIO_WORKSPACE: "personal",
+  AGENTSTUDIO_PI_BIN: '/agentstudio-synthetic-missing-pi', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude', AGENTSTUDIO_WORKSPACE: "personal",
   AGENTSTUDIO_USER_DATA_DIR: profile,
   AGENTSTUDIO_PERSONAL_EXPORT_DIR: exportsDirectory,
   AGENTSTUDIO_CODEX_BIN: join(profile, "missing-synthetic-codex-no-model-calls"),

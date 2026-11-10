@@ -184,6 +184,7 @@ export class PersonalStore {
     if (!input.reuseMessageId) thread.messages.push(message);
     const run = { id: id('run'), status: 'queued', mode: input.mode || 'codex', connectionId: input.connectionId || null,
       localAgentId: input.localAgentId || 'codex',
+      ...(input.executionSnapshot ? { executionSnapshot: structuredClone(input.executionSnapshot) } : {}),
       ...(input.contactId ? { contactId: input.contactId, contactSnapshot: input.contactSnapshot,
         participantSnapshot: input.participantSnapshot, conversationSnapshot: input.conversationSnapshot, visibleAfterMessageId: input.visibleAfterMessageId,
         responsePolicy: input.responsePolicy } : {}),

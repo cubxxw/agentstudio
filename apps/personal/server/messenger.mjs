@@ -1,7 +1,9 @@
+import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
 import { APIError, id, now } from './store.mjs';
 
 const SELF = 'self';
 const policies = ['mention', 'always', 'manual'];
+const icons = ['auto', 'spark', 'code', 'research', 'write', 'compass', 'brain', 'person'];
 const colors = ['blue', 'violet', 'teal', 'orange', 'rose'];
 const fail = (message, status = 400, code = 'bad_request') => { throw new APIError(status, code, message); };
 const text = (value, max, fallback = '') => {
@@ -10,7 +12,7 @@ const text = (value, max, fallback = '') => {
   return value.trim();
 };
 const identity = contact => ({ id: contact.id, kind: contact.kind, name: contact.name, handle: contact.handle,
-  description: contact.description, instructions: contact.instructions, color: contact.color, version: contact.version });
+  description: contact.description, instructions: contact.instructions, color: contact.color, icon: contact.icon || 'auto', avatarAgent: contact.binding?.type === 'local' ? contact.binding.localAgentId : null, version: contact.version });
 
 /** Personal, single-owner address book. Discovery updates capability facts, never a user's identity. */
 export class Messenger {
@@ -23,16 +25,16 @@ export class Messenger {
   sync(detected) {
     for (const agent of detected.agents) {
       const contactId = `agent_${agent.id}`, previous = this.store.get('contact', contactId);
-      this.store.put('contact', { id: contactId, kind: 'agent', name: agent.name, handle: agent.id,
+      this.putDiscovered({ id: contactId, kind: 'agent', name: agent.name, handle: agent.id,
         description: '这台 Mac 上的助手', instructions: '', color: agent.id === 'codex' ? 'blue' : 'violet',
         version: 1, createdAt: now(), ...previous, discovered: true, binding: { type: 'local', localAgentId: agent.id },
         availability: !agent.installed ? 'not_installed' : !agent.execution.supported ? 'unsupported' : agent.auth.status === 'configured' ? 'ready' : 'login_required',
-        availabilityReason: agent.execution.reason || '', providerName: agent.name });
+        profile: agent.profile || null, availabilityReason: agent.execution.reason || '', providerName: agent.name });
     }
     for (const connection of this.store.list('connection')) {
       const contactId = `connection_${connection.id}`, previous = this.store.get('contact', contactId);
       const handle = `remote-${connection.id.replace(/[^a-z0-9]/gi, '').slice(-12).toLowerCase()}`;
-      this.store.put('contact', { id: contactId, kind: 'agent', name: connection.name, handle,
+      this.putDiscovered({ id: contactId, kind: 'agent', name: connection.name, handle,
         description: connection.type === 'mcp' ? '已连接的工具助手' : '已连接的个人 Agent', instructions: '', color: 'teal',
         version: 1, createdAt: now(), ...previous, discovered: true,
         binding: { type: 'connection', connectionId: connection.id }, availability: 'ready', providerName: connection.name });
@@ -40,12 +42,17 @@ export class Messenger {
     return this.contacts();
   }
 
+  putDiscovered(value) { const previous = this.store.get('contact', value.id); if (JSON.stringify(previous) !== JSON.stringify(value)) this.store.put('contact', value); }
+
   publicContact(contact) {
     const binding = contact.binding;
     const base = binding?.type === 'local' ? this.store.get('contact', `agent_${binding.localAgentId}`) : null;
     const connection = binding?.type === 'connection' ? this.store.get('connection', binding.connectionId) : null;
-    return { ...contact, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
-      : binding?.type === 'local' ? { availability: base?.availability || 'not_installed', providerName: base?.providerName || binding.localAgentId }
+    let execution = null, configurationError = '';
+    const profile = base?.profile || (contact.discovered ? contact.profile : null);
+    if (contact.kind === 'agent' && binding?.type === 'local' && profile) { try { execution = resolveExecution(profile, contact.configuration || {}); } catch (error) { configurationError = error.message; } }
+    return { ...contact, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
+      : binding?.type === 'local' ? { availability: configurationError ? 'configuration_required' : base?.availability || 'not_installed', providerName: base?.providerName || binding.localAgentId }
         : { availability: connection ? 'ready' : 'disconnected', providerName: connection?.name || '连接已移除' }) };
   }
   contacts() { return this.store.list('contact').map(c => this.publicContact(c)).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')); }
@@ -73,9 +80,14 @@ export class Messenger {
     } else if (binding) fail('人类联系人不能绑定 Agent 后端');
     const color = body.color ?? previous?.color ?? 'blue';
     if (!colors.includes(color)) fail('请选择提供的头像颜色');
+    let configuration;
+    try { configuration = validateConfiguration(body.configuration ?? previous?.configuration ?? {}); } catch (error) { fail(error.message); }
+    if (kind === 'agent' && binding?.type === 'connection' && (configuration.modelMode !== 'follow' || configuration.thinking !== 'follow')) fail('这个连接由服务管理模型，不能使用本机 CLI 模型选项');
+    const icon = body.icon ?? previous?.icon ?? 'auto';
+    if (!icons.includes(icon)) fail('请选择支持的联系人图标');
     const contact = this.store.put('contact', { ...previous, id: contactId || id('contact'), kind, name, handle,
       description: text(body.description ?? previous?.description, 300), instructions: kind === 'agent' ? text(body.instructions ?? previous?.instructions, 3000) : '',
-      binding, color, version: (previous?.version || 0) + 1, createdAt: previous?.createdAt || now(), updatedAt: now() });
+      binding, color, icon, ...(kind === 'agent' ? { configuration } : {}), version: (previous?.version || 0) + 1, createdAt: previous?.createdAt || now(), updatedAt: now() });
     return this.publicContact(contact);
   }
 
@@ -138,7 +150,7 @@ export class Messenger {
     const inputs = targets.flatMap(contact => {
       const uncertain = thread.runs.some(run => run.contactId === contact.id && (this.store.unresolved(run) || run.requiresReconciliation));
       if (contact.availability !== 'ready' || uncertain) {
-        const reason = uncertain ? '原任务结果尚未核查' : '连接或登录暂不可用';
+        const reason = uncertain ? '原任务结果尚未核查' : contact.configurationError || contact.availabilityReason || '连接或登录暂不可用';
         if (thread.kind === 'direct' || mentions.has(contact.handle) || reply?.contactId === contact.id) fail(`${contact.name} 暂时不能回复：${reason}，请在联系人或原任务中处理`, 409, 'agent_unavailable');
         skippedContacts.push({ id: contact.id, name: contact.name, reason });
         return [];
@@ -146,7 +158,7 @@ export class Messenger {
       const binding = contact.binding;
       const input = validateInput({ ...body, mode: binding.type === 'local' ? 'codex' : 'connection',
         localAgentId: binding.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
-      return [{ ...input, contactId: contact.id, contactSnapshot: identity(contact),
+      return [{ ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: identity(contact),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
         conversationSnapshot: { kind: thread.kind, title: thread.title, version: thread.version },
         visibleAfterMessageId: thread.members.find(m => m.contactId === contact.id)?.visibleAfterMessageId || null,

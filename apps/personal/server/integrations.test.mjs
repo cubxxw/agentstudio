@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPersonalServer } from './index.mjs';
 
-const agents = ['codex', 'claude'].map(id => ({ id, name: id, installed: true, version: '1.2.3', auth: { status: 'configured' }, execution: { supported: true } }));
+const agents = ['codex', 'claude'].map(id => ({ id, name: id, installed: true, version: '1.2.3', auth: { status: 'configured' }, execution: { supported: true },
+  profile: { agentId: id, defaults: { provider: 'synthetic', model: 'synthetic-model', thinking: 'high' }, models: [], providers: ['synthetic'], thinkingLevels: ['high'], version: 'synthetic-profile' } }));
 async function fixture(t, options = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), 'agentstudio-integrations-'));
   const app = await createPersonalServer({ dataDir, port: 0, codexCommand: '/missing-get479-synthetic-cli',

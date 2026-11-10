@@ -8,12 +8,21 @@ import { executeLocalAgent } from './local-agents.mjs';
 
 const activeStates = ['running', 'verifying'];
 
-function messagesForRun(thread, run) {
+export function messagesForRun(thread, run) {
   const index = thread.messages.findIndex((message) => message.id === run.messageId);
   if (index < 0) throw new APIError(500, 'missing_run_message', '运行记录缺少原始输入，已停止执行');
   const start = run.visibleAfterMessageId ? thread.messages.findIndex(message => message.id === run.visibleAfterMessageId) + 1 : 0;
   if (run.visibleAfterMessageId && start === 0) throw new APIError(500, 'missing_visibility_boundary', '缺少成员的上下文边界，已停止执行');
-  return thread.messages.slice(start, index + 1).filter(message => !run.contactId || !message.recipientIds || message.recipientIds.includes(run.contactId));
+  const positions = new Map(thread.messages.map((message, i) => [message.id, i]));
+  const causes = new Map(thread.runs.map(item => [item.id, positions.get(item.messageId)]));
+  return thread.messages.map((message, physical) => {
+    const cause = message.role === 'assistant' ? causes.get(message.runId) : undefined;
+    return { message, physical, anchor: cause ?? physical, reply: cause !== undefined };
+  }).filter(({ message, physical, anchor, reply }) => anchor >= start && anchor <= index &&
+    (!reply || anchor < index || physical <= index) && message.runId !== run.id &&
+    (!run.contactId || !message.recipientIds || message.recipientIds.includes(run.contactId)))
+    .sort((a, b) => a.anchor - b.anchor || Number(a.reply) - Number(b.reply) || a.physical - b.physical)
+    .map(({ message }) => message);
 }
 
 export function localReport(thread, run) {
@@ -66,16 +75,17 @@ function terminate(child) {
   child.once('close', () => clearTimeout(timer));
 }
 
-function executeCodex(store, thread, run, options, signal, customPrompt) {
+function executeCodex(store, thread, run, options, signal, customPrompt, onProgress) {
   if (store.list('thread').some(item => item.runs.some(previous => previous.stopUnconfirmed && (previous.localAgentId || 'codex') === (run.localAgentId || 'codex')))) {
     throw new APIError(409, 'local_agent_stop_unconfirmed', '这个本机助手的停止状态尚未确认，请先核查原任务；没有再次启动执行');
   }
   const workspace = join(store.dataDir, 'workspaces', run.id);
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
-  if (run.localAgentId && run.localAgentId !== 'codex') {
+  if ((run.localAgentId && run.localAgentId !== 'codex') || run.executionSnapshot) {
     return (options.executeLocalAgent || executeLocalAgent)({ id: run.localAgentId,
       prompt: store.vault.redactString(customPrompt || codexPrompt(store, thread, run)),
-      workspace, signal, deps: options.localAgentDeps || {},
+      workspace, signal, executionSnapshot: run.executionSnapshot, onEvent: event => { if (event.type === 'progress') onProgress?.(event); },
+      deps: { commands: { codex: options.codexCommand || 'codex' }, ...(options.localAgentDeps || {}) },
     }).then(result => {
       if (signal.aborted) throw signal.reason || new Error('Cancelled');
       store.updateThread(thread.id, item => {
@@ -403,6 +413,16 @@ export class PersonalWorker {
     return thread;
   }
 
+  progress(threadId, runId, event) {
+    if (this.closed || this.current?.threadId !== threadId || this.current?.runId !== runId || this.controller?.signal.aborted) return;
+    const at = Date.now();
+    if (this.lastProgress?.runId === runId && at - this.lastProgress.at < 100 && this.lastProgress.phase === event.phase) return;
+    this.lastProgress = { runId, at, phase: event.phase };
+    this.change(threadId, runId, (_thread, run) => {
+      run.progress = { phase: event.phase, text: typeof event.text === 'string' ? this.store.vault.redactString(event.text).slice(0, 200000) : run.progress?.text || '', updatedAt: now() };
+    });
+  }
+
   async drain() {
     while (!this.closed) {
       const thread = this.store.list('thread').reverse().find((item) => this.store.nextQueuedRun(item));
@@ -411,7 +431,7 @@ export class PersonalWorker {
       this.controller = new AbortController(); this.current = { threadId: thread.id, runId: run.id };
       this.store.updateThread(thread.id, (item) => {
         const selected = item.runs.find((entry) => entry.id === run.id);
-        selected.status = 'running'; selected.startedAt = now();
+        selected.status = 'running'; selected.startedAt = now(); delete selected.progress;
         item.status = 'running'; item.summary = selected.phase === 'reconcile' ? '正在核查远端任务结果' : '正在处理';
         this.store.event(item, 'running', item.summary, { runId: run.id });
       });
@@ -482,7 +502,7 @@ export class PersonalWorker {
       return this.executeRemote(routed, routed.runs.find((item) => item.id === runId), signal);
     }
     this.change(threadId, runId, (_item, selected) => { selected.chosenExecutor = selected.mode === 'local' ? 'local' : (selected.localAgentId || 'codex'); selected.routingReason = selected.mode === 'local' ? '用户明确选择本地确定性整理' : `使用已选择的本机 ${selected.localAgentId === 'claude' ? 'Claude Code' : 'Codex'}`; });
-    const body = run.mode === 'local' ? localReport(thread, run) : await executeCodex(this.store, thread, run, this.options, signal);
+    const body = run.mode === 'local' ? localReport(thread, run) : await executeCodex(this.store, thread, run, this.options, signal, undefined, event => this.progress(threadId, runId, event));
     if (signal.aborted) return;
     this.finish(threadId, runId, body, run.mode === 'local' ? '本地整理报告' : '助手的结果', run.mode === 'local' ? 'local' : (run.localAgentId || 'codex'));
   }
@@ -497,7 +517,7 @@ export class PersonalWorker {
       thread.artifacts.push(artifact);
       thread.messages.push({ id: id('msg'), role: 'assistant', text: source === 'local' ? '本地统计与完整原文报告已保存并校验。可在成果中查看和下载 Markdown。' : body, createdAt: now(), runId, artifactId: artifact.id, attachments: [],
         ...(run.contactSnapshot ? { contactId: run.contactId, contactSnapshot: run.contactSnapshot, recipientIds: run.participantSnapshot.map(peer => peer.id) } : {}) });
-      run.status = outcome.status || 'completed'; run.finishedAt = now(); run.verificationState = outcome.verificationState || 'verified';
+      delete run.progress; run.status = outcome.status || 'completed'; run.finishedAt = now(); run.verificationState = outcome.verificationState || 'verified';
       run.requiresReconciliation = false;
       run.verification = { scope: 'local_artifact_readback', artifactId: artifact.id, sha256: artifact.sha256, verifiedAt: artifact.verifiedAt };
       thread.status = run.status; thread.summary = outcome.summary || (source === 'local' ? '本地整理完成，报告已保存并校验' : '结果已保存并校验；不代表外部操作已验收');

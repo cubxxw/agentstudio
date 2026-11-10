@@ -13,6 +13,8 @@ const parent = resolve(process.env.AGENTSTUDIO_MESSENGER_EVIDENCE_DIR || 'output
 await mkdir(parent, { recursive: true });
 const output = await mkdtemp(join(parent, native ? 'native-' : 'browser-'));
 const cli = join(output, 'synthetic-codex');
+const codexHome = join(output, 'synthetic-codex-home'); await mkdir(codexHome);
+await writeFile(join(codexHome, 'config.toml'), 'model = "synthetic-model"\nmodel_provider = "synthetic"\nmodel_reasoning_effort = "high"\n');
 await writeFile(cli, `#!${process.execPath}
 if(process.argv.includes('--version')){console.log('codex 0.0.1-synthetic');process.exit(0)}
 if(process.argv.includes('login')){console.error('Logged in');process.exit(0)}
@@ -51,14 +53,14 @@ const refresh = async () => { await page.getByTestId('im-refresh').click(); };
 const capture = async name => { await page.screenshot({ path: join(output, `${name}.png`) }); };
 try {
   if (native) {
-    const env = { ...process.env, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, PERSONAL_BUILD_REF: 'synthetic-messenger-acceptance' };
+    const env = { ...process.env, CODEX_HOME: codexHome, AGENTSTUDIO_PI_BIN: '/agentstudio-synthetic-missing-pi', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, PERSONAL_BUILD_REF: 'synthetic-messenger-acceptance' };
     for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
     const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
     application = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentStudio') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
     page = await application.firstWindow(); context = page.context();
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1200, height: 780 }));
   } else {
-    server = await createPersonalServer({ dataDir: join(output, 'data'), port: 0, codexCommand: cli, staticDir: resolve('apps/personal/dist') });
+    server = await createPersonalServer({ dataDir: join(output, 'data'), port: 0, codexCommand: cli, localAgentDeps: { env: { ...process.env, CODEX_HOME: codexHome }, commands: { pi: '/agentstudio-synthetic-missing-pi', claude: '/agentstudio-synthetic-missing-claude' } }, staticDir: resolve('apps/personal/dist') });
     await server.listen();
     browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { channel: 'chrome' } : {}) });
     context = await browser.newContext({ viewport: { width: 1320, height: 860 } }); page = await context.newPage();

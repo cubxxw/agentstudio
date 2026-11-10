@@ -18,7 +18,7 @@ flowchart LR
 | --- | --- |
 | Renderer | `out/renderer/personal/index.html`, separate `out/preload/personal.js`, `window.agentStudioPersonal`; production CSP has `connect-src 'none'`, so API HTTP stays outside the renderer. |
 | Main | Accepts fixed JSON routes only from its trusted top-level personal document; native save dialog writes artifact bytes and verifies their hash. It rejects legacy session/connector IPC in personal mode. |
-| Utility | `out/main/personal/worker.mjs` plus seven copied backend ESM files; Electron-bundled Node/SQLite, one workspace, port 0, owner/workspace handshake. It never attaches to an existing port 18740 service. |
+| Utility | `out/main/personal/worker.mjs` plus eight copied backend ESM files; Electron-bundled Node/SQLite, one workspace, port 0, owner/workspace handshake. It never attaches to an existing port 18740 service. |
 | Data | `app.getPath('userData')/personal`, normally `~/Library/Application Support/AgentStudio/personal`; `AGENTSTUDIO_PERSONAL_DATA_DIR` selects an explicit directory. A separate SQLite lock rejects a second worker. No automatic import from Matrix, `.local/personal` or browser accounts. |
 
 Closing the Mac window hides it while the utility continues. Quitting closes only the owned utility; recovery resumes queued work but preserves uncertain remote effects for reconciliation. One unexpected crash restart is bounded; requests are not automatically resubmitted. Concurrent explicit restarts coalesce, and a later shutdown supersedes an older restart. Forced PID termination requires the same captured and current utility identity. Source provenance records Git HEAD with `-dirty` when applicable.

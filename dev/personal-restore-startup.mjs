@@ -26,7 +26,7 @@ await new Promise(done => fixture.listen(0, '127.0.0.1', done));
 const origin = `http://127.0.0.1:${fixture.address().port}`;
 const lease = createServer(); await new Promise(done => lease.listen(0, '127.0.0.1', done));
 const chosenPort = lease.address().port; await new Promise(done => lease.close(done));
-const env = { ...process.env, AGENTSTUDIO_USER_DATA_DIR: profile, AGENTSTUDIO_WORKSPACE: 'personal',
+const env = { ...process.env, AGENTSTUDIO_USER_DATA_DIR: profile, AGENTSTUDIO_PI_BIN: '/agentstudio-synthetic-missing-pi', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude', AGENTSTUDIO_WORKSPACE: 'personal',
   AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_MUSE_URL: `${origin}/muse/`, AGENTSTUDIO_CODEX_BIN: join(output, 'missing-no-model'),
   AGENTSTUDIO_CONNECTOR_PORT: '0', NO_PROXY: [process.env.NO_PROXY, '127.0.0.1', 'localhost'].filter(Boolean).join(',') };
 for (const name of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[name];

@@ -15,6 +15,9 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | New conversation / group / contact | `im-welcome-start`, `im-new-group`, `im-new-contact`, `im-start-<contactId>` |
 | Contact profile / start / edit | `im-contact-detail`, `im-start-chat`, `im-edit-contact` |
 | Contact editor / fields | `im-contact-editor`, `im-kind-agent`, `im-kind-human`, `im-contact-name`, `im-contact-handle`, `im-contact-description`, `im-contact-backend`, `im-contact-instructions`, `im-contact-save` |
+| Detected profile / model / thinking | `im-agent-options`, `im-detected-model`, `im-profile-refresh`, `im-model-options-toggle`, `im-model-policy`, `im-model-select`, `im-model-provider`, `im-model-name`, `im-model-thinking` |
+| Explicit Pi identity / avatar choices | `im-extract-identity`, `im-avatar-icon-<icon>` |
+| Live reply slot / partial / precise stop | `im-response-<runId>`, `im-streaming-message`, `im-run-stop-<runId>` |
 | Group editor / name / members / policy | `im-group-editor`, `im-group-name`, `im-group-search`, `im-member-<contactId>`, `im-policy-<contactId>`, `im-group-save` |
 | Conversation / information / create group | `im-main`, `im-chat-info`, `im-info`, `im-promote-group`, `im-back` |
 | Messages / reply / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-reply-message`, `im-run-status` |
