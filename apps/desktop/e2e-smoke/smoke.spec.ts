@@ -23,7 +23,7 @@ async function launch(): Promise<void> {
   delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({
     args: [APP_DIR],
-    env: { ...env, AGENTSTUDIO_USER_DATA_DIR: profileDir, AGENTSTUDIO_SERVER_URL: SERVER, AGENTSTUDIO_MOCK_KEYCHAIN: "1" },
+    env: { ...env, AGENTSTUDIO_WORKSPACE: "matrix", AGENTSTUDIO_USER_DATA_DIR: profileDir, AGENTSTUDIO_SERVER_URL: SERVER, AGENTSTUDIO_MOCK_KEYCHAIN: "1" },
   });
   page = await app.firstWindow();
   page.on("pageerror", (e) => console.log("[renderer error]", e.message));

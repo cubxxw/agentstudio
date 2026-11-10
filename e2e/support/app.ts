@@ -50,6 +50,7 @@ async function launchDesktop(profile: string, extraEnv: Record<string, string> =
     args: [DESKTOP_APP_DIR],
     env: {
       ...env,
+      AGENTSTUDIO_WORKSPACE: "matrix",
       AGENTSTUDIO_USER_DATA_DIR: profile,
       AGENTSTUDIO_SERVER_URL: SERVER_URL,
       AGENTSTUDIO_MOCK_KEYCHAIN: "1",

@@ -1,9 +1,33 @@
-# AgentStudio architecture (v0.1)
+# AgentStudio architecture
 
-> `apps/personal` adds a local, single-user conversation workspace with one Node/SQLite
-> process, without Matrix. See [runtime and boundaries](personal/README.md) and
-> [the design decision](personal/design.md). The architecture below describes the retained
-> Matrix/Electron/Expo path. Account data is not automatically imported or migrated.
+## Default macOS personal workspace
+
+The existing Electron app opens the personal workspace by default. It retains its native `hiddenInset` window, traffic lights and Mac menus. One thread owns messages, sequential runs, versioned decisions and immutable Markdown artifacts. The default path needs no Matrix, Go, Postgres or bridge. See [setup and boundaries](personal/README.md), [desktop lifecycle](../apps/desktop/README.md) and [the decision record](personal/design.md).
+
+```mermaid
+flowchart LR
+  R[Bundled personal file renderer] -->|dedicated preload, fixed IPC| M[Electron main]
+  M -->|allowlisted requests, owned random loopback port| U[Owned utilityProcess]
+  U --> DB[(Personal SQLite WAL and file vault)]
+  U --> CLI[Existing configured Codex CLI]
+  U -->|exact preview and approval| REM[A2A or MCP endpoint]
+  U -->|change notifications| M
+```
+
+| Component | Ownership and boundary |
+| --- | --- |
+| Renderer | `out/renderer/personal/index.html`, separate `out/preload/personal.js`, `window.agentStudioPersonal`; production CSP has `connect-src 'none'`, so API HTTP stays outside the renderer. |
+| Main | Accepts fixed JSON routes only from its trusted top-level personal document; native save dialog writes artifact bytes and verifies their hash. It rejects legacy session/connector IPC in personal mode. |
+| Utility | `out/main/personal/worker.mjs` plus four unchanged copied backend ESM files; Electron-bundled Node/SQLite, one workspace, port 0, owner/workspace handshake. It never attaches to an existing port 18740 service. |
+| Data | `app.getPath('userData')/personal`, normally `~/Library/Application Support/AgentStudio/personal`; `AGENTSTUDIO_PERSONAL_DATA_DIR` selects an explicit directory. A separate SQLite lock rejects a second worker. No automatic import from Matrix, `.local/personal` or browser accounts. |
+
+Closing the Mac window hides it while the utility continues. Quitting closes only the owned utility; recovery resumes queued work but preserves uncertain remote effects for reconciliation. One unexpected crash restart is bounded; requests are not automatically resubmitted. Concurrent explicit restarts coalesce, and a later shutdown supersedes an older restart. Forced PID termination requires the same captured and current utility identity. Source provenance records Git HEAD with `-dirty` when applicable.
+
+The shared `apps/personal` UI and backend can also run as an auxiliary web service on 18740 (Vite development UI 18741), with separate `.local/personal` data. This is not the native default. Personal Bearer credentials use an AES-256-GCM file vault, not Keychain; prompts and CLI read-only shell policy do not enforce all configured plugin permissions. Account and packaging acceptance remain separately scoped in the [macOS ledger](personal/macos-acceptance.md).
+
+## Retained Matrix architecture (v0.1)
+
+Set `AGENTSTUDIO_WORKSPACE=matrix` to select the original renderer, preload, sessions and connectors. The remaining sections describe that path and keep its contracts intact.
 
 AgentStudio is an open-source inbox for your chats and your AI agents. Agents show up as contacts. When an agent needs a decision, it sends an approval card. You can forward any message, with its context, to an agent and get reply drafts back.
 
@@ -85,8 +109,12 @@ server/                   Go module github.com/DolphinMiner/agentstudio/server
   internal/adapters/      a2a/ and acp/ backends, served by cmd/agentstudio-agent-adapters
   internal/concierge/
 packages/core/            TypeScript, no DOM or React Native imports: API client, session, Matrix client wrapper, event schemas, inbox model, ask builder
-apps/desktop/             Electron + electron-vite + React renderer (bundled locally, never loads remote web code)
+apps/desktop/             Electron + electron-vite; personal default and retained Matrix renderers, bundled locally
+  src/main/personal-host.ts  owns the personal utility, fixed HTTP forwarding and native artifact saves
+  src/main/worker.mjs     utility bootstrap; build copies the backend beside it
+  src/preload/personal.ts dedicated personal IPC bridge
   src/main/connectors/    on-device connectors (Grok Bot, Muse, Dots) and their protocol host
+apps/personal/            shared personal UI, native adapter, Node/SQLite engine and file vault
 apps/mobile/              Expo (React Native) app using @agentstudio/core
 e2e/                      Playwright: desktop (Electron) and mobile (Expo web) specs; fakes/ for the connectors
 dev/                      local stack: stack manager (stack.mjs), config templates

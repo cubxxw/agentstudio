@@ -2,9 +2,11 @@
 
 <h1 align="center">AgentStudio</h1>
 
-**New: a conversation-first personal workspace.** Start from a sentence and keep progress,
-decisions and verified Markdown results together. Run `pnpm build:personal && pnpm start:personal`,
-then open `http://127.0.0.1:18740`. See [setup and boundaries](docs/personal/README.md).
+**The Mac app now opens the personal workspace by default.** Start from a sentence and keep
+progress, decisions and readable Markdown results in the existing macOS window. Its owned
+Electron utility runs SQLite locally; no Matrix stack is needed for this mode. See
+[Mac setup and boundaries](docs/personal/README.md). The standalone web interface remains a
+development and QA companion.
 
 **English** · [简体中文](README.zh-CN.md)
 
@@ -15,9 +17,9 @@ then open `http://127.0.0.1:18740`. See [setup and boundaries](docs/personal/REA
 > [!WARNING]
 > **FOR PERSONAL USE ONLY.** AgentStudio is a personal tool for learning and research: run it on your own Mac, with your own accounts, to reach your own agents. **NOT FOR COMMERCIAL USE**, and not for running a service for other people. Use it at your own risk. Read the [Disclaimer](#disclaimer) first.
 
-> **Alpha.** macOS only, and you run it from source with a local development stack. Expect rough edges and breaking changes.
+> **Alpha.** macOS source builds. Local ad-hoc packaging is available as a build command; packaged-app acceptance, Developer ID signing and notarization are separate checks. Expect rough edges and breaking changes.
 
-An open-source inbox for your chats and your AI agents. Agents show up as contacts next to the people you talk to. When an agent needs a decision, it sends you an approval card. You can hand any conversation to an agent and get reply drafts back.
+The default workspace keeps one conversation per task, background execution, exact approval previews and saved results together. The original chats-and-agents inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`; it uses its existing accounts and services without an automatic migration.
 
 Status: early development (v0.1). macOS first: the desktop app (Electron) comes first, then mobile (Expo). Nothing here is hosted yet; everything runs on your Mac.
 
@@ -29,7 +31,16 @@ Status: early development (v0.1). macOS first: the desktop app (Electron) comes 
   <sub>A 75-second tour. <a href="docs/media/agentstudio-demo.mp4">Watch it in 4K (MP4)</a>.</sub>
 </p>
 
+The Matrix gallery and video document the retained inbox. The default personal workspace has its own [guide and acceptance ledger](docs/personal/README.md).
+
 ## What it does
+
+- **Personal conversations:** write a request, attach text, and return to its progress, decisions and results.
+- **Local execution:** use the configured Codex CLI or explicitly choose deterministic local organization. Missing CLI or provider limits remain visible blockers.
+- **Approved connections:** prepare an A2A submission or exact MCP call, then approve its target and payload. A successful tool response is distinct from independent verification of an external effect.
+- **Native persistence:** closing the Mac window hides it while its utility continues. Quit shuts down that owned utility; saved queues and uncertain results are recovered on the next launch.
+
+### Retained Matrix inbox
 
 - **One inbox** for chats and agents. People are circles, agents are squircles, and each one carries a small mark for the network or service it lives on.
 - **Approvals.** An agent asks, you decide in one tap, from the chat or from the Approvals screen.
@@ -51,12 +62,13 @@ Status: early development (v0.1). macOS first: the desktop app (Electron) comes 
 
 | Part | Where | What |
 |---|---|---|
-| Desktop app | `apps/desktop` | Electron + React. Also hosts the connectors for Grok Bot, Muse, Dots and Cue. |
+| Desktop app | `apps/desktop` | Default native personal renderer, separate preload and owned utility. Matrix mode retains its original renderer and connectors. |
+| Personal workspace | `apps/personal` | Shared conversation/reading UI and Node/SQLite task engine; also provides the auxiliary web entry. |
 | Mobile app | `apps/mobile` | Expo / React Native. Tested on the web target until native builds land. |
-| Client core | `packages/core` | Matrix client, inbox, approvals, tasks; shared by both apps. |
+| Client core | `packages/core` | Matrix client, inbox, approvals, tasks; shared by Matrix desktop and mobile. |
 | Brand assets | `packages/brand` | Official images of the services AgentStudio connects to, with sources. |
 | Server | `server` (Go) | `agentstudio-api`, the `agentstudio-agents` and `demo` bridges (mautrix bridgev2), protocol adapters, the reference agent. |
-| Homeserver | Synapse | Matrix underneath every chat, federation off. |
+| Homeserver | Synapse | Underlies the retained Matrix route, federation off. |
 | Dev stack | `dev/stack.mjs` | Starts everything locally as native processes, no Docker. |
 | End-to-end tests | `e2e` | Playwright against the Electron app and the mobile web build. |
 
@@ -64,12 +76,27 @@ More in [docs/architecture.md](docs/architecture.md). Other docs: [API](docs/api
 
 ## Quick start (macOS)
 
-Requirements: Go 1.26+, Node 22+, pnpm, Homebrew PostgreSQL 18, uv.
+For the default Mac app: Node 22.13+ and pnpm. Model tasks also need an installed and configured Codex CLI; the built-in local sample does not call a model.
+
+```bash
+pnpm install --filter '@agentstudio/desktop...' --frozen-lockfile
+pnpm --filter @agentstudio/core build
+pnpm --filter @agentstudio/desktop build
+pnpm --filter @agentstudio/desktop start
+```
+
+The built renderer loads from local files. The app starts its own utility on a random loopback port and stores personal data in `~/Library/Application Support/AgentStudio/personal`. It does not attach to an existing web server or import the old Matrix session. `pnpm dev:desktop` is the native development entry.
+
+`pnpm package:mac` targets a local ad-hoc `.app` under `apps/desktop/dist`; the command prints the bundle path and writes a build receipt. The local bundle has passed native launch, saved-result readback and UI checks; see [macOS acceptance](docs/personal/macos-acceptance.md). It is not a notarized release or private-account acceptance. See [desktop packaging](apps/desktop/README.md#local-macos-packaging).
+
+### Retained Matrix route
+
+This route additionally needs Go 1.26+, Homebrew PostgreSQL 18 and uv:
 
 ```bash
 pnpm install
 pnpm dev:up        # Postgres, Synapse, API, bridges, reference agents (first run: about 30 s)
-pnpm dev:desktop   # Electron app (dev mode) against the local stack
+AGENTSTUDIO_WORKSPACE=matrix pnpm dev:desktop
 pnpm dev:mobile    # mobile app on the Expo web target: http://localhost:18300
 ```
 
@@ -88,13 +115,13 @@ pnpm dev:down            # stop everything
 pnpm dev:reset           # stop and delete all local data in .local/
 ```
 
-All runtime state (databases, Synapse, logs) lives in `.local/`, which is git-ignored.
+The legacy stack keeps its databases, Synapse and logs in the ignored `.local/` directory. The auxiliary personal web server uses `.local/personal`; the default Mac app uses its own profile directory instead.
 
 ## Tests
 
 ```bash
 pnpm test        # unit tests: stack manager, Go, TypeScript
-pnpm test:e2e    # Playwright: Electron app + mobile web, against the local stack
+AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e    # retained Matrix Electron + mobile web against the local stack
 ```
 
 If the Electron binary is missing after `pnpm install` (pnpm can skip its postinstall), run
@@ -102,6 +129,10 @@ If the Electron binary is missing after `pnpm install` (pnpm can skip its postin
 `pnpm --filter @agentstudio/e2e exec playwright install chromium`.
 
 ## Connecting agents
+
+In the default personal workspace, add your own A2A or MCP endpoint in preferences, optionally with a Bearer token. Each external submission still needs its exact approval. Personal Bearer credentials use an AES-256-GCM file vault, **not Keychain**; the local OS account and protected backups remain the boundary. OAuth, arbitrary authentication headers and general account-identity proof are not implemented. CLI instructions and a separate working directory are not a mandatory sandbox for every configured tool. Full limits are in [the personal guide](docs/personal/README.md#实际控制边界).
+
+The following connector table belongs to `AGENTSTUDIO_WORKSPACE=matrix`:
 
 | Agent | How |
 |---|---|
@@ -120,7 +151,7 @@ To debug a connector, start the app with `AGENTSTUDIO_CONNECTOR_TRACE=1` (and `A
 **⚖️ FOR PERSONAL LEARNING AND RESEARCH USE ONLY.** Read this before you use AgentStudio, and in particular its connectors for Grok Bot, Muse, ChatGPT Dots and Cue.
 
 - **Personal use only.** Use AgentStudio on your own Mac, with your own accounts, to reach your own agents. Don't use it commercially, to run a service for others, to automate at scale, or with accounts that aren't yours.
-- **Local only.** Everything runs on your Mac. Your sign-ins stay there, encrypted with the system keychain; AgentStudio uploads nothing to any server of ours (there is none).
+- **Local app and storage.** There is no hosted AgentStudio server. Selected context is sent to your configured model provider or an approved remote agent/tool. Legacy sign-ins use Electron safeStorage; personal Bearer credentials use the documented local file vault, not Keychain.
 - **Not affiliated.** AgentStudio isn't affiliated with or endorsed by xAI / SpaceX AI, Cursor (Anysphere), Meta, OpenAI, Manus, Nous Research or OpenClaw. Their names and logos are trademarks of their owners and appear only to say which service a connector reaches.
 - **Unofficial connectors.** Except for Cue's messaging (Manus's documented API), the connectors work the way each service's own app or website does. That may be against a service's terms, and it can stop working at any time.
 - **Your responsibility.** You are responsible for following each service's terms and the laws where you live. If you aren't sure, don't connect it.

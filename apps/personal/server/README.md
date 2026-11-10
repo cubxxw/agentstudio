@@ -1,6 +1,8 @@
 # Personal workspace server
 
-This Node 22.13+ service runs the personal workspace without Matrix, Postgres, Docker, or additional server dependencies. It binds to loopback and serves `apps/personal/dist` plus `/api`. Run from the repository root:
+This engine runs the personal workspace without Matrix, Postgres, Docker, or additional server dependencies. The default entry is the existing [macOS Electron app](../../desktop/README.md): its owned utility runs the four copied backend ESM files with Electron's bundled Node/SQLite, `serveStatic:false`, a random loopback port and data in `app.getPath('userData')/personal`. The trusted file renderer calls a separate narrow preload/IPC bridge; it does not make API HTTP requests. Native startup does not attach to port 18740 or import old Matrix/web data.
+
+The same Node 22.13+ service can run independently for auxiliary web development and QA. It binds to loopback and serves `apps/personal/dist` plus `/api`. Run from the repository root:
 
 ```sh
 pnpm --filter @agentstudio/personal build
@@ -8,9 +10,9 @@ node apps/personal/server/index.mjs
 node --test apps/personal/server/*.test.mjs
 ```
 
-Default URL: `http://127.0.0.1:18740`. `PERSONAL_PORT` and `PERSONAL_DATA_DIR` override the port and `.local/personal` data directory. Development uses the personal package's `dev` command and a Vite proxy on port 18741.
+Standalone web default URL: `http://127.0.0.1:18740`. `PERSONAL_PORT` and `PERSONAL_DATA_DIR` override that service's port and `.local/personal` data directory. Development uses the personal package's `dev` command and a Vite proxy on port 18741. Native selection instead uses `AGENTSTUDIO_PERSONAL_DATA_DIR` or the Electron profile; web environment settings do not change its automatic port.
 
-`createPersonalServer({dataDir, port, host})` is exported from `index.mjs`; it returns `{server, store, worker, listen(), address(), close()}`. Test-only process arguments and observers can be supplied through `codexCommand`, `codexArgs`, and `onChange`.
+`createPersonalServer({dataDir, port, host, serveStatic})` is exported from `index.mjs`; it returns `{server, store, worker, listen(), address(), close()}`. Test-only process arguments and observers can be supplied through `codexCommand`, `codexArgs`, and `onChange`. Closing the native window hides it; quitting closes the owned utility. Startup restores queued work and retains unknown execution for reconciliation. Desktop crash recovery never blindly repeats a POST. Native lifecycle details and the fixed IPC allowlist are in the [desktop guide](../../desktop/README.md) and [API contract](../../../docs/api.md).
 
 ## Execution and routing
 
@@ -30,7 +32,7 @@ All JSON uses camelCase. Errors are `{error:{code,message}}`. Mutating task, mes
 
 | Route | Request / response |
 | --- | --- |
-| `GET /api/health` | Service health only |
+| `GET /api/health` | Service health and build reference/backend hashes; the desktop host adds bundled runtime versions and UI-entry provenance |
 | `GET /api/bootstrap` | `{threads,connections,memories,settings,runtime}` |
 | `GET /api/threads/:id` | Full thread with messages, runs, artifacts, decisions, and events |
 | `POST /api/threads` | `{text,clientId,mode?,connectionId?,attachments?:[{name,text}],memoryIds?:[],action?}` → full thread |

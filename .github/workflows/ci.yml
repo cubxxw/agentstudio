@@ -47,6 +47,7 @@ jobs:
       - run: pnpm --filter @agentstudio/core build
       - run: pnpm -r --if-present typecheck
       - run: pnpm --filter @agentstudio/personal build
+      - run: pnpm --filter @agentstudio/desktop build
       - run: pnpm run test:dev
       - run: pnpm -r --if-present test
       - name: Install browser for personal workspace acceptance

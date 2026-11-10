@@ -1,4 +1,4 @@
-async (page) => {
+async (page, until) => {
   const base = "http://127.0.0.1:18745";
   const testId = (id) => page.getByTestId(id);
   const checks = [];
@@ -15,13 +15,12 @@ async (page) => {
     return response.json();
   };
   const waitCompleted = async (id) =>
-    page.waitForFunction(
+    until(() => page.evaluate(
       async (key) =>
         (await (await fetch(`/api/threads/${key}`)).json()).status ===
         "completed",
       id,
-      { timeout: 30000, polling: 200 },
-    );
+    ));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(base);
   await testId("personal-settings").click();

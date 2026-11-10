@@ -1,4 +1,43 @@
-# AgentStudio REST API (v1)
+# AgentStudio API contracts
+
+## Default personal desktop IPC
+
+The Mac app's default personal renderer calls `window.agentStudioPersonal`, exposed only by its dedicated preload. The shared source of types is `apps/personal/src/desktop-contract.ts`; desktop re-exports it in `src/shared/personal-api.ts`. The built renderer is a trusted local file, has no API HTTP connection permission, and cannot use the retained Matrix session/connector bridge.
+
+```ts
+type DesktopCommand = "new" | "search" | "settings"
+type DesktopMethod = "GET" | "POST" | "DELETE"
+interface PersonalDesktopBridge {
+  readonly platform: string
+  readonly version: string
+  request(input: {path: string; method: DesktopMethod; body?: unknown}):
+    Promise<{status: number; body: unknown}>
+  onChanged(listener: () => void): () => void
+  onCommand(listener: (command: DesktopCommand) => void): () => void
+  saveArtifact(id: string): Promise<{
+    cancelled: boolean; fileName?: string; path?: string; sha256?: string
+  }>
+  restart(): Promise<void>
+}
+```
+
+`request` accepts only the following fixed paths; IDs are opaque, without URL syntax. Queries, arbitrary URLs/headers, file paths and shell commands are rejected. POST requires a JSON object of at most 2 MB; GET/DELETE accept no body.
+
+| Method | Paths |
+| --- | --- |
+| GET | `/api/health`, `/api/bootstrap`, `/api/connections`, `/api/memories`, `/api/threads/:id`, `/api/artifacts/:id`, `/api/connections/:id/tools` |
+| POST | `/api/threads`, `/api/connections`, `/api/memories`, `/api/threads/:id/messages`, `/api/threads/:id/retry`, `/api/threads/:id/reconcile`, `/api/threads/:id/cancel`, `/api/decisions/:id` |
+| DELETE | `/api/connections/:id`, `/api/memories/:id` |
+
+Main forwards to its own utility's random loopback port after validating the sender document and ownership handshake. There is no renderer route for SSE or artifact download: `onChanged` invalidates the UI snapshot, and `saveArtifact` uses a native dialog plus byte/hash readback. Runtime restart does not replay POST requests. `GET /api/health` includes the build reference, backend/UI hashes and desktop runtime versions.
+
+Personal JSON uses **camelCase**, independently of the Matrix `/v1` contract below. `POST /api/threads` and `POST /api/threads/:id/messages` accept `{text,clientId,mode?,connectionId?,attachments?,memoryIds?,action?}` and return the full thread. `clientId` identifies an immutable request: same route/key/body returns its accepted receipt, even if a selected memory or completed connection was later removed; changed content returns 409. New requests validate current dependencies. Decisions require `{choice,version,clientId}`. Followups are durable sequential runs with context ending at their own message ID. Unknown remote execution blocks replay and later runs until reconciled.
+
+Public connections expose `auth:{type:"none"|"bearer",configured,identityVerified:false}`. Approval identity is `{label,authentication,identityVerified:false}`; the label is user-entered, not account proof. A private credential/version binding prevents an old decision from changing identity. Tokens and private references are never public records or model inputs. Data belongs to the selected local personal workspace, without importing Matrix auth. See the [backend API, routing, vault and receipt contract](../apps/personal/server/README.md) for complete request shapes and verification scope. The auxiliary web service uses these `/api` endpoints directly with loopback checks; it is not the native renderer transport.
+
+## Retained Matrix REST API (v1)
+
+The remaining contract applies to `AGENTSTUDIO_WORKSPACE=matrix` and the Expo client.
 
 Base URL: `AGENTSTUDIO_SERVER_URL`, for example `http://127.0.0.1:18090`. All bodies are JSON. Timestamps are RFC 3339 UTC strings. IDs are opaque strings.
 

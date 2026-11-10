@@ -3,7 +3,7 @@
 AgentStudio is an open-source inbox for your chats and your AI agents (Apache-2.0). Read these first; they are the contracts:
 
 - `docs/architecture.md`: scope, processes, ports, layout
-- `docs/api.md`: REST API
+- `docs/api.md`: personal desktop IPC and REST APIs
 - `docs/agent-protocol.md`: how agents connect
 - `docs/matrix-events.md`: Matrix conventions, custom events, demo network
 - `docs/clients.md`: screens and the `data-testid` contract used by e2e
@@ -22,12 +22,16 @@ When code and these docs disagree, fix whichever one is wrong in the same change
 | `pnpm dev:down` | stop everything |
 | `pnpm dev:status` | show process health |
 | `pnpm dev:reset` | stop and wipe `.local/` |
-| `pnpm dev:desktop` | run the Electron app (electron-vite dev mode) against the local stack |
+| `pnpm dev:desktop` | run the Electron personal workspace by default; no Matrix stack required |
+| `AGENTSTUDIO_WORKSPACE=matrix pnpm dev:desktop` | run the retained Matrix inbox against the local stack |
+| `pnpm package:mac` | build a local ad-hoc Mac bundle; launch acceptance and notarized distribution are separate |
 | `pnpm dev:mobile` | run Expo (web) against the local stack on http://localhost:18300 |
 | `pnpm test` | unit tests: stack manager (`node --test dev/stack.test.mjs`), Go (`cd server && go test -tags nocrypto ./...`) and TS (vitest) |
-| `pnpm test:e2e` | e2e (Playwright projects `desktop` and `mobile-web`) against the local stack; starts it if needed and builds both apps. See `e2e/README.md` |
+| `AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e` | retained Matrix e2e (Playwright projects `desktop` and `mobile-web`) against the local stack; starts it if needed and builds both apps. See `e2e/README.md` |
 
-Runtime state, logs and generated secrets live in `.local/`, which is git-ignored:
+The default personal desktop utility owns `app.getPath('userData')/personal` (normally `~/Library/Application Support/AgentStudio/personal`), with an explicit `AGENTSTUDIO_PERSONAL_DATA_DIR` override. The renderer uses the separate `agentStudioPersonal` preload and fixed IPC, not API HTTP. It does not import legacy sessions or attach to a standalone web server. See `apps/desktop/README.md`.
+
+Legacy stack state, logs and generated secrets live in `.local/`, which is git-ignored:
 
 - logs: `.local/logs/<process>.log`
 - generated env: `.local/env`

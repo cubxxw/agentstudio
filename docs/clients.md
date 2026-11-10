@@ -2,23 +2,31 @@
 
 ## Personal conversation workspace
 
-`apps/personal` is an additive single-user runtime; see [setup](personal/README.md).
-The retained desktop/mobile IDs below remain unchanged.
+The Mac Electron app opens the personal workspace by default. Its renderer shares `apps/personal` UI, uses the dedicated `window.agentStudioPersonal` preload and fixed IPC, and leaves API HTTP to its owned utility. It does not read the old session or start legacy connectors. Personal data belongs to the Electron profile's `personal` directory; the auxiliary web build has separate `.local/personal` data. See [setup](personal/README.md) and [the IPC contract](api.md#default-personal-desktop-ipc).
+
+The existing native window and traffic lights remain. Closing hides it while work continues; Dock activation reopens it, and quit closes its utility. Native menu commands are New (`⌘N`), Search (`⌘K`) and Settings (`⌘,`). At narrow widths and true Electron zoom, the list opens as a drawer. A save action opens the native dialog, then reports the saved artifact's byte hash.
 
 | Element | `data-testid` |
 |---|---|
 | App / new / sample | `personal-app`, `personal-new`, `personal-sample` |
+| Native rail / all / attention / connections / settings | `personal-desktop-rail`, `personal-desktop-all`, `personal-desktop-attention`, `personal-desktop-connections`, `personal-desktop-settings` |
+| Drawer opener / sidebar / close | `personal-menu`, `personal-sidebar`, `personal-sidebar-close` |
 | Search / attention / list / row | `personal-search`, `personal-attention-filter`, `personal-thread-list`, `personal-thread-row` (`data-thread-id`) |
 | Composer / text / send / file / mode | `personal-composer`, `personal-composer-input`, `personal-composer-send`, `personal-attachment-input`, `personal-mode-menu` |
+| Executor choices | `personal-mode-codex`, `personal-mode-local`, `personal-mode-connection-<connectionId>` |
 | Timeline / message / state / retry | `personal-timeline`, `personal-message`, `personal-current-state`, `personal-retry` |
 | Decision / approve / reject | `personal-decision`, `personal-decision-approve`, `personal-decision-reject` |
 | Artifact / results / reader | `personal-artifact`, `personal-open-result`, `personal-reader` |
+| Reader save / font / save receipt | `personal-reader-download`, `personal-reader-font`, `personal-save-receipt` |
 | Details / history | `personal-details`, `personal-execution-details` |
-| Preferences / close | `personal-settings`, `personal-modal-close` |
+| Preferences / modal / close | `personal-settings`, `personal-modal`, `personal-modal-close` |
 | Connection / fields / save | `personal-add-connection`, `personal-connection-name`, `personal-connection-type`, `personal-connection-url`, `personal-connection-save` |
+| Optional Bearer disclosure / password field | `personal-connection-auth-toggle`, `personal-connection-token` |
 | Memory / save | `personal-memory-input`, `personal-memory-save` |
 
-The desktop (Electron) and mobile (Expo) apps implement the same flows on top of `@agentstudio/core`. E2e tests select elements only by `data-testid`. On React Native the same strings go in `testID`, which react-native-web renders as `data-testid`. The `data-*` attributes below (`data-room-name`, `data-sender`, `data-own`, `data-step-type`, `data-network`, `data-state`) go in react-native-web's `dataSet` prop, so the mobile web build renders the same attributes as desktop (native ignores `dataSet`). The ids below are a contract: do not rename them.
+## Retained Matrix clients
+
+`AGENTSTUDIO_WORKSPACE=matrix` selects the original desktop renderer and `window.agentStudioDesktop` preload. The IDs and contracts below remain unchanged. In this mode, desktop (Electron) and mobile (Expo) implement the same flows on top of `@agentstudio/core`. E2e tests select elements only by `data-testid`. On React Native the same strings go in `testID`, which react-native-web renders as `data-testid`. The `data-*` attributes below (`data-room-name`, `data-sender`, `data-own`, `data-step-type`, `data-network`, `data-state`) go in react-native-web's `dataSet` prop, so the mobile web build renders the same attributes as desktop (native ignores `dataSet`). The ids below are a contract: do not rename them. Run the cross-client stack suite with `AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e`; isolated desktop smoke also explicitly selects Matrix mode.
 
 ## Startup and configuration
 
