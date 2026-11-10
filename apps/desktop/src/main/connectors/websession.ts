@@ -79,7 +79,10 @@ export class WebSession {
     });
     win.webContents.on("did-finish-load", () => (this.broken = null));
     if (this.opts.networkTrace) traceNetwork(win.webContents, this.opts.networkTrace, this.opts.title);
-    await win.loadURL(this.opts.url).catch(() => {});
+    // Restoring a connector only owns its background window. Readiness and
+    // authentication are observed by the connector; slow images or a streaming
+    // response must not hold the entire personal workspace's startup promise.
+    void win.loadURL(this.opts.url).catch(() => {});
   }
 
   private closing = false;
