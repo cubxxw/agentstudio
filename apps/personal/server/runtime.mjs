@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { APIError, id, now } from './store.mjs';
+import { executeLocalAgent } from './local-agents.mjs';
 
 const activeStates = ['running', 'verifying'];
 
@@ -60,8 +61,29 @@ function terminate(child) {
 }
 
 function executeCodex(store, thread, run, options, signal, customPrompt) {
+  if (store.list('thread').some(item => item.runs.some(previous => previous.stopUnconfirmed && (previous.localAgentId || 'codex') === (run.localAgentId || 'codex')))) {
+    throw new APIError(409, 'local_agent_stop_unconfirmed', '这个本机助手的停止状态尚未确认，请先核查原任务；没有再次启动执行');
+  }
   const workspace = join(store.dataDir, 'workspaces', run.id);
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  if (run.localAgentId && run.localAgentId !== 'codex') {
+    return (options.executeLocalAgent || executeLocalAgent)({ id: run.localAgentId,
+      prompt: store.vault.redactString(customPrompt || codexPrompt(store, thread, run)),
+      workspace, signal, deps: options.localAgentDeps || {},
+    }).then(result => {
+      if (signal.aborted) throw signal.reason || new Error('Cancelled');
+      store.updateThread(thread.id, item => {
+        const selected = item.runs.find(entry => entry.id === run.id);
+        if (selected) selected.localAgentIdentity = result.identity;
+      });
+      return result.markdown;
+    }).catch(error => {
+      const interrupted = ['aborted', 'output_limit', 'timeout', 'stop_unconfirmed'].some(code => String(error.code).includes(code));
+      const failure = new APIError(503, interrupted ? 'codex_interrupted' : (error.code || 'local_agent_failed'), error.message || '本机助手未返回可确认的成果');
+      failure.stopUnconfirmed = error.code === 'stop_unconfirmed';
+      throw failure;
+    });
+  }
   const args = options.codexArgs || ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only', '-C', workspace, '-'];
   return new Promise((resolve, reject) => {
     const child = spawn(options.codexCommand || 'codex', args, { cwd: workspace, stdio: ['pipe', 'pipe', 'pipe'], detached: true, windowsHide: true });
@@ -384,6 +406,16 @@ export class PersonalWorker {
       this.notify({ threadId: thread.id });
       try { await this.execute(thread.id, run.id, this.controller.signal); }
       catch (error) {
+        if (error.stopUnconfirmed) {
+          this.store.updateThread(thread.id, item => {
+            const selected = item.runs.find(entry => entry.id === run.id);
+            selected.status = 'unknown'; selected.stopUnconfirmed = true; selected.cancelPending = false; selected.requiresReconciliation = true;
+            selected.error = '本机助手的停止状态尚未确认；已保留原任务，不会再次启动这个助手。请先核查。';
+            selected.finishedAt = now(); item.status = 'unknown'; item.summary = selected.error;
+            this.store.event(item, 'unknown', selected.error, { runId: run.id });
+          });
+          this.notify({ threadId: thread.id });
+        }
         this.change(thread.id, run.id, (item, selected) => {
           const uncertain = selected.deliveryState === 'sending' || selected.deliveryState === 'delivered' || error.code === 'codex_interrupted' || this.closed;
           selected.status = uncertain && selected.mode !== 'local' ? 'unknown' : 'blocked';
@@ -395,7 +427,18 @@ export class PersonalWorker {
           item.status = selected.status; item.summary = selected.error;
           this.store.event(item, selected.status, selected.error, { runId: selected.id });
         });
-      } finally { this.controller = null; this.current = null; }
+      } finally {
+        const current = this.store.require('thread', thread.id).runs.find(item => item.id === run.id);
+        if (current?.cancelPending && !current.stopUnconfirmed) {
+          this.store.updateThread(thread.id, item => {
+            const selected = item.runs.find(entry => entry.id === run.id);
+            selected.cancelPending = false; selected.status = 'cancelled'; selected.requiresReconciliation = false;
+            item.summary = '本机助手已停止，本次执行已取消'; this.store.event(item, 'cancelled', item.summary, { runId: run.id });
+          });
+          this.notify({ threadId: thread.id });
+        }
+        this.controller = null; this.current = null;
+      }
     }
   }
 
@@ -418,18 +461,18 @@ export class PersonalWorker {
         return;
       }
       this.change(threadId, runId, (_item, selected) => {
-        selected.requestedMode = 'codex'; selected.chosenExecutor = plan.kind === 'document' ? 'codex' : plan.kind;
+        selected.requestedMode = 'codex'; selected.chosenExecutor = plan.kind === 'document' ? (run.localAgentId || 'codex') : plan.kind;
         selected.routingReason = plan.why; selected.phase = 'prepare';
         if (plan.kind !== 'document') { selected.mode = 'connection'; selected.connectionId = plan.connectionId; selected.action = plan.action; selected.plannedBy = 'codex'; }
       });
-      if (plan.kind === 'document') return this.finish(threadId, runId, plan.markdown, '助手的结果', 'codex');
+      if (plan.kind === 'document') return this.finish(threadId, runId, plan.markdown, '助手的结果', run.localAgentId || 'codex');
       const routed = this.store.require('thread', threadId);
       return this.executeRemote(routed, routed.runs.find((item) => item.id === runId), signal);
     }
-    this.change(threadId, runId, (_item, selected) => { selected.chosenExecutor = selected.mode === 'local' ? 'local' : 'codex'; selected.routingReason = selected.mode === 'local' ? '用户明确选择本地确定性整理' : '当前未配置远端连接，使用本机 Codex'; });
+    this.change(threadId, runId, (_item, selected) => { selected.chosenExecutor = selected.mode === 'local' ? 'local' : (selected.localAgentId || 'codex'); selected.routingReason = selected.mode === 'local' ? '用户明确选择本地确定性整理' : `使用已选择的本机 ${selected.localAgentId === 'claude' ? 'Claude Code' : 'Codex'}`; });
     const body = run.mode === 'local' ? localReport(thread, run) : await executeCodex(this.store, thread, run, this.options, signal);
     if (signal.aborted) return;
-    this.finish(threadId, runId, body, run.mode === 'local' ? '本地整理报告' : '助手的结果', run.mode);
+    this.finish(threadId, runId, body, run.mode === 'local' ? '本地整理报告' : '助手的结果', run.mode === 'local' ? 'local' : (run.localAgentId || 'codex'));
   }
 
   finish(threadId, runId, body, title, source, outcome = {}) {
@@ -511,6 +554,7 @@ export class PersonalWorker {
         this.finish(thread.id, run.id, `> 以下为远端 ${connection.name} 返回的内容；本机已校验保存，未独立验证外部执行效果。\n\n${body}`, `${connection.name}的结果`, 'a2a');
         return;
       }
+      if (state === 'unknown' || result.metadata?.uncertain === true) throw new APIError(502, 'remote_pending', '原服务的执行结果尚未确认；已保留任务标识，不会重新发送');
       if (['failed', 'canceled', 'cancelled', 'rejected'].includes(state)) {
         this.change(thread.id, run.id, (item, selected) => {
           selected.status = state === 'canceled' || state === 'cancelled' ? 'cancelled' : 'failed';

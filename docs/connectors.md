@@ -1,12 +1,14 @@
 # Connectors on the Mac: Grok Bot, Muse, ChatGPT Dots, Cue
 
-These are the retained **Matrix-mode** connectors, selected by `AGENTSTUDIO_WORKSPACE=matrix`. Default personal startup does not initialize them or read their saved sessions. The personal workspace instead uses explicitly configured A2A/MCP endpoints and an optional separate Bearer file vault; see [the personal guide](personal/README.md). Its public identity metadata is not a verified remote account.
+These native connector implementations serve two separate modes. `AGENTSTUDIO_WORKSPACE=matrix` retains the original Matrix bridge and storage described below. Default personal startup only attempts to restore **its own** `personal-services/manifest.json`; with no manifest, it does not initialize the connector manager. Explicitly opening the service catalog or connecting initializes it lazily. An existing personal manifest restores its own instances and registers them with the owned backend. Personal mode never reads or migrates the legacy Matrix connector store or unrelated browser profiles. See [Personal workspace native services](#personal-workspace-native-services) for that separate lifecycle and [the connection ledger](personal/connection-acceptance.md) for actual evidence; public identity metadata is not remote-account proof.
 
 Hullo connects these agents through each user's own web session, and so does AgentStudio. None of them offers an API for third-party inboxes. AgentStudio differs in one way: the connectors run inside the Mac app, so the user's sign-ins never leave the Mac.
 
 > **Experimental, and for personal use only.** These connectors are for reaching your own agents with your own accounts on your own Mac. AgentStudio isn't affiliated with or endorsed by xAI / SpaceX AI, Cursor (Anysphere), Meta, OpenAI or Manus. Except for Cue's messaging (Manus's documented API), they work the way each service's own app or website does, which may be against a service's terms and can break at any time; you are responsible for following each service's terms. Each connector was built from the service's public client code and checked against fakes (`e2e/fakes/agents.ts`); expect to calibrate it on first real use (see *Calibrating* below).
 
-## How it fits
+## How it fits (retained Matrix mode)
+
+The architecture, storage paths, bridge callbacks, diagnostics and calibration instructions from this section through **Environment** describe the retained Matrix integration. The service-specific connector implementations are reused in personal mode with the isolation and reply rules in the final section; their original Matrix history/approval behavior does not define the personal task contract.
 
 ```mermaid
 flowchart LR
@@ -156,3 +158,29 @@ The fallback images are the official ones in `packages/brand`.
 | `AGENTSTUDIO_WEBCHAT_GRACE_MS` | 15000 | How long a Muse / Dots page may show a connection problem before it is reloaded |
 | `AGENTSTUDIO_CONNECTOR_TRACE`, `AGENTSTUDIO_CONNECTOR_TRACE_BODIES` | off | See *Calibrating* |
 | `AGENTSTUDIO_CONNECTOR_TRACE_NETWORK` | off | Record the shape of the API calls the Muse / Dots pages make (`userData/connector-traces/network-<date>.jsonl`): method, URL, header names, JSON keys and types, scripts loaded. No message text, tokens or cookies. See `docs/spikes/muse-dots-direct-api.md`. |
+
+## Personal workspace native services
+
+The default Mac personal workspace exposes Grok Bot, Muse, ChatGPT Dots and Cue through a main-owned `PersonalServices` adapter. It does not start Matrix, Synapse or the agents bridge. A first launch without `userData/personal-services/manifest.json` only checks for that file; it starts no connector sessions. Opening the personal service catalog or explicitly connecting is lazy initialization. On a later launch, an existing manifest restores only this personal store and re-registers its instances with the owned personal backend. If its stored encryption state cannot be restored, original data is retained and the backend request reports a restore error instead of silently treating it as an empty account list.
+
+### Session, storage and UI boundary
+
+- The personal connector store is `userData/personal-services/connectors.bin`, encrypted with Electron `safeStorage`; Muse/Dots use `persist:agentstudio-personal-services-*` partitions. Neither the legacy `userData/connectors.bin` nor another browser's cookies are imported. Existing service conversations are used, **without importing history** into personal threads.
+- Main exposes fixed `nativeIntegration` actions: catalog, connect, progress, choose, submit, cancel, open, remove, reconnect and local CLI login/status/cancel. Full request/reply shapes are in [the API contract](api.md#fixed-native-connection-actions). Native ready is emitted only after main has registered the instance with its own backend. Reconnect repairs that registration for an existing instance; it is not a new task send or a different account.
+- Saved service credentials, the local A2A token and its endpoint do not appear in native catalog/progress/ready replies. UI receives IDs, labels, state, choices and safe links. A key entered deliberately by the user briefly crosses a password input and fixed IPC; do not claim the renderer never handles new input. UI recovery stores flow ID/category/title only, not input or credentials. Regular backend connection records expose a URL without its token.
+- The backend's separate AES-GCM Bearer file vault is **not Keychain**, not the ConnectorStore, and not account-ownership proof. Both storage mechanisms retain the same-OS-user access boundary. Personal connector tracing is disabled, so Matrix calibration environment variables do not turn personal credential/session flows into trace exports.
+- Provider-side decisions require action in the original service; the adapter does not automatically click approvals or translate them into a blanket local consent. `canOpen: false` gives an explicit original-app instruction instead of a fake Open button. Service-specific sign-in does not implement generic OAuth or import arbitrary existing accounts.
+
+### Durable task ledger and reply ownership
+
+The owned adapter listens on loopback, validates Host/no browser Origin and a per-instance Bearer, and supports `message/send` and `tasks/get`. It persists `manifest.json` before sending: task ID, stable message ID, payload hash, instance identity, state and correlated text. Repeating an instance/message ID with the same payload returns its original receipt; different content is rejected. Each instance permits only one unresolved task. A ready connection is a transport/configuration state, not proof that the provider read a prompt or completed an external action.
+
+Only a reply correlated to the current outbound message can become an artifact. History, autonomous messages, unrelated user text, an old stream tail or uncorrelated idle events cannot complete a task. A provider decision changes it to `input-required` without auto-approval; ambiguous ownership or send acknowledgement becomes `unknown`. Progress responses include the limited `single_active_service_conversation` receipt scope and `replayAllowed: false`. Four service adapters share that conservative contract rather than claiming general multi-conversation routing.
+
+On stop/restart, accepted nonterminal tasks remain unknown, not re-sent. `tasks/get` reads the original instance/task; it never substitutes `message/send`. A local cancel does not prove the provider stopped, and opening the original app does not prove reconciliation finished. Unknown tasks preserve the account and query channel; remove refuses unresolved ledger work and the backend separately protects active/unresolved connections. Failed registration/removal does not authorize dropping credentials or recreating the task.
+
+The local CLI has a distinct stop_unknown boundary: `stop_unconfirmed` / `stopUnconfirmed` means the owned process has not confirmed exit, so new work using that assistant is blocked across threads. Repeated cancel or app restart cannot clear it. This is separate from a provider-side unknown task, though both require checking the original execution rather than replay.
+
+### Evidence scope
+
+See [GET-479 acceptance](personal/connection-acceptance.md) for actual CLI, public MCP, synthetic service and failure receipts. Four fake service flows test protocol, login states, correlation, approval-before-send, restart nonreplay and credential projection; they do **not** prove real private accounts, quotas, history continuity or external effects. The original Matrix diagnostics and live-service calibration remain scoped to Matrix above. Do not count retained Matrix tests or old GET-476 acceptance as new personal-service account success.

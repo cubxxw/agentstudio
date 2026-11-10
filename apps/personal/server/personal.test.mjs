@@ -194,7 +194,9 @@ test('cancelling a Codex run cannot save a late assistant result', async (t) => 
   const f = await fixture(t, { codexCommand: process.execPath, codexArgs: [script] });
   const created = await f.api('/api/threads', { text: 'A slow actual task', clientId: clientId() });
   await f.wait(created.body.id, (thread) => thread.status === 'running');
-  assert.equal((await f.api(`/api/threads/${created.body.id}/cancel`, { clientId: clientId() })).body.status, 'cancelled');
+  const requested = (await f.api(`/api/threads/${created.body.id}/cancel`, { clientId: clientId() })).body;
+  assert.equal(requested.runs[0].cancelPending, true);
+  assert.equal(requested.status, 'running');
   await f.app.worker.promise;
   const cancelled = (await f.api(`/api/threads/${created.body.id}`)).body;
   assert.equal(cancelled.status, 'cancelled'); assert.equal(cancelled.artifacts.length, 0);

@@ -1898,3 +1898,67 @@ summary {
 .credential-details label {
   margin-top: 14px;
 }
+
+/* Connections share the reading surface: short rows, details when needed. */
+.connections { min-width: 0; }
+.integration-section + .integration-section { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 22px; }
+.integration-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.integration-section-heading h3 { margin: 0; font-size: 17px; line-height: 1.5; font-weight: 600; }
+.integration-section-heading .text-button { display: flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; min-height: 34px; }
+.integration-intro { margin: 7px 0 12px; color: var(--secondary); font-size: 12px; line-height: 1.8; }
+.integration-note { margin: 10px 0 0; color: var(--secondary); font-size: 11px; line-height: 1.8; }
+.integration-loading { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--secondary); padding: 12px 0; }
+.integration-row { display: flex; align-items: center; gap: 12px; padding: 13px 0; min-width: 0; }
+.integration-symbol { flex: 0 0 36px; height: 36px; display: grid; place-items: center; background: var(--canvas); border-radius: 10px; color: var(--secondary); }
+.integration-symbol img { display: block; width: 25px; height: 25px; object-fit: contain; border-radius: 6px; }
+.integration-copy { flex: 1; min-width: 0; }
+.integration-copy > strong { display: block; font-size: 13px; line-height: 1.5; font-weight: 580; overflow-wrap: anywhere; }
+.integration-copy > p { margin: 4px 0 0; font-size: 11px; line-height: 1.75; color: var(--secondary); overflow-wrap: anywhere; }
+.integration-version { font-variant-numeric: tabular-nums; }
+.integration-account { display: block; color: var(--quiet); }
+.integration-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.integration-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; min-width: 58px; max-width: 100%; padding: 7px 12px; border-radius: 999px; background: var(--canvas); color: var(--ink); font-size: 12px; line-height: 1.5; text-decoration: none; }
+.integration-button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.integration-button.is-selected { background: var(--accent-soft); color: var(--accent); opacity: 1; }
+.integration-state { color: var(--quiet); font-size: 11px; line-height: 1.5; }
+.integration-details { margin: 4px 0; font-size: 11px; line-height: 1.8; color: var(--secondary); }
+.integration-details > summary { cursor: pointer; min-height: 30px; padding: 5px 0; width: fit-content; }
+.integration-details .integration-row { padding-block: 11px; }
+.integration-details dl { margin: 7px 0 0; font-size: 11px; }
+.integration-details dt { color: var(--quiet); margin-top: 8px; }
+.integration-details dd { margin: 2px 0 0; overflow-wrap: anywhere; user-select: text; }
+.integration-instance { margin: 0 0 6px 48px; padding: 9px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.integration-instance > div:first-child { min-width: 0; }
+.integration-instance strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.integration-instance p { color: var(--secondary); font-size: 11px; line-height: 1.7; margin: 3px 0 0; }
+.integration-flow { margin: 16px 0 0; padding: 15px 17px; background: var(--canvas); border: 1px solid var(--line); border-radius: 12px; }
+.integration-flow-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.integration-flow-heading > strong { font-size: 13px; font-weight: 580; }
+.integration-flow > p { color: var(--secondary); margin: 8px 0 12px; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.integration-flow > .integration-button { margin: 0 7px 10px 0; }
+.integration-flow.flow-choose, .integration-flow.flow-input { background: var(--attention-soft); }
+.integration-flow.flow-failed > p { color: var(--danger); }
+.integration-flow-actions { display: flex; align-items: center; gap: 7px; margin: 7px 0 12px; color: var(--secondary); font-size: 11px; }
+.integration-flow > .text-button { font-size: 11px; min-height: 34px; }
+.integration-flow-input { display: grid; gap: 12px; }
+.integration-flow-input label, .integration-url-form label { display: block; font-size: 12px; font-weight: 500; line-height: 1.6; }
+.integration-flow-input input, .integration-url-form input { display: block; width: 100%; min-width: 0; margin-top: 7px; padding: 10px 12px; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-size: 13px; }
+.integration-flow-input > button { justify-self: start; }
+.integration-flow-input .text-button { justify-self: start; display: flex; align-items: center; gap: 5px; }
+.integration-own-toggle { display: flex; align-items: center; gap: 7px; min-height: 38px; margin-top: 8px; font-size: 12px; }
+.integration-url-form { padding: 16px; margin-top: 9px; background: var(--canvas); border-radius: 12px; }
+.integration-advanced { margin-top: 25px; border-top: 1px solid var(--line); color: var(--secondary); }
+.integration-advanced > summary { min-height: 40px; padding: 14px 0 9px; font-size: 12px; cursor: pointer; }
+.integration-advanced .connection-form { margin-top: 6px; border: 0; padding-top: 0; color: var(--ink); }
+.connections .connection-form input, .connections .connection-form select { background: var(--paper); border-color: var(--line); }
+.integration-notice { margin: 18px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; line-height: 1.8; }
+@media (max-width: 520px) {
+  .integration-row { flex-wrap: wrap; align-items: flex-start; }
+  .integration-copy { flex-basis: calc(100% - 48px); }
+  .integration-row > .integration-actions { margin-left: 48px; }
+  .integration-button { min-height: 38px; }
+  .integration-instance { align-items: flex-start; flex-wrap: wrap; }
+  .integration-instance > .integration-actions { width: 100%; }
+  .integration-flow { padding: 13px; }
+  .integration-flow-input input, .integration-url-form input { font-size: 16px; }
+}

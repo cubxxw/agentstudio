@@ -7,6 +7,28 @@ The Mac app's default personal renderer calls `window.agentStudioPersonal`, expo
 ```ts
 type DesktopCommand = "new" | "search" | "settings"
 type DesktopMethod = "GET" | "POST" | "DELETE"
+type PersonalServiceId = "grokbot" | "muse" | "dots" | "cue"
+type NativeIntegrationRequest =
+  | {kind: "services"}
+  | {kind: "connect"; serviceId: PersonalServiceId}
+  | {kind: "progress" | "cancel"; flowId: string}
+  | {kind: "choose"; flowId: string; choiceId: string}
+  | {kind: "submit"; flowId: string; value: string}
+  | {kind: "open" | "remove" | "reconnect"; instanceId: string}
+  | {kind: "local-login"; agentId: "codex" | "claude"}
+  | {kind: "local-login-status" | "local-login-cancel"; flowId: string}
+type NativeIntegrationReply = {
+  state: "catalog" | "waiting" | "choose" | "input" | "ready" | "failed" | "cancelled"
+  flowId?: string; message?: string
+  providers?: {id: PersonalServiceId; name: string; description: string}[]
+  instances?: {id?: string; instanceId?: string; service?: PersonalServiceId;
+    name: string; status?: string; canOpen?: boolean; connectionId?: string}[]
+  connectionIds?: string[]
+  actions?: {id: string; label: string}[]
+  choices?: {id: string; label: string}[]
+  label?: string; secret?: boolean; error?: string
+  link?: {label: string; url: string}
+}
 interface PersonalDesktopBridge {
   readonly platform: string
   readonly version: string
@@ -18,6 +40,7 @@ interface PersonalDesktopBridge {
     cancelled: boolean; fileName?: string; path?: string; sha256?: string
   }>
   restart(): Promise<void>
+  nativeIntegration?(request: NativeIntegrationRequest): Promise<NativeIntegrationReply>
 }
 ```
 
@@ -25,15 +48,34 @@ interface PersonalDesktopBridge {
 
 | Method | Paths |
 | --- | --- |
-| GET | `/api/health`, `/api/bootstrap`, `/api/connections`, `/api/memories`, `/api/threads/:id`, `/api/artifacts/:id`, `/api/connections/:id/tools` |
-| POST | `/api/threads`, `/api/connections`, `/api/memories`, `/api/threads/:id/messages`, `/api/threads/:id/retry`, `/api/threads/:id/reconcile`, `/api/threads/:id/cancel`, `/api/decisions/:id` |
+| GET | `/api/health`, `/api/bootstrap`, `/api/integrations`, `/api/connections`, `/api/memories`, `/api/threads/:id`, `/api/artifacts/:id`, `/api/connections/:id/tools` |
+| POST | `/api/threads`, `/api/connections`, `/api/memories`, `/api/integrations/refresh`, `/api/integrations/connect`, `/api/integrations/local/codex`, `/api/integrations/local/claude`, `/api/threads/:id/messages`, `/api/threads/:id/retry`, `/api/threads/:id/reconcile`, `/api/threads/:id/cancel`, `/api/decisions/:id` |
 | DELETE | `/api/connections/:id`, `/api/memories/:id` |
 
 Main forwards to its own utility's random loopback port after validating the sender document and ownership handshake. There is no renderer route for SSE or artifact download: `onChanged` invalidates the UI snapshot, and `saveArtifact` uses a native dialog plus byte/hash readback. Runtime restart does not replay POST requests. `GET /api/health` includes the build reference, backend/UI hashes and desktop runtime versions.
 
-Personal JSON uses **camelCase**, independently of the Matrix `/v1` contract below. `POST /api/threads` and `POST /api/threads/:id/messages` accept `{text,clientId,mode?,connectionId?,attachments?,memoryIds?,action?}` and return the full thread. `clientId` identifies an immutable request: same route/key/body returns its accepted receipt, even if a selected memory or completed connection was later removed; changed content returns 409. New requests validate current dependencies. Decisions require `{choice,version,clientId}`. Followups are durable sequential runs with context ending at their own message ID. Unknown remote execution blocks replay and later runs until reconciled.
+Personal JSON uses **camelCase**, independently of the Matrix `/v1` contract below. `POST /api/threads` and `POST /api/threads/:id/messages` accept `{text,clientId,mode?,localAgentId?,connectionId?,attachments?,memoryIds?,action?}` and return the full thread. `localAgentId` accepts `codex` or `claude`; when omitted, the server snapshots the saved local selection (default `codex`) into the accepted run. `mode: "codex"` remains the compatibility name for automatic local routing and can use either adapter. Changing the default does not change an accepted run. `clientId` identifies an immutable request: same route/key/body returns its accepted receipt, even if a selected memory or completed connection was later removed; changed content returns 409. New requests validate current dependencies. Decisions require `{choice,version,clientId}`. Followups are durable sequential runs with context ending at their own message ID. Unknown execution blocks replay and later runs; an unconfirmed CLI stop also blocks new work using that same local assistant across threads.
 
-Public connections expose `auth:{type:"none"|"bearer",configured,identityVerified:false}`. Approval identity is `{label,authentication,identityVerified:false}`; the label is user-entered, not account proof. A private credential/version binding prevents an old decision from changing identity. Tokens and private references are never public records or model inputs. Data belongs to the selected local personal workspace, without importing Matrix auth. See the [backend API, routing, vault and receipt contract](../apps/personal/server/README.md) for complete request shapes and verification scope. The auxiliary web service uses these `/api` endpoints directly with loopback checks; it is not the native renderer transport.
+### Personal discovery and quick connections
+
+| Route | Request / response |
+| --- | --- |
+| `GET /api/integrations` | `{checkedAt,agents,selectedLocalAgentId,presets}`; fixed Codex/Claude/Pi/Gemini/OpenCode discovery, only Codex/Claude executable adapters |
+| `POST /api/integrations/refresh` | `{}` → same response after forced discovery; concurrent discovery coalesces |
+| `POST /api/integrations/local/:id` | `{}`, `id` only `codex` or `claude` → `{selectedLocalAgentId}`; requires installed, supported and auth `configured`, otherwise 409 |
+| `POST /api/integrations/connect` | `{presetId,clientId?}` or `{url,token?,clientId?}` → public connection (201); only these four fields are accepted |
+
+Each discovery agent contains `{id,name,installed,version,auth:{status,method?},execution:{supported,reason?},setupUrl,loginCommandId}`. Auth status is `configured|required|unknown|unsupported`; it does not prove account ownership, quota or network validity. Raw probe output, executable paths and credentials are not returned. Presets contain `{id,name,description,account,connectionId|null}` and use the fixed DeepWiki `https://mcp.deepwiki.com/mcp` and Exa `https://mcp.exa.ai/mcp` endpoints. Adding them initializes MCP and lists tools, without calling a tool. The preset request does not accept a nonempty URL or token override.
+
+A custom URL tries a bounded same-origin Agent Card before MCP initialization/tool discovery. A card is metadata, not account proof or an executed task. Cross-origin advertised endpoints are rejected. Remote URLs require HTTPS; HTTP is allowed only on loopback, and credentials/query/fragment in URLs are rejected. `token` is optional: omit it or use `""` for no Bearer; explicit JSON `null`, whitespace, controls, non-ASCII or strings outside 8–8000 characters return 400. Existing advanced `POST /api/connections` remains available. Connection creation with the same optional `clientId` replays its accepted receipt; changed input returns 409. Concurrent identical quick-connect requests share discovery; a saved receipt is replayed before new remote probing. Discovery refresh and selecting the default do not require a `clientId`.
+
+### Fixed native connection actions
+
+`nativeIntegration` is a separate trusted-top-frame IPC capability, not an HTTP endpoint. It rejects extra fields and unknown actions; flow/choice/instance identifiers are bounded opaque strings. `submit.value` is a bounded string, not a command or URL to execute. Main owns personal-service sessions, registers A2A connections with its own backend, and reports ready only after registration. `reconnect` re-registers the named existing native instance; it does not mint a new account or blindly resend a task. `open` requires `canOpen`; `remove` preserves instances with active or unresolved work. A cancel racing with completed login can return ready and tell the user to disconnect the established instance instead.
+
+Native catalog/progress/ready replies contain safe identifiers and labels, not saved service credentials, A2A tokens or A2A endpoint URLs. A user may explicitly submit a new key through a transient password input; it crosses the fixed IPC once and is not part of UI recovery storage or model context. Ordinary public connection records still expose their configured URL without a token. Native `local-login` runs only the fixed vendor login for Codex/Claude; status/cancel target its owned flow, and login completion is followed by fresh discovery, not an account-ownership claim. Auxiliary web clients do not gain this native capability. Lifecycle, isolation and nonreplay details are in [the connector contract](connectors.md#personal-workspace-native-services).
+
+Public connections expose `auth:{type:"none"|"bearer",configured,identityVerified:false}`. Approval identity is `{label,authentication,identityVerified:false}`; the label is not account proof. For a native loopback connection, the UI names the personal Agent and says it connects through this Mac, keeping the full URL in technical details. Its local Bearer authenticates the adapter, not independent ownership of the provider account. A private credential/version binding prevents an old decision from changing identity. Tokens and private references are never public records or model inputs. Data belongs to the selected local personal workspace, without importing Matrix auth. See the [backend API, routing, vault and receipt contract](../apps/personal/server/README.md) for complete request shapes and verification scope. The auxiliary web service uses these `/api` endpoints directly with loopback checks; it is not the native renderer transport.
 
 ## Retained Matrix REST API (v1)
 

@@ -13,6 +13,11 @@ const tasks = new Map();
 let submissions = 0;
 let authenticatedSubmissions = 0;
 const fixture = http.createServer(async (request, response) => {
+  if (request.method === "GET" && request.url === "/.well-known/agent-card.json") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({ name: "合成自动识别助手", url: `http://127.0.0.1:${port + 1}/` }));
+    return;
+  }
   if (request.method === "GET" && request.url === "/state") {
     response.setHeader("Content-Type", "application/json");
     response.end(

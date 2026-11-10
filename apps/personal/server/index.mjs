@@ -3,8 +3,10 @@ import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { APIError, PersonalStore, digest, id, now } from './store.mjs';
-import { PersonalWorker, codexAvailable, discoverMCP, initializeMCP } from './runtime.mjs';
+import { PersonalWorker, codexAvailable, discoverMCP, initializeMCP, rpc } from './runtime.mjs';
 import { validateBearerToken } from './vault.mjs';
+import { discoverLocalAgents } from './local-agents.mjs';
+import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoDir = resolve(appDir, '../..');
@@ -22,6 +24,11 @@ function validateInput(store, body) {
   const text = textValue(body.text, 'text', 30_000, true);
   const mode = body.mode || 'codex';
   if (!['codex', 'local', 'connection'].includes(mode)) invalid('mode 必须是 codex、local 或 connection');
+  const localAgentId = body.localAgentId || store.get('setting', 'local-agent')?.agentId || 'codex';
+  if (!['codex', 'claude'].includes(localAgentId)) invalid('请选择已经支持执行的本机助手');
+  if (mode === 'codex' && store.list('thread').some(thread => thread.runs.some(run => run.stopUnconfirmed && (run.localAgentId || 'codex') === localAgentId))) {
+    throw new APIError(409, 'local_agent_stop_unconfirmed', '这个助手的停止状态尚未确认，请先核查原任务；新要求没有再次发送');
+  }
   if (!Array.isArray(body.attachments ?? []) || (body.attachments?.length || 0) > 20) invalid('每次最多上传 20 份文本资料');
   const attachments = (body.attachments || []).map((item) => {
     const name = textValue(item?.name, '附件名称', 200);
@@ -53,7 +60,7 @@ function validateInput(store, body) {
     }
   }
   return { text, mode, attachments, connectionId: mode === 'connection' ? body.connectionId : null,
-    memoryIds: body.memoryIds || [], action, clientId: body.clientId };
+    memoryIds: body.memoryIds || [], action, localAgentId, clientId: body.clientId };
 }
 
 function endpointURL(value) {
@@ -82,12 +89,13 @@ async function readJSON(request) {
 function publicConnection(connection) {
   return { id: connection.id, name: connection.name, type: connection.type, url: connection.url, createdAt: connection.createdAt,
     auth: { type: connection.credentialRef ? 'bearer' : 'none', configured: Boolean(connection.credentialRef), identityVerified: false },
-    status: 'configured', capabilities: connection.type === 'a2a' ? ['message/send', 'tasks/get'] : ['tools/list', 'approved tools/call'] };
+    status: connection.checkedAt ? 'checked' : 'configured', checkedAt: connection.checkedAt || null, presetId: connection.presetId,
+    capabilities: connection.type === 'a2a' ? ['message/send', 'tasks/get'] : ['tools/list', 'approved tools/call'] };
 }
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -105,11 +113,57 @@ export async function createPersonalServer(options = {}) {
   };
   const worker = new PersonalWorker(store, options, notify);
   const codex = codexAvailable(options.codexCommand);
+  const localAgentOptions = { deps: { commands: { codex: options.codexCommand || 'codex' }, ...(options.localAgentDeps || {}) } };
+  const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
+  const presets = options.toolPresets || TOOL_PRESETS;
+  const integrationRequests = new Map();
   let shuttingDown = false;
   const json = (response, status, body) => {
     response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
     response.end(JSON.stringify(store.vault.redact(body)));
   };
+
+  async function saveConnection(body, { verifyTools = false, checkedAt, presetId } = {}) {
+    const name = textValue(body.name, '连接名称', 100), urlValue = endpointURL(body.url);
+    if (!['a2a', 'mcp'].includes(body.type)) invalid('连接类型必须是 a2a 或 mcp');
+    if (body.headers !== undefined || body.authorization !== undefined || body.authHeader !== undefined) invalid('连接仅支持可选 Bearer token，不支持自定义认证头');
+    const token = validateBearerToken(body.token);
+    const fingerprint = token ? store.vault.fingerprint(token, body.type, urlValue) : null;
+    const matching = () => store.list('connection').find(item => item.url === urlValue && item.type === body.type &&
+      (token ? item.credentialFingerprint === fingerprint : !item.credentialRef));
+    const existing = matching();
+    let candidate = existing || { id: id('con'), name, url: urlValue, type: body.type, createdAt: now(), credentialVersion: token ? 1 : 0 };
+    try {
+      if (!existing && token) candidate = { ...candidate, credentialRef: store.vault.create(token, candidate), credentialFingerprint: fingerprint };
+      if (candidate.type === 'mcp') {
+        candidate = await initializeMCP(store, candidate, undefined, false);
+        if (verifyTools) {
+          let tools;
+          try { tools = await rpc(candidate, 'tools/list', {}, undefined, id('list'), undefined, store.vault); }
+          catch (error) {
+            if (error.upstreamStatus !== 404 || !candidate.sessionId) throw error;
+            candidate = await initializeMCP(store, { ...candidate, initializedAt: null, sessionId: null }, undefined, false);
+            tools = await rpc(candidate, 'tools/list', {}, undefined, id('list'), undefined, store.vault);
+          }
+          if (!Array.isArray(tools?.tools)) throw new APIError(502, 'invalid_tool_catalog', '服务没有返回有效的能力列表，尚未连接');
+          checkedAt = now();
+        }
+      }
+      const make = () => {
+        const current = matching();
+        return store.put('connection', { ...candidate, ...(current || {}),
+          ...(candidate.type === 'mcp' ? { protocolVersion: candidate.protocolVersion, sessionId: candidate.sessionId, initializedAt: candidate.initializedAt } : {}),
+          ...(checkedAt ? { checkedAt } : {}), ...(presetId ? { presetId } : {}) });
+      };
+      const safeInput = token ? { ...body, token: undefined, authFingerprint: fingerprint } : body;
+      const connection = body.clientId ? store.idempotent('connections:create', body.clientId, safeInput, make) : store.transaction(make);
+      if (!existing && connection.id !== candidate.id) store.vault.removeForConnection(candidate.id);
+      notify(); return publicConnection(connection);
+    } catch (error) {
+      if (!existing && !store.get('connection', candidate.id)) store.vault.removeForConnection(candidate.id);
+      throw error;
+    }
+  }
 
   const server = http.createServer(async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -130,11 +184,61 @@ export async function createPersonalServer(options = {}) {
       const method = request.method;
       let match;
       if (method === 'GET' && path === '/api/health') return json(response, 200, { ok: true, service: 'agentstudio-personal', durableQueue: true, build });
+      if ((method === 'GET' && path === '/api/integrations') || (method === 'POST' && path === '/api/integrations/refresh')) {
+        if (method === 'POST') await readJSON(request);
+        const detected = await localAgents(method === 'POST');
+        return json(response, 200, { ...detected, selectedLocalAgentId: store.get('setting', 'local-agent')?.agentId || 'codex',
+          presets: presets.map(({ id: presetId, name, description, account, url: endpoint }) => ({ id: presetId, name, description, account,
+            connectionId: store.list('connection').find(item => item.type === 'mcp' && item.url === endpoint)?.id || null })) });
+      }
+      if (method === 'POST' && (match = path.match(/^\/api\/integrations\/local\/(codex|claude)$/))) {
+        await readJSON(request);
+        const detected = await localAgents(true), agent = detected.agents.find(item => item.id === match[1]);
+        if (!agent?.installed || !agent.execution.supported) throw new APIError(409, 'local_agent_unavailable', '尚未找到可执行的本机助手，请先安装后重新检查');
+        if (agent.auth.status !== 'configured') throw new APIError(409, 'local_agent_login_required', '请先完成或重新检查本机助手登录，再点击使用');
+        store.put('setting', { id: 'local-agent', agentId: agent.id, selectedAt: now() });
+        notify(); return json(response, 200, { selectedLocalAgentId: agent.id });
+      }
+      if (method === 'POST' && path === '/api/integrations/connect') {
+        const body = await readJSON(request);
+        if (Object.keys(body).some(key => !['presetId', 'url', 'token', 'clientId'].includes(key))) invalid('连接入口不接受自定义命令或协议参数');
+        const token = validateBearerToken(body.token);
+        const original = { ...body, token: undefined, ...(token ? { authFingerprint: store.vault.fingerprint(token, 'auto', String(body.url)) } : {}) };
+        if (body.clientId) {
+          const receipt = store.replay('integrations:create', body.clientId, original);
+          if (receipt.found) return json(response, 201, receipt.value);
+          const pending = integrationRequests.get(body.clientId);
+          if (pending) {
+            if (pending.fingerprint !== digest(JSON.stringify(original))) throw new APIError(409, 'idempotency_conflict', '相同 clientId 的请求内容不同');
+            return json(response, 201, await pending.promise);
+          }
+        }
+        const promise = (async () => {
+          let connection;
+          if (body.presetId) {
+            if (body.url || body.token) invalid('预设连接不接受另外的地址或凭据');
+            const preset = presetConnection(body.presetId, presets);
+            connection = await saveConnection(preset, { verifyTools: true, presetId: preset.presetId });
+          } else {
+            const urlValue = integrationURL(body.url);
+            const card = await inspectAgentCard(urlValue, { token, ...(options.integrationFetch ? { fetch: options.integrationFetch } : {}) });
+            const credentials = token ? { token } : {};
+            connection = card
+              ? await saveConnection({ name: card.name, type: 'a2a', url: card.url, ...credentials }, { checkedAt: card.discovery.checkedAt })
+              : await saveConnection({ name: new URL(urlValue).hostname === 'localhost' ? '本机工具' : `${new URL(urlValue).hostname} 的工具`, type: 'mcp', url: urlValue, ...credentials }, { verifyTools: true });
+          }
+          return body.clientId ? store.idempotent('integrations:create', body.clientId, original, () => connection) : connection;
+        })();
+        if (body.clientId) integrationRequests.set(body.clientId, { fingerprint: digest(JSON.stringify(original)), promise });
+        try { return json(response, 201, await promise); }
+        finally { if (body.clientId) integrationRequests.delete(body.clientId); }
+      }
       if (method === 'GET' && path === '/api/bootstrap') {
         return json(response, 200, {
           threads: store.list('thread').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt }) => ({ id: threadId, title, status, summary, updatedAt })),
           connections: store.list('connection').map(publicConnection), memories: store.list('memory'),
-          settings: { defaultMode: 'codex', codexAvailable: codex.available, codexVersion: codex.version },
+          settings: { defaultMode: 'codex', codexAvailable: codex.available, codexVersion: codex.version,
+            localAgentId: store.get('setting', 'local-agent')?.agentId || 'codex' },
           runtime: { localOnly: true, database: 'SQLite WAL', queue: 'single-process', localMode: '本地统计与摘录，无需模型',
             codexBoundary: '继承本机 Codex 提供商配置，shell 使用 read-only；独立 cwd 不是文件系统隔离，CLI 已配置工具仍遵守其自身权限。结果仅证明文档已保存。',
             connectionBoundary: 'A2A message/send 与 tasks/get；MCP 2025 握手、会话 ID、JSON/SSE 响应、tools/list 与精确批准后的 tools/call。可选本机加密保存的 Bearer；无任意认证头、OAuth、反向请求、2026 新协议或远端回调。' },
@@ -174,11 +278,18 @@ export async function createPersonalServer(options = {}) {
             : thread.runs.find((item) => store.unresolved(item)) || thread.runs.at(-1);
           if (!run) invalid('没有可以处理的运行记录');
           if (action === 'cancel') {
+            if (run.mode === 'codex' && (run.status === 'unknown' || run.stopUnconfirmed)) {
+              run.status = 'unknown'; run.requiresReconciliation = true;
+              thread.summary = '原执行结果或停止状态尚未确认；不会通过取消重新开放派工';
+              store.refreshThread(thread); store.put('thread', thread); return { thread, runId: run.id };
+            }
             if (terminal.includes(run.status) && run.status !== 'unknown' && run.status !== 'blocked') return { thread, runId: run.id };
+            const localStopping = run.mode === 'codex' && ['running', 'verifying'].includes(run.status);
             const uncertain = run.mode === 'connection' && ['sending', 'delivered', 'unknown'].includes(run.deliveryState);
             run.status = 'cancelled'; run.finishedAt = now(); thread.status = 'cancelled';
             thread.summary = uncertain ? '已停止本机等待；远端执行未获取消确认，请在远端核查' : '任务已取消';
             run.requiresReconciliation = uncertain;
+            if (localStopping) { run.cancelPending = true; thread.summary = '已请求停止，正在确认本机助手退出'; }
             if (uncertain) run.error = thread.summary;
             for (const decision of thread.decisions.filter((item) => item.runId === run.id && item.state === 'pending')) {
               decision.state = 'cancelled'; decision.version += 1;
@@ -194,7 +305,7 @@ export async function createPersonalServer(options = {}) {
               if (action === 'reconcile') throw new APIError(409, 'no_remote_task', '没有远端 taskId，无法自动核查；请检查远端记录');
               if (run.status === 'unknown' || ['sending', 'delivered', 'unknown'].includes(run.deliveryState)) throw new APIError(409, 'unknown_execution', '上次执行结果未知，不能重复提交；请先人工核查');
               const message = thread.messages.find((item) => item.id === run.messageId);
-              store.appendRun(thread, { ...message, mode: run.mode, connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id });
+              store.appendRun(thread, { ...message, mode: run.mode, localAgentId: run.localAgentId || 'codex', connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id });
             }
           }
           store.refreshThread(thread);
@@ -245,29 +356,7 @@ export async function createPersonalServer(options = {}) {
         store.delete('memory', match[1]); notify(); return json(response, 200, { ok: true });
       }
       if (method === 'GET' && path === '/api/connections') return json(response, 200, { connections: store.list('connection').map(publicConnection) });
-      if (method === 'POST' && path === '/api/connections') {
-        const body = await readJSON(request), name = textValue(body.name, '连接名称', 100), urlValue = endpointURL(body.url);
-        if (!['a2a', 'mcp'].includes(body.type)) invalid('连接类型必须是 a2a 或 mcp');
-        if (body.headers !== undefined || body.authorization !== undefined || body.authHeader !== undefined) invalid('连接仅支持可选 Bearer token，不支持自定义认证头');
-        const token = validateBearerToken(body.token);
-        const fingerprint = token ? store.vault.fingerprint(token, body.type, urlValue) : null;
-        const existing = store.list('connection').find((item) => item.url === urlValue && item.type === body.type &&
-          (token ? item.credentialFingerprint === fingerprint : !item.credentialRef));
-        let candidate = existing || { id: id('con'), name, url: urlValue, type: body.type, createdAt: now(), credentialVersion: token ? 1 : 0 };
-        try {
-          if (!existing && token) candidate = { ...candidate, credentialRef: store.vault.create(token, candidate), credentialFingerprint: fingerprint };
-          if (candidate.type === 'mcp') candidate = await initializeMCP(store, candidate, undefined, false);
-          const makeConnection = () => store.list('connection').find((item) => item.url === urlValue && item.type === body.type &&
-            (token ? item.credentialFingerprint === fingerprint : !item.credentialRef)) || store.put('connection', candidate);
-          const safeInput = token ? { ...body, token: undefined, authFingerprint: fingerprint } : body;
-          const connection = body.clientId ? store.idempotent('connections:create', body.clientId, safeInput, makeConnection) : store.transaction(makeConnection);
-          if (!existing && connection.id !== candidate.id) store.vault.removeForConnection(candidate.id);
-          notify(); return json(response, 201, publicConnection(connection));
-        } catch (error) {
-          if (!existing && !store.get('connection', candidate.id)) store.vault.removeForConnection(candidate.id);
-          throw error;
-        }
-      }
+      if (method === 'POST' && path === '/api/connections') return json(response, 201, await saveConnection(await readJSON(request)));
       if (method === 'DELETE' && (match = path.match(/^\/api\/connections\/([^/]+)$/))) {
         const connectionId = match[1];
         if (store.list('thread').some((thread) => thread.runs.some((run) => run.connectionId === connectionId &&

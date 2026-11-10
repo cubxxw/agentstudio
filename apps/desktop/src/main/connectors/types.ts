@@ -17,7 +17,11 @@ export interface Emitter {
   emit(evt: AgentEvent): void;
   /** The connector's avatar (or name) changed; the host tells the bridge. */
   profileChanged(): void;
+  /** Private personal adapter signal; legacy bridge emitters may omit it. */
+  uncertain?(messageId: string): void;
+  inputRequired?(messageId: string): void;
 }
+export type DirectConnectorEvent = AgentEvent | { type: "uncertain" | "input_required"; messageId: string };
 
 export type AvatarImage = { mime: string; data: Buffer };
 
