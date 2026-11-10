@@ -41,7 +41,11 @@ const api = (path) => page.evaluate(async path => {
 const launch = async () => {
   const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
   application = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentStudio') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 20000 });
-  page = await application.firstWindow(); page.on('pageerror', error => errors.push(error.message));
+  // Restored connector windows may be created before the personal window.
+  // Pick the bundled renderer rather than whichever window appears first.
+  await expect.poll(() => application.windows().filter(window => window.url().startsWith('file://')).length).toBe(1);
+  page = application.windows().find(window => window.url().startsWith('file://'));
+  page.on('pageerror', error => errors.push(error.message));
   await expect(page.getByTestId('im-app')).toBeVisible();
 };
 try {
