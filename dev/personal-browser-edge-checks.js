@@ -1,6 +1,7 @@
 async (page, until) => {
   const base = "http://127.0.0.1:18745";
-  const testId = (id) => page.getByTestId(id);
+  const aliases = { "personal-settings": "im-settings", "personal-composer-input": "im-message-input", "personal-composer-send": "im-send", "personal-mode-menu": "im-send-options-toggle", "personal-menu": "im-back", "personal-search": "im-search", "personal-thread-row": /^im-chat-thr_/ };
+  const testId = id => page.getByTestId(aliases[id] || id);
   const checks = [];
   const verify = (condition, name) => {
     if (!condition) throw new Error(name);
@@ -22,7 +23,7 @@ async (page, until) => {
       id,
     ));
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${base}/?workspace=tasks`);
+  await page.goto(`${base}/?thread=new`);
   await testId("personal-settings").click();
   await testId("personal-tab-memory").click();
   await testId("personal-memory-input").fill(
@@ -78,13 +79,14 @@ async (page, until) => {
     await page.request.get("http://127.0.0.1:18746/state")
   ).json();
   await testId("personal-mode-menu").click();
-  await testId(`personal-mode-connection-${connection.id}`).click();
+  await testId("im-task-mode").selectOption("connection"); await testId("im-task-connection").selectOption(connection.id);
   await testId("personal-composer-input").fill(
     "这是合成远端验收，只处理这条测试内容。",
   );
   await testId("personal-composer-send").click();
   await page.waitForURL(/thread=thr_/);
   const remoteId = new URL(page.url()).searchParams.get("thread");
+  await testId("im-pending-bar").click();
   await testId("personal-decision-approve").waitFor();
   const pendingThread = await (
     await page.request.get(`${base}/api/threads/${remoteId}`)
@@ -100,17 +102,12 @@ async (page, until) => {
     "exact submitted material is readable before deciding",
   );
   await page.screenshot({ path: "output/playwright/personal/qa-decision.png" });
+  const approvalRequest = page.waitForRequest(r => r.url().includes(`/api/decisions/${decision.id}`) && r.method() === "POST");
   await testId("personal-decision-approve").click();
+  const approvedBody = (await approvalRequest).postDataJSON();
   await waitCompleted(remoteId);
-  await page.waitForFunction(
-    () =>
-      document.querySelectorAll("[data-testid=personal-artifact]").length === 1,
-  );
-  await post(`/decisions/${decision.id}`, {
-    choice: "approve",
-    version: decision.version,
-    clientId: `decision-${decision.id}-${decision.version}-approve`,
-  });
+  await testId("im-approval-open-chat").click();
+  await post(`/decisions/${decision.id}`, approvedBody);
   verify(
     (await (await page.request.get("http://127.0.0.1:18746/state")).json())
       .submissions ===
@@ -153,15 +150,16 @@ async (page, until) => {
       ),
     "credential is saved without returning its value",
   );
-  await testId("personal-new").click();
+  await testId("im-new").click(); await testId("im-new-notes").click();
   await testId("personal-mode-menu").click();
-  await testId(`personal-mode-connection-${authenticated.id}`).click();
+  await testId("im-task-mode").selectOption("connection"); await testId("im-task-connection").selectOption(authenticated.id);
   await testId("personal-composer-input").fill(
     "合成凭据验收，只提交这条测试内容。",
   );
   await testId("personal-composer-send").click();
   await page.waitForURL(/thread=thr_/);
   const authenticatedId = new URL(page.url()).searchParams.get("thread");
+  await testId("im-pending-bar").click();
   await testId("personal-decision-approve").waitFor();
   verify(
     (await testId("personal-decision").innerText()).includes(
@@ -171,15 +169,16 @@ async (page, until) => {
   );
   await testId("personal-decision-approve").click();
   await waitCompleted(authenticatedId);
+  await testId("im-approval-open-chat").click();
   verify(
     (await (await page.request.get("http://127.0.0.1:18746/state")).json())
       .authenticatedSubmissions === 1,
     "authenticated submission uses the server-held credential",
   );
 
-  await testId("personal-new").click();
+  await testId("im-new").click(); await testId("im-new-notes").click();
   await testId("personal-mode-menu").click();
-  await testId("personal-mode-local").click();
+  await testId("im-task-mode").selectOption("local");
   await testId("personal-composer-input").fill("合成输入法验收：尚在组词。");
   const originalURL = page.url();
   await testId("personal-composer-input").evaluate((element) =>
@@ -223,7 +222,7 @@ async (page, until) => {
   await observed;
   await page.waitForFunction(
     () =>
-      !document.querySelector("[data-testid=personal-composer-send]").disabled,
+      !document.querySelector("[data-testid=im-send]").disabled,
   );
   verify(
     (await testId("personal-composer-input").inputValue()).includes(
@@ -257,7 +256,7 @@ async (page, until) => {
   await testId("personal-search").fill(`合成历史-${historyPrefix}-119`);
   await page.waitForFunction(
     () =>
-      document.querySelectorAll("[data-testid=personal-thread-row]").length ===
+      document.querySelectorAll("[data-testid^=im-chat-thr_]").length ===
       1,
   );
   verify(

@@ -62,6 +62,9 @@ export type Run = {
   routingReason?: string;
   remoteReceipt?: unknown;
   externalVerification?: unknown;
+  requiresReconciliation?: boolean;
+  cancelPending?: boolean;
+  stopUnconfirmed?: boolean;
   contactId?: string;
   contactSnapshot?: Contact;
 };

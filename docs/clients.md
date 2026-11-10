@@ -20,27 +20,24 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Messages / reply / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-reply-message`, `im-run-status` |
 | Composer / text / send / file / mentions | `im-composer`, `im-message-input`, `im-send`, `im-attach`, `im-mention-<contactId>` |
 | Approvals / return / original artifact | `im-pending-bar`, `im-approval-open-chat`, `im-open-artifact` |
-| Existing task resume | `im-legacy-workspace` |
+| History / scratch / mode / recovery | `im-new-notes`, `im-send-options-toggle`, `im-task-mode`, `im-task-connection`, `im-send-recovery` |
+| Results / records / artifacts | `im-results`, `im-conversation-details`, `im-artifact`, `im-execution-record` |
+| Rail / list / skip | `im-rail`, `im-list-panel`, `im-skip` |
 
-The shared reader, connection preferences and decision cards retain their `personal-*` IDs below. The retained task UI is explicitly selected by `?workspace=tasks`, including in its browser/native regression scripts. It is not the default homepage. `node dev/messenger-acceptance.mjs` tests the default browser IM; add `--native` after desktop build for actual bundled Electron and IPC. Both use isolated profiles and clearly synthetic CLI/remote responses.
+Every personal conversation uses this Messenger shell, including old `?workspace=tasks&thread=…` links and scratch drafts (`?thread=new`). The old workspace parameter is removed without replacing the shell. Historical threads retain their IDs, mode/connection and draft recovery keys; no message is sent during migration. The conversation title opens its contact/group information; `im-info` opens result versions and execution records. `im-new-notes` continues the old unsent scratch draft or starts local organization. Native New Chat opens the conversation picker.
+
+The shared reader, connection preferences and decision cards retain these IDs:
 
 | Element | `data-testid` |
 |---|---|
-| App / new / sample | `personal-app`, `personal-new`, `personal-sample` |
-| Native rail / all / attention / connections / settings | `personal-desktop-rail`, `personal-desktop-all`, `personal-desktop-attention`, `personal-desktop-connections`, `personal-desktop-settings` |
-| Drawer opener / sidebar / close | `personal-menu`, `personal-sidebar`, `personal-sidebar-close` |
-| Search / attention / list / row | `personal-search`, `personal-attention-filter`, `personal-thread-list`, `personal-thread-row` (`data-thread-id`) |
-| Composer / text / send / file / mode | `personal-composer`, `personal-composer-input`, `personal-composer-send`, `personal-attachment-input`, `personal-mode-menu` |
-| Executor choices | `personal-mode-codex`, `personal-mode-local`, `personal-mode-connection-<connectionId>` |
-| Timeline / message / state / retry | `personal-timeline`, `personal-message`, `personal-current-state`, `personal-retry` |
 | Decision / approve / reject | `personal-decision`, `personal-decision-approve`, `personal-decision-reject` |
-| Artifact / results / reader | `personal-artifact`, `personal-open-result`, `personal-reader` |
-| Reader save / font / save receipt | `personal-reader-download`, `personal-reader-font`, `personal-save-receipt` |
-| Details / history | `personal-details`, `personal-execution-details` |
-| Preferences / modal / close | `personal-settings`, `personal-modal`, `personal-modal-close` |
+| Reader / save / font / save receipt | `personal-reader`, `personal-reader-download`, `personal-reader-font`, `personal-save-receipt` |
+| Modal / close / tabs | `personal-modal`, `personal-modal-close`, `personal-tab-connections`, `personal-tab-memory`, `personal-tab-about` |
 | Connection / fields / save | `personal-add-connection`, `personal-connection-name`, `personal-connection-type`, `personal-connection-url`, `personal-connection-save` |
 | Optional Bearer disclosure / password field | `personal-connection-auth-toggle`, `personal-connection-token` |
 | Memory / save | `personal-memory-input`, `personal-memory-save` |
+
+`node dev/messenger-acceptance.mjs` tests contacts, direct/group replies and approval. `node dev/conversation-acceptance.mjs` tests legacy links, exact pending-request migration, creation-response races and historical tools. Both accept `--native` after desktop build, use isolated profiles and synthetic data; the history fixture uses the existing mock keychain switch only for its fresh test profile. The complete reading/connection/browser edge checks use the same Messenger IDs.
 
 ## Retained Matrix clients
 

@@ -459,7 +459,7 @@ function sendPersonalCommand(command: PersonalCommand) {
 
 function installMenu() {
   const personalItems: Electron.MenuItemConstructorOptions[] = personalMode ? [
-    { label: "新任务", accelerator: "CmdOrCtrl+N", click: () => sendPersonalCommand("new") },
+    { label: "新聊天", accelerator: "CmdOrCtrl+N", click: () => sendPersonalCommand("new") },
     { label: "搜索", accelerator: "CmdOrCtrl+K", click: () => sendPersonalCommand("search") },
   ] : [];
   Menu.setApplicationMenu(Menu.buildFromTemplate([

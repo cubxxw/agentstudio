@@ -88,7 +88,7 @@ const capture = async name => {
   captures.push({ name, nativeWindow: true, renderer: true, size: info.size });
 };
 const openConnections = async () => {
-  await page.getByTestId('personal-desktop-connections').click();
+  await page.getByTestId('im-settings').click();
   await page.getByTestId('personal-service-connect-cue').waitFor();
 };
 const scrollConnections = edge => page.getByTestId('personal-modal').evaluate((dialog, edge) => {
@@ -193,9 +193,9 @@ const launch = async () => {
   application = await _electron.launch({ executablePath, args: packagedApp ? [] : [join(root, 'apps/desktop')], env });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
-  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); }
+
   page.on('pageerror', error => errors.push(String(error.message).split('\n')[0]));
-  await page.getByTestId('personal-desktop-rail').waitFor();
+  await page.getByTestId('im-rail').waitFor();
   verify(page.url().startsWith('file:'), 'the personal renderer loads from a bundled local file');
   if (packagedApp) verify(fileURLToPath(page.url().split('?')[0]).startsWith(`${packagedApp}/Contents/Resources/app/`), 'the tested renderer belongs to the explicit .app');
   verify(await application.evaluate(({ app }) => process.versions.electron === '45.2.1' && app.commandLine.hasSwitch('use-mock-keychain')), 'Electron 45.2.1 uses the isolated mock keychain');
@@ -238,9 +238,11 @@ try {
   await application.evaluate(({ nativeTheme }) => { nativeTheme.themeSource = 'system'; }); await page.emulateMedia({ colorScheme: null });
   await mainWindow({ kind: 'resize', width: 1200, height: 780 });
   phase = 'explicit-connection-task';
-  await page.getByTestId('personal-mode-menu').click(); await page.getByTestId(`personal-mode-connection-${cue.connectionId}`).click();
-  await page.getByTestId('personal-composer-input').fill(taskText); await page.getByTestId('personal-composer-send').click();
+  await page.getByTestId('im-new').click(); await page.getByTestId('im-new-notes').click();
+  await page.getByTestId('im-send-options-toggle').click(); await page.getByTestId('im-task-mode').selectOption('connection'); await page.getByTestId('im-task-connection').selectOption(cue.connectionId);
+  await page.getByTestId('im-message-input').fill(taskText); await page.getByTestId('im-send').click();
   await page.waitForURL(/thread=thr_/); const threadId = new URL(page.url()).searchParams.get('thread');
+  await page.getByTestId('im-pending-bar').click();
   await page.getByTestId('personal-decision-approve').waitFor({ timeout: 30000 });
   const waiting = await api(`/threads/${threadId}`);
   verify(waiting.status === 'needs_input' && waiting.runs[0].mode === 'connection' && waiting.runs[0].connectionId === cue.connectionId && waiting.artifacts.length === 0, 'the explicit service task awaits the precise approval without a result');
@@ -255,7 +257,8 @@ try {
   const after = await providerSnapshot(cue.id, [...publicSamples, completed, artifact]);
   verify(after.submitted === 1 && after.answers === 1 && after.publicSecretsAbsent, 'the fake provider records exactly one approved send and its answer without public credentials');
   verify(!JSON.stringify(completed).includes('two-day Kyoto') && !JSON.stringify(completed).includes('Revenue was up 12%'), 'unrelated provider history is absent from task context and artifacts');
-  await page.getByTestId('personal-open-result').click(); await page.getByTestId('personal-reader').waitFor(); await capture('cue-synthetic-result');
+  await page.getByTestId('im-approval-open-chat').click();
+  await page.getByTestId('im-results').click(); await page.getByTestId('im-artifact').last().click(); await page.getByTestId('personal-reader').waitFor(); await capture('cue-synthetic-result');
   const manifestBefore = JSON.parse(await readFile(join(profile, 'personal-services/manifest.json'), 'utf8'));
   verify(manifestBefore.tasks.length === 1 && manifestBefore.tasks[0].state === 'completed', 'the main-process A2A receipt is durable before restart');
   await application.close(); application = undefined;

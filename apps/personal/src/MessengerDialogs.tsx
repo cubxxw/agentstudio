@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Bot, Check, Plus, UserRound, Users } from "lucide-react";
 import { api, key } from "./api";
-import { Modal } from "./App";
+import { Modal } from "./ConversationPanels";
 import type { Contact, ResponsePolicy, Thread } from "./types";
 
 export const availabilityText: Record<Contact["availability"], string> = {

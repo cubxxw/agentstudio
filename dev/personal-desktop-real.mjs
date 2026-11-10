@@ -42,23 +42,25 @@ const begin = async () => {
   application = await _electron.launch({ executablePath: executable, args: [join(root, "apps/desktop")], env, timeout: 30000 });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
-  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); }
+
   page.on("pageerror", e => errors.push(e.message));
-  await page.getByTestId("personal-desktop-rail").waitFor();
-  await page.waitForFunction(() => document.body.innerText.includes("工作间在本机运行"));
+  await page.getByTestId("im-rail").waitFor();
+  await page.getByTestId("im-settings").waitFor();
 };
 const send = async text => {
-  await page.getByTestId("personal-composer-input").fill(text);
-  await page.getByTestId("personal-composer-send").click();
+  await page.getByTestId("im-message-input").fill(text);
+  await page.getByTestId("im-send").click();
   await page.waitForURL(/thread=thr_/);
   return new URL(page.url()).searchParams.get("thread");
 };
 
 try {
   await begin();
+  await page.getByTestId("im-new").click(); await page.getByTestId("im-new-notes").click();
+  await page.getByTestId("im-send-options-toggle").click(); await page.getByTestId("im-task-mode").selectOption("codex");
   const health = await request("/health"), initial = await request("/bootstrap");
   verify(initial.settings.codexAvailable, "existing Codex CLI is available to the native utility");
-  await page.getByTestId("personal-attachment-input").setInputFiles([
+  await page.getByTestId("im-attach").setInputFiles([
     { name: "option-a.md", mimeType: "text/markdown", buffer: Buffer.from("# 方案 A\n\n合成验收资料。20分钟：2分钟准备、16分钟阅读、2分钟记录。目标是降低开始负担，不设页数指标。") },
     { name: "option-b.md", mimeType: "text/markdown", buffer: Buffer.from("# 方案 B\n\n合成验收资料。20分钟：8分钟做计划、10分钟阅读、2分钟记录。开始前选择三个阅读指标，便于量化复盘，但增加配置。") },
   ]);
@@ -68,22 +70,23 @@ try {
   const cli = await waitForCompletion(cliId);
   verify(cli.artifacts.length === 1 && cli.artifacts[0].source === "codex", "real CLI result is saved while the window is hidden");
   await application.evaluate(({ app }) => app.emit("activate"));
-  await page.getByTestId("personal-open-result").click();
+  await page.getByTestId("im-results").click(); await page.getByTestId("im-artifact").last().click();
   await page.getByTestId("personal-reader").locator("table").waitFor();
   await page.screenshot({ path: join(evidence, "real-cli-reader.png") });
   const citation = page.getByTestId("personal-reader").locator('a[href^="#source-"]').first();
   await citation.click();
-  await page.waitForFunction(() => document.querySelectorAll("dialog[open]").length === 2);
+  await page.waitForFunction(() => document.querySelectorAll("dialog[open]").length === 3);
   verify((await page.getByRole("dialog").last().innerText()).includes("合成验收资料"), "real model citation opens the saved original");
   await page.keyboard.press("Escape");
-  await page.waitForFunction(() => document.querySelectorAll("dialog[open]").length === 1);
+  await page.waitForFunction(() => document.querySelectorAll("dialog[open]").length === 2);
   await page.getByTestId("personal-reader-download").click();
   await page.getByTestId("personal-save-receipt").waitFor();
   const saved = await readFile(join(evidence, "exports", `${cli.artifacts[0].id}.md`));
   verify(createHash("sha256").update(saved).digest("hex") === cli.artifacts[0].sha256, "native export matches the actual CLI artifact SHA-256");
   await page.keyboard.press("Escape");
 
-  await page.getByTestId("personal-desktop-connections").click();
+  await page.keyboard.press("Escape");
+  await page.getByTestId("im-settings").click();
   await page.getByTestId("personal-add-connection").click();
   await page.getByTestId("personal-connection-name").fill("公开代码文档 · DeepWiki");
   await page.getByTestId("personal-connection-type").selectOption("mcp");
@@ -94,8 +97,10 @@ try {
   const connection = connected.connections.find(item => item.name === "公开代码文档 · DeepWiki");
   verify(Boolean(connection) && !connection.auth.configured, "real public MCP handshake succeeds without private credentials");
   await page.keyboard.press("Escape");
-  await page.getByTestId("personal-new").click();
+  await page.getByTestId("im-new").click(); await page.getByTestId("im-new-notes").click();
+  await page.getByTestId("im-send-options-toggle").click(); await page.getByTestId("im-task-mode").selectOption("codex");
   const mcpId = await send("用已连接的 DeepWiki 读取 facebook/react 公开文档目录，保留目录与来源。不要使用其他工具，也不要写入任何外部数据。");
+  await page.getByTestId("im-pending-bar").click();
   await page.getByTestId("personal-decision-approve").waitFor({ timeout: 180000 });
   const before = await request(`/threads/${mcpId}`);
   verify(before.status === "needs_input" && before.artifacts.length === 0, "actual MCP action waits for the user's precise approval");
@@ -103,8 +108,9 @@ try {
   await page.getByTestId("personal-decision-approve").click();
   const mcp = await waitForCompletion(mcpId);
   verify(mcp.artifacts.length === 1 && mcp.runs.at(-1).remoteReceipt, "real public MCP result and execution receipt are saved");
-  await page.waitForFunction(() => !document.querySelector('[data-testid="personal-open-result"]')?.disabled);
-  await page.getByTestId("personal-open-result").click();
+  await page.getByTestId("im-approval-open-chat").click();
+  await page.getByTestId("im-results").waitFor();
+  await page.getByTestId("im-results").click(); await page.getByTestId("im-artifact").last().click();
   await page.waitForFunction(() => document.querySelector('[data-testid="personal-reader"] .prose')?.textContent.length > 100);
   await page.screenshot({ path: join(evidence, "real-mcp-reader.png") });
   const artifact = await request(`/artifacts/${mcp.artifacts[0].id}`);
@@ -112,6 +118,8 @@ try {
   const ids = [cliId, mcpId];
   await application.close(); application = undefined;
   await begin();
+  await page.getByTestId("im-new").click(); await page.getByTestId("im-new-notes").click();
+  await page.getByTestId("im-send-options-toggle").click(); await page.getByTestId("im-task-mode").selectOption("codex");
   const restored = await request("/bootstrap");
   verify(ids.every(id => restored.threads.some(thread => thread.id === id && thread.status === "completed")), "actual CLI and MCP work survives quitting and relaunching the native app");
   verify(errors.length === 0, "native real journeys have no renderer errors");

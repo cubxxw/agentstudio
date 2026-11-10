@@ -20,9 +20,9 @@ try{
  app=await _electron.launch({executablePath,args:packaged?[]:[join(root,'apps/desktop')],env});
  page=await app.firstWindow();
  await page.getByTestId("im-app").waitFor();
- {const legacyUrl=new URL(page.url());legacyUrl.searchParams.set("workspace","tasks");await page.goto(legacyUrl.href);}
+
 page.on('pageerror',e=>errors.push(e.name));
- await page.getByTestId('personal-desktop-connections').click();
+ await page.getByTestId('im-settings').click();
  await page.getByTestId('personal-service-connect-muse').click();
  await expect.poll(async()=>page.evaluate(()=>JSON.parse(sessionStorage.getItem('agentstudio.personal.native-connection-flow')||'null')?.flowId)).toBeTruthy();
  flowId=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('agentstudio.personal.native-connection-flow')).flowId);

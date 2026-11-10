@@ -128,3 +128,5 @@ dev/                      local stack: stack manager (stack.mjs), config templat
 - **No E2EE in v0.1.** Bridges must read plaintext. This matches the bridge model; see `docs/api.md` § Security.
 - **Open protocols first, the user's own session where there is none.** Agents that speak the AgentStudio Agent Protocol, A2A or ACP connect on the server (`docs/agent-protocol.md`). Grok Bot, Muse and ChatGPT Dots have no public API, so the Mac app connects them through the user's own signed-in session (`docs/connectors.md`): their sign-ins stay on the Mac, encrypted, and the services can change or object at any time.
 - **Determinism for tests.** The `demo` bridge and the `concierge` agent behave deterministically, so e2e runs without real accounts.
+
+Historical personal tasks and current direct/group chats use the same Messenger renderer. `workspace=tasks` is a compatible old URL parameter, not a separate UI. Shared conversation tools own reading, connection preferences and precise approval; history keeps its existing thread IDs and protocols.
