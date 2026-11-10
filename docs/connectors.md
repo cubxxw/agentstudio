@@ -1,5 +1,7 @@
 # Connectors on the Mac: Grok Bot, Muse, ChatGPT Dots, Cue
 
+These are the retained **Matrix-mode** connectors, selected by `AGENTSTUDIO_WORKSPACE=matrix`. Default personal startup does not initialize them or read their saved sessions. The personal workspace instead uses explicitly configured A2A/MCP endpoints and an optional separate Bearer file vault; see [the personal guide](personal/README.md). Its public identity metadata is not a verified remote account.
+
 Hullo connects these agents through each user's own web session, and so does AgentStudio. None of them offers an API for third-party inboxes. AgentStudio differs in one way: the connectors run inside the Mac app, so the user's sign-ins never leave the Mac.
 
 > **Experimental, and for personal use only.** These connectors are for reaching your own agents with your own accounts on your own Mac. AgentStudio isn't affiliated with or endorsed by xAI / SpaceX AI, Cursor (Anysphere), Meta, OpenAI or Manus. Except for Cue's messaging (Manus's documented API), they work the way each service's own app or website does, which may be against a service's terms and can break at any time; you are responsible for following each service's terms. Each connector was built from the service's public client code and checked against fakes (`e2e/fakes/agents.ts`); expect to calibrate it on first real use (see *Calibrating* below).

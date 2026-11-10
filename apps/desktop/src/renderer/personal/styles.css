@@ -1,0 +1,317 @@
+/* The existing macOS "porch light" system, applied to the personal workflow.
+   This entry has its own document: legacy and personal global styles never mix. */
+html.macos-app {
+  --font-display: "Bricolage Grotesque Variable", -apple-system, "PingFang SC", sans-serif;
+  --ink: #1a2233;
+  --secondary: #5a6478;
+  --quiet: #768197;
+  --line: rgb(26 34 51 / 8%);
+  --accent: #3247a8;
+  --accent-soft: #e3e8f8;
+  --attention: #7a4a05;
+  --attention-soft: #fff1d9;
+  --porch: #f2a93b;
+  --moss: #2e7d5b;
+  --danger: #b4321f;
+  --paper: #fff;
+  --canvas: #eef1f7;
+  --glass: rgb(255 255 255 / 60%);
+  --glass-strong: rgb(255 255 255 / 88%);
+  --glass-ring: inset 0 0 0 1px rgb(255 255 255 / 80%);
+  --shadow: 0 1px 2px rgb(26 34 51 / 5%), 0 10px 28px rgb(26 34 51 / 8%);
+  --sky: radial-gradient(48% 38% at 8% 0%, #ffffffd9, #fff0 70%),
+    radial-gradient(40% 30% at 92% 92%, #ffe2c48c, #fff0 70%),
+    linear-gradient(180deg, #d9e2f4, #e6eaf6 38%, #eff0f6 70%, #f6f0ec);
+  color: var(--ink);
+  background: var(--sky);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  html.macos-app {
+    --ink: #eef1f8;
+    --secondary: #a5aec2;
+    --quiet: #909bb0;
+    --line: rgb(255 255 255 / 9%);
+    --accent: #9aabff;
+    --accent-soft: #2c3560;
+    --attention: #ffcf85;
+    --attention-soft: #3a2c14;
+    --moss: #6fcf9e;
+    --danger: #ff8a78;
+    --paper: #232a3b;
+    --canvas: #2a3245;
+    --glass: rgb(30 36 52 / 66%);
+    --glass-strong: rgb(36 42 60 / 94%);
+    --glass-ring: inset 0 0 0 1px rgb(255 255 255 / 8%);
+    --shadow: 0 1px 2px #0003, 0 10px 28px #0003;
+    --sky: radial-gradient(48% 38% at 8% 0%, #788cd238, #0000 70%),
+      radial-gradient(40% 30% at 92% 92%, #f2a93b1f, #0000 70%),
+      linear-gradient(180deg, #141a2b, #161b29 50%, #1b1a22);
+  }
+}
+.macos-app body {
+  color: var(--ink);
+  background: var(--sky);
+  background-attachment: fixed;
+  font-size: 14px;
+  user-select: none;
+  overflow: hidden;
+}
+.macos-app button,
+.macos-app a,
+.macos-app input,
+.macos-app textarea,
+.macos-app select { -webkit-app-region: no-drag; }
+.macos-app :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.macos-app ::selection { background: var(--accent-soft); color: var(--ink); }
+.macos-app .prose,
+.macos-app .message-content,
+.macos-app .decision-scope,
+.macos-app .reader-scroll,
+.macos-app input,
+.macos-app textarea { user-select: text; }
+.macos-app button { transition: background 130ms ease, box-shadow 130ms ease; }
+.macos-app button:active:not(:disabled) { filter: brightness(.96); }
+.macos-app .workspace { background: transparent; }
+.desktop-rail {
+  display: flex;
+  flex: 0 0 72px;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 20px;
+}
+.desktop-window-drag { height: 68px; width: 100%; flex-shrink: 0; -webkit-app-region: drag; }
+.desktop-app-icon { width: 32px; height: 32px; border-radius: 10px; margin: 0 0 24px; }
+.desktop-rail-items { display: flex; flex-direction: column; gap: 13px; }
+.desktop-rail-item {
+  display: grid;
+  place-items: center;
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+  color: var(--secondary);
+}
+.desktop-rail-item:hover { background: var(--glass); color: var(--ink); }
+.desktop-rail-item.selected { background: var(--glass-strong); box-shadow: var(--glass-ring), var(--shadow); color: var(--accent); }
+.desktop-rail-badge {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 20px;
+  background: var(--porch);
+  color: #452a04;
+  font-size: 10px;
+  line-height: 17px;
+  font-weight: 700;
+}
+.desktop-rail-bottom { margin-top: auto; }
+.macos-app .sidebar {
+  width: clamp(260px, 27vw, 330px);
+  padding: 22px 16px 16px;
+  margin: 12px 0 12px;
+  background: var(--glass);
+  border-radius: 22px;
+  box-shadow: var(--glass-ring);
+  backdrop-filter: blur(22px) saturate(1.2);
+}
+.macos-app .brand { font-family: var(--font-display); font-size: 24px; padding: 0 8px; -webkit-app-region: drag; }
+.macos-app .new-thread {
+  margin: 24px 2px 14px;
+  border-radius: 999px;
+  padding: 11px 14px;
+  background: var(--glass-strong);
+  box-shadow: var(--glass-ring), 0 1px 3px #1a22330a;
+}
+.macos-app .new-thread:hover { background: var(--paper); }
+.macos-app kbd { color: var(--quiet); }
+.macos-app .search-field { margin-inline: 2px; border-radius: 12px; background: transparent; }
+.macos-app .search-field:focus-within { background: var(--glass-strong); box-shadow: 0 0 0 2px var(--accent); }
+.macos-app .search-field input { color: var(--ink); }
+.macos-app .list-filter { padding-inline: 10px; margin-top: 10px; }
+.macos-app .list-filter span { background: var(--attention-soft); color: var(--attention); }
+.macos-app .thread-list { margin-inline: -6px; padding-inline: 5px; }
+.macos-app .thread-row { padding: 13px 12px; border-radius: 14px; margin-bottom: 4px; }
+.macos-app .thread-row:hover { background: var(--glass); }
+.macos-app .thread-row.current { background: var(--glass-strong); box-shadow: var(--glass-ring), 0 2px 8px #1a223306; }
+.macos-app .thread-row-title { font-size: 14px; gap: 9px; }
+.macos-app .thread-row p { font-size: 12px; line-height: 1.5; margin-top: 6px; }
+.macos-app .sidebar-footer { border: 0; padding: 12px 8px 0; }
+.macos-app .sidebar-footer .settings-button { display: none; }
+.macos-app .runtime-note { font-size: 11px; }
+.macos-app .connection-dot.online { background: var(--moss); }
+.macos-app .main { background: transparent; }
+.macos-app .topbar {
+  position: relative;
+  flex-shrink: 0;
+  height: 110px;
+  min-height: 110px;
+  border: 0;
+  padding: 14px 24px 8px;
+  background: transparent;
+  -webkit-app-region: drag;
+}
+.macos-app .topbar-location { flex: 1; justify-content: center; min-width: 0; }
+.desktop-chat-heading { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: min(370px, 60%); }
+.desktop-chat-heading img { width: 34px; height: 34px; border-radius: 11px; box-shadow: var(--glass-ring), 0 2px 6px #1a22330a; }
+.desktop-chat-heading strong {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 650;
+  max-width: 100%;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  color: var(--ink);
+  letter-spacing: -.02em;
+}
+.desktop-chat-heading > span { color: var(--secondary); font-size: 11px; }
+.macos-app .topbar-actions { position: absolute; right: 24px; top: 32px; gap: 6px; }
+.macos-app .topbar-actions > .status-mark { display: none; }
+.macos-app .results-button,
+.macos-app .topbar-actions .icon-button { background: var(--glass); border-radius: 999px; min-height: 32px; box-shadow: var(--glass-ring); }
+.macos-app .topbar-actions .icon-button:hover,
+.macos-app .results-button:hover { background: var(--glass-strong); }
+.macos-app .thread-intro { padding-bottom: 4px; text-align: center; }
+.macos-app .thread-intro > p { font-size: 11px; margin: 4px 0 20px; }
+.macos-app .thread-intro h1 { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+.macos-app .timeline { padding-inline: clamp(24px, 4vw, 52px); }
+.macos-app .conversation { max-width: 730px; padding-top: 8px; }
+.macos-app .message { margin-top: 20px; margin-bottom: 26px; }
+.macos-app .message-author { font-size: 11px; }
+.macos-app .message-author time { font-size: 10px; }
+.macos-app .message-user { max-width: 85%; }
+.macos-app .message-user .message-content { background: var(--accent-soft); border-radius: 20px 20px 6px 20px; padding: 13px 18px; }
+.macos-app .assistant-mark { border-radius: 7px; background: var(--glass-strong); color: var(--accent); }
+.macos-app .prose { font-size: 15px; line-height: 1.9; }
+.macos-app .prose blockquote { border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+.macos-app .prose code,
+.macos-app .prose .code-block,
+.macos-app .code-copy,
+.macos-app .prose th { background: var(--canvas); }
+.macos-app .prose pre code { background: none; }
+.macos-app .prose .code-block { border-radius: 12px; }
+.macos-app .conversation-footer { padding: 8px 32px 22px; background: transparent; }
+.macos-app .composer-wrap { max-width: 730px; }
+.macos-app .composer {
+  background: var(--glass-strong);
+  border: 0;
+  border-radius: 24px;
+  padding: 16px 18px 11px;
+  box-shadow: var(--glass-ring), var(--shadow);
+  backdrop-filter: blur(20px) saturate(1.2);
+}
+.macos-app .composer:focus-within { box-shadow: var(--glass-ring), 0 0 0 2px color-mix(in srgb, var(--accent) 38%, transparent), var(--shadow); }
+.macos-app .composer textarea { font-size: 15px; line-height: 1.7; min-height: 42px; }
+.macos-app .composer textarea::placeholder { color: var(--quiet); }
+.macos-app .send-button { border-radius: 50%; width: 34px; height: 34px; background: var(--accent); color: var(--paper); }
+.macos-app .send-button:hover:not(:disabled),
+.macos-app .primary-button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, var(--ink)); }
+.macos-app .send-button:disabled { background: var(--canvas); color: var(--quiet); }
+.macos-app .composer-caption { font-size: 11px; padding: 0 8px; }
+.macos-app .mode-button { font-size: 12px; min-height: 30px; }
+.macos-app .reader-toolbar .text-button { font-size: 12px; min-height: 34px; padding: 7px 10px; }
+.macos-app .topbar-actions .icon-button,
+.macos-app .topbar-actions .results-button { min-width: 36px; min-height: 34px; padding: 8px 10px; }
+.macos-app .mode-options { background: var(--glass-strong); border: 0; border-radius: 16px; box-shadow: var(--glass-ring), var(--shadow); backdrop-filter: blur(22px); }
+.macos-app .mode-options button:hover,
+.macos-app .mode-options button.selected { background: var(--accent-soft); }
+.macos-app .mode-options .selected > svg { color: var(--accent); }
+.macos-app .welcome { padding: 10px 38px 22px; }
+.macos-app .welcome-content { max-width: 650px; }
+.macos-app .welcome h1 { font-family: var(--font-display); font-size: 30px; font-weight: 650; letter-spacing: -.02em; }
+.macos-app .welcome-glyph { color: var(--accent); }
+.macos-app .welcome-glyph > span { background: var(--accent-soft); }
+.macos-app .welcome-salutation { color: var(--secondary); font-size: 13px; }
+.macos-app .welcome-copy { color: var(--secondary); font-size: 14px; }
+.macos-app .welcome .composer-wrap { margin-top: 28px; }
+.macos-app .starting-points button { border-radius: 999px; background: var(--glass); box-shadow: var(--glass-ring); color: var(--secondary); padding: 9px 12px; }
+.macos-app .starting-points button > svg { color: var(--accent); }
+.macos-app .starting-points button:hover { background: var(--glass-strong); color: var(--ink); }
+.macos-app .sample-note { font-size: 11px; }
+.macos-app .welcome-footnote { color: var(--secondary); }
+.macos-app .artifact { border: 0; border-radius: 18px; background: var(--glass-strong); box-shadow: var(--glass-ring), 0 3px 12px #1a223305; }
+.macos-app .artifact:hover { background: var(--paper); }
+.macos-app .artifact-symbol { border-radius: 10px; background: var(--accent-soft); }
+.macos-app .current-state { border-left-color: var(--accent); background: var(--glass); border-radius: 12px; }
+.macos-app .current-state-attention { border-left-color: var(--porch); background: var(--attention-soft); }
+.macos-app .pending-anchor { background: var(--attention-soft); border-radius: 12px; }
+.macos-app .decision { border: 0; border-radius: 24px; background: var(--glass-strong); box-shadow: var(--glass-ring); padding: 22px 24px; }
+.macos-app .decision-pending { box-shadow: 0 0 0 1px #f2a93b59, 0 10px 36px -8px #ffc46655; }
+.macos-app .decision-dot { background: var(--porch); }
+.macos-app .decision h3 { font-family: var(--font-display); font-size: 18px; }
+.macos-app .decision-preview { background: var(--attention-soft); border-radius: 12px; }
+.macos-app .primary-button,
+.macos-app .secondary-button { border-radius: 999px; }
+.macos-app .secondary-button { background: var(--canvas); }
+.macos-app .secondary-button:hover { background: var(--accent-soft); }
+.macos-app .primary-button { color: var(--paper); }
+.macos-app .new-content { background: var(--glass-strong); box-shadow: var(--glass-ring), var(--shadow); }
+.macos-app .connection-banner { color: var(--attention); background: var(--attention-soft); }
+.macos-app .connection-banner button { color: var(--attention); }
+.macos-app .modal { margin: 54px auto 20px; max-height: calc(100dvh - 74px); border-radius: 20px; background: var(--paper); box-shadow: var(--glass-ring), 0 20px 70px #10182f33; }
+.macos-app .modal::backdrop { background: #111a3038; backdrop-filter: blur(8px); }
+.macos-app .modal-inner { max-height: calc(100dvh - 74px); }
+.macos-app .modal-header { background: var(--glass); padding: 20px 26px 16px; }
+.macos-app .modal-header h2 { font-family: var(--font-display); font-size: 18px; }
+.macos-app .preference-tabs { padding-top: 8px; }
+.macos-app .connection-card { background: var(--canvas); border-color: var(--line); }
+.macos-app .preferences-content input,
+.macos-app .preferences-content textarea,
+.macos-app .preferences-content select { background: var(--paper); border-color: var(--line); color: var(--ink); }
+.macos-app .reader-modal { width: min(940px, calc(100vw - 48px)); }
+.macos-app .reader-scroll .prose { font-size: 17px; line-height: 1.95; }
+.macos-app .reader-toolbar { background: var(--glass); border-color: var(--line); }
+.macos-app .native-save-note { font-size: 12px; color: var(--secondary); margin: 0; padding: 10px 28px; border-bottom: 1px solid var(--line); }
+.native-startup-error { padding: 100px 64px; max-width: 720px; color: var(--ink); }
+.native-startup-error h1 { font: 26px var(--font-display); }
+.native-startup-error p { line-height: 1.8; color: var(--secondary); }
+@media (max-width: 1000px) {
+  .macos-app .sidebar { width: 260px; }
+  .macos-app .topbar-actions { right: 16px; }
+  .macos-app .results-button span { display: none; }
+  .desktop-chat-heading { max-width: 58%; }
+  .macos-app .timeline { padding-inline: 22px; }
+  .macos-app .conversation-footer { padding-inline: 22px; }
+  .macos-app .welcome { padding-inline: 24px; }
+  .macos-app .welcome h1 { font-size: 26px; }
+}
+@media (max-width: 900px) {
+  .macos-app .sidebar { position: fixed; inset: 12px auto 12px 72px; z-index: 30; width: 290px; margin: 0; transform: translateX(calc(-100% - 80px)); background: var(--glass-strong); box-shadow: var(--glass-ring), var(--shadow); }
+  .macos-app .sidebar.sidebar-open { transform: translateX(0); }
+  .macos-app .sidebar-scrim { display: block; position: fixed; inset: 0; z-index: 20; background: #111a3038; }
+  .macos-app .mobile-close { display: grid; margin-left: auto; }
+  .macos-app .native-sidebar-toggle { display: grid; position: absolute; left: 18px; top: 32px; width: 34px; height: 34px; }
+  .macos-app .desktop-chat-heading { max-width: calc(100% - 190px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .macos-app *, .macos-app *::before, .macos-app *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+/* Electron zoom changes the CSS viewport too. Keep the list reachable without
+   forcing a wide window, and leave the actual macOS controls unobstructed. */
+@media (max-width: 700px) {
+  .desktop-rail { flex-basis: 58px; }
+  .desktop-window-drag { height: 58px; }
+  .desktop-app-icon { width: 28px; height: 28px; margin-bottom: 18px; }
+  .desktop-rail-item { width: 38px; height: 38px; border-radius: 12px; }
+  .macos-app .sidebar { inset: 0 auto 0 0; width: min(290px, calc(100vw - 48px)); margin: 0; border-radius: 0 18px 18px 0; padding-top: 52px; background: var(--glass-strong); }
+  .macos-app .sidebar-scrim { background: #111a3038; }
+  .macos-app .topbar { height: 94px; min-height: 94px; padding: 10px 14px; }
+  .macos-app .native-sidebar-toggle { display: grid; position: absolute; left: 12px; top: 32px; }
+  .macos-app .topbar-actions { right: 12px; top: 32px; }
+  .desktop-chat-heading { max-width: calc(100% - 150px); }
+  .desktop-chat-heading img { width: 28px; height: 28px; }
+  .desktop-chat-heading strong { font-size: 14px; }
+  .desktop-chat-heading > span { font-size: 10px; }
+  .macos-app .welcome { padding: 10px 18px 16px; }
+  .macos-app .welcome h1 { font-size: 23px; }
+  .macos-app .timeline { padding-inline: 16px; }
+  .macos-app .conversation-footer { padding: 8px 16px 14px; }
+  .macos-app .composer-caption { display: none; }
+  .macos-app .modal { margin-top: 44px; max-height: calc(100dvh - 60px); }
+  .macos-app .modal-inner { max-height: calc(100dvh - 60px); }
+  .macos-app .reader-modal { width: calc(100vw - 24px); }
+}

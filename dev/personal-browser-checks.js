@@ -1,6 +1,6 @@
 // Run this function with playwright-cli run-code against dev/personal-qa.mjs.
 // All data and remote actions are synthetic. No real model is invoked.
-async (page) => {
+async (page, until) => {
   const checks = [];
   const verify = (condition, name) => {
     if (!condition) throw new Error(name);
@@ -10,7 +10,7 @@ async (page) => {
   const shot = "output/playwright/personal";
   const testId = (id) => page.getByTestId(id);
   const waitCompleted = async (id, count = 1) =>
-    page.waitForFunction(
+    until(() => page.evaluate(
       async ({ id, count }) => {
         const response = await fetch(`/api/threads/${id}`);
         const thread = await response.json();
@@ -19,8 +19,7 @@ async (page) => {
         );
       },
       { id, count },
-      { timeout: 30000, polling: 200 },
-    );
+    ));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(base);
   await testId("personal-app").waitFor();
@@ -194,11 +193,11 @@ async (page) => {
   await testId("personal-composer-send").click();
   await page.waitForURL(/thread=thr_/);
   const blockedId = new URL(page.url()).searchParams.get("thread");
-  await page.waitForFunction(
+  await until(() => page.evaluate(
     async (id) =>
       (await (await fetch(`/api/threads/${id}`)).json()).status === "blocked",
     blockedId,
-  );
+  ));
   verify(
     (await testId("personal-artifact").count()) === 0,
     "missing executor never creates successful output",

@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
+  "exports": {
+    "./ui": "./src/App.tsx",
+    "./styles.css": "./src/styles.css",
+    "./desktop-contract": "./src/desktop-contract.ts",
+    "./native": "./src/native.ts"
+  },
   "engines": { "node": ">=22.13" },
   "scripts": {
     "dev": "node dev.mjs",
@@ -13,6 +19,7 @@
     "test": "node --test server/*.test.mjs"
   },
   "dependencies": {
+    "@agentstudio/brand": "workspace:*",
     "lucide-react": "^1.66.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",

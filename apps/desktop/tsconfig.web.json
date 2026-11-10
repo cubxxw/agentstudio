@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/renderer/src", "src/shared", "test/**/*.web.test.ts"]
+  "include": ["src/renderer/src", "src/renderer/personal", "src/shared", "test/**/*.web.test.ts"]
 }

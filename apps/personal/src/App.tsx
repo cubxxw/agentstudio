@@ -38,6 +38,8 @@ import {
   X,
 } from "lucide-react";
 import { api, key } from "./api";
+import { desktopBridge } from "./native";
+import appIcon from "@agentstudio/brand/assets/agentstudio.png";
 import { RichText } from "./Markdown";
 import type {
   Artifact,
@@ -218,6 +220,9 @@ function Reader({
   const [sourceError, setSourceError] = useState("");
   const [large, setLarge] = useState(storage.get("large-type", false));
   const [source, setSource] = useState<Attachment | null>(null);
+  const [downloadNote, setDownloadNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const desktop = desktopBridge();
   const scroll = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let current = true;
@@ -258,7 +263,26 @@ function Reader({
           >
             字号 {large ? "大" : "标准"}
           </button>
-          <a
+          {desktop ? <button
+            className="text-button"
+            data-testid="personal-reader-download"
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              setDownloadNote("");
+              try {
+                const result = await desktop.saveArtifact(artifact.id);
+                if (!result.cancelled) setDownloadNote(`已保存 ${result.fileName ?? "报告"}`);
+              } catch (error) {
+                setDownloadNote(errorText(error));
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            <Download size={15} />
+            {saving ? "正在保存…" : "存储原文…"}
+          </button> : <a
             className="text-button"
             data-testid="personal-reader-download"
             href={`/api/artifacts/${artifact.id}/download`}
@@ -266,9 +290,10 @@ function Reader({
           >
             <Download size={15} />
             下载原文
-          </a>
+          </a>}
         </div>
       </div>
+      {downloadNote && <p className="native-save-note" role="status" data-testid="personal-save-receipt">{downloadNote}</p>}
       <div
         className="reader-scroll"
         ref={scroll}
@@ -346,13 +371,15 @@ function Preferences({
   data,
   onRefresh,
   onClose,
+  initialTab = "connections",
 }: {
   data: Bootstrap;
   onRefresh: () => Promise<void>;
   onClose: () => void;
+  initialTab?: "connections" | "memory" | "about";
 }) {
   const [tab, setTab] = useState<"connections" | "memory" | "about">(
-    "connections",
+    initialTab,
   );
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -1087,8 +1114,10 @@ function Composer({
 }
 
 export function App() {
+  const desktop = desktopBridge();
+  const navigationBreakpoint = desktop ? "(max-width: 900px)" : "(max-width: 700px)";
   const [narrow, setNarrow] = useState(
-    () => window.matchMedia("(max-width: 700px)").matches,
+    () => window.matchMedia(navigationBreakpoint).matches,
   );
   const [data, setData] = useState<Bootstrap | null>(
     storage.get("bootstrap", null),
@@ -1112,6 +1141,7 @@ export function App() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "attention">("all");
   const [preferences, setPreferences] = useState(false);
+  const [preferencesTab, setPreferencesTab] = useState<"connections" | "memory" | "about">("connections");
   const [reading, setReading] = useState<Artifact | null>(null);
   const [sourcePreview, setSourcePreview] = useState<Attachment | null>(null);
   const [details, setDetails] = useState(false);
@@ -1165,11 +1195,11 @@ export function App() {
     nearBottom.current = true;
   }, []);
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 700px)");
+    const media = window.matchMedia(navigationBreakpoint);
     const update = () => setNarrow(media.matches);
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
-  }, []);
+  }, [navigationBreakpoint]);
   useEffect(() => {
     const navigate = () => {
       const id = initialId();
@@ -1201,22 +1231,26 @@ export function App() {
       }
     };
     void synchronize();
-    const events = new EventSource("/api/events");
+    const events = desktop ? null : new EventSource("/api/events");
     const invalidate = () => {
       clearTimeout(timer);
       timer = setTimeout(() => void synchronize(), 120);
     };
-    events.addEventListener("invalidation", invalidate);
-    events.onmessage = invalidate;
-    events.onopen = () => {
+    const unsubscribe = desktop?.onChanged(invalidate);
+    if (events) {
+      events.addEventListener("invalidation", invalidate);
+      events.onmessage = invalidate;
+      events.onopen = () => {
       if (live) {
         setConnected(true);
         void synchronize();
       }
     };
-    events.onerror = () => {
+      events.onerror = () => {
       if (live) setConnected(false);
-    };
+      };
+    }
+    const fallback = desktop ? setInterval(() => void synchronize(), 10_000) : undefined;
     const visible = () => {
       if (!document.hidden) void synchronize();
     };
@@ -1226,12 +1260,27 @@ export function App() {
     return () => {
       live = false;
       clearTimeout(timer);
-      events.close();
+      events?.close();
+      unsubscribe?.();
+      clearInterval(fallback);
       document.removeEventListener("visibilitychange", visible);
       window.removeEventListener("online", invalidate);
       window.removeEventListener("offline", invalidate);
     };
   }, [refresh, loadThread]);
+  useEffect(() => desktop?.onCommand((command) => {
+    if (document.querySelector("dialog[open]")) return;
+    if (command === "new") {
+      open(null);
+      requestAnimationFrame(() => document.getElementById("composer-input")?.focus());
+    } else if (command === "search") {
+      setSidebar(true);
+      requestAnimationFrame(() => searchInput.current?.focus());
+    } else {
+      setPreferencesTab("connections");
+      setPreferences(true);
+    }
+  }), [open]);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (document.querySelector("dialog[open]")) return;
@@ -1411,6 +1460,18 @@ export function App() {
       <a className="skip-link" data-testid="personal-skip" href="#main-content">
         跳到主要内容
       </a>
+      {desktop && (
+        <nav className="desktop-rail" aria-label="工作区导航" data-testid="personal-desktop-rail">
+          <div className="desktop-window-drag" />
+          <img className="desktop-app-icon" src={appIcon} alt="AgentStudio" />
+          <div className="desktop-rail-items">
+            <button className={`desktop-rail-item${filter === "all" ? " selected" : ""}`} aria-label="所有事情" title="所有事情" aria-pressed={filter === "all"} data-testid="personal-desktop-all" onClick={() => { setFilter("all"); setSearch(""); if (narrow) setSidebar(true); }}><MessageCircle size={21} /></button>
+            <button className={`desktop-rail-item${filter === "attention" ? " selected" : ""}`} aria-label="需要你处理" title="需要你处理" aria-pressed={filter === "attention"} data-testid="personal-desktop-attention" onClick={() => { setFilter("attention"); setSearch(""); if (narrow) setSidebar(true); }}><CheckCircle2 size={21} />{waiting.length > 0 && <span className="desktop-rail-badge">{waiting.length}</span>}</button>
+            <button className="desktop-rail-item" aria-label="连接工具" title="连接工具" data-testid="personal-desktop-connections" onClick={() => { setPreferencesTab("connections"); setPreferences(true); }}><Plus size={22} /></button>
+          </div>
+          <button className="desktop-rail-item desktop-rail-bottom" aria-label="偏好设置" title="偏好设置" data-testid="personal-desktop-settings" onClick={() => { setPreferencesTab("memory"); setPreferences(true); }}><Settings2 size={21} /></button>
+        </nav>
+      )}
       {sidebar && (
         <button
           className="sidebar-scrim"
@@ -1425,10 +1486,10 @@ export function App() {
         inert={narrow && !sidebar}
       >
         <div className="brand">
-          <span className="brand-symbol">
+          {!desktop && <span className="brand-symbol">
             <MessageCircle size={19} strokeWidth={1.8} />
-          </span>
-          <span>AgentStudio</span>
+          </span>}
+          <span>{desktop ? "事情" : "AgentStudio"}</span>
           <button
             className="icon-button mobile-close"
             data-testid="personal-sidebar-close"
@@ -1538,6 +1599,12 @@ export function App() {
         </div>
         <header className="topbar">
           <div className="topbar-location">
+            {desktop && narrow && <button className="icon-button native-sidebar-toggle" data-testid="personal-menu" aria-label="打开事情列表" onClick={() => setSidebar(true)}><Menu size={20} /></button>}
+            {desktop ? <div className="desktop-chat-heading">
+              <img src={appIcon} alt="" />
+              <strong title={thread?.title}>{thread?.title ?? "本机助手"}</strong>
+              <span>{thread ? statusText[thread.status] : connected ? "对话、进展与成果" : "正在连接工作间…"}</span>
+            </div> : <>
             <button
               className="icon-button menu-toggle"
               data-testid="personal-menu"
@@ -1553,6 +1620,7 @@ export function App() {
                 <span className="topbar-title">{thread.title}</span>
               </>
             )}
+            </>}
           </div>
           <div className="topbar-actions">
             {thread && (
@@ -1566,6 +1634,7 @@ export function App() {
                       setReading(thread.artifacts.at(-1)!);
                   }}
                   data-testid="personal-open-result"
+                  aria-label="打开这件事的成果"
                 >
                   <FolderOpen size={16} />
                   <span>
@@ -1597,7 +1666,7 @@ export function App() {
             <button
               className="text-button"
               onClick={() =>
-                void refresh()
+                void Promise.resolve(desktop?.restart()).then(() => refresh())
                   .then(() => {
                     setConnected(true);
                     setError("");
@@ -2072,6 +2141,7 @@ export function App() {
       {preferences && data && (
         <Preferences
           data={data}
+          initialTab={preferencesTab}
           onRefresh={refresh}
           onClose={() => setPreferences(false)}
         />

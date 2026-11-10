@@ -20,6 +20,7 @@
     "dev:logs": "node dev/stack.mjs logs",
     "dev:env": "node dev/stack.mjs env",
     "dev:desktop": "pnpm --filter @agentstudio/desktop dev",
+    "package:mac": "pnpm --filter @agentstudio/desktop package:mac",
     "dev:mobile": "pnpm --filter @agentstudio/mobile web",
     "test": "pnpm run test:dev && pnpm run test:go && pnpm -r --if-present test",
     "test:dev": "node --test dev/stack.test.mjs",

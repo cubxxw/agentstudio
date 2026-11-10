@@ -8,6 +8,9 @@ const requireDesktop = createRequire(
 );
 const requireTest = createRequire(requireDesktop.resolve("@playwright/test"));
 const { chromium } = requireTest("playwright");
+const { expect } = requireDesktop("@playwright/test");
+const until = (probe, timeout = 30000) =>
+  expect.poll(probe, { timeout, intervals: [100, 200, 500] }).toBeTruthy();
 const evidenceDir = resolve("output/playwright/personal");
 await mkdir(evidenceDir, { recursive: true });
 const browser = await chromium.launch({
@@ -30,7 +33,7 @@ try {
     .replace(/;$/, "");
   const checks = new Function(`return (${source})`)();
   const result = await Promise.race([
-    checks(page),
+    checks(page, until),
     new Promise((_, reject) => {
       timeout = setTimeout(
         () => reject(new Error("Browser acceptance exceeded 120 seconds")),

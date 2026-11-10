@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package:mac": "electron-vite build && node package-mac.mjs",
     "start": "electron-vite preview",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p e2e-smoke/tsconfig.json --noEmit",
     "test": "vitest run",
@@ -17,6 +18,7 @@
     "@fontsource-variable/bricolage-grotesque": "5.3.0",
     "@agentstudio/brand": "workspace:*",
     "@agentstudio/core": "workspace:*",
+    "@agentstudio/personal": "workspace:*",
     "lucide-react": "^1.66.0",
     "matrix-js-sdk": "45.0.0",
     "qrcode": "1.5.4",
@@ -24,6 +26,7 @@
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
     "@playwright/test": "1.64.1",
     "@types/node": "26.6.6",
     "@types/qrcode": "1.5.6",

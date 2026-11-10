@@ -6,18 +6,21 @@
 // A strict CSP limits network access to the configured server origin.
 
 import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { delimiter, join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   BrowserWindow,
   app,
   dialog,
   ipcMain,
+  Menu,
   nativeTheme,
   net,
   protocol,
   session,
   shell,
+  utilityProcess,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -29,8 +32,11 @@ import { DesktopStorage } from "./storage";
 import { ConnectorManager, connectorsEnvFromProcess } from "./connectors/manager";
 import { buildDiagnostics, writeDiagnostics } from "./diagnostics";
 import appIcon from "../../resources/icon.png?asset";
+import { PersonalHost } from "./personal-host";
+import { PERSONAL_IPC, isTrustedDocument, personalCsp, type PersonalCommand } from "../shared/personal-api";
 
 declare const __APP_VERSION__: string;
+declare const __APP_REVISION__: string;
 
 // ---- profile isolation (must happen before "ready") ----------------------------
 
@@ -46,9 +52,11 @@ if (process.env.AGENTSTUDIO_MOCK_KEYCHAIN === "1") app.commandLine.appendSwitch(
 app.setName("AgentStudio");
 if (!userDataDir) app.setPath("userData", join(app.getPath("appData"), "AgentStudio"));
 
+const personalMode = process.env.AGENTSTUDIO_WORKSPACE !== "matrix";
 const devServerUrl = !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined;
-const rendererHtml = join(__dirname, "../renderer/index.html");
+const rendererHtml = join(__dirname, personalMode ? "../renderer/personal/index.html" : "../renderer/index.html");
 const rendererFileUrl = pathToFileURL(rendererHtml).href;
+const rendererDocumentUrl = devServerUrl ? new URL(personalMode ? "personal/index.html" : "index.html", `${devServerUrl.replace(/\/+$/, "")}/`).href : rendererFileUrl;
 
 let storage: DesktopStorage;
 let connectors: ConnectorManager;
@@ -56,6 +64,9 @@ let notifier: DesktopNotifier;
 let mainWindow: BrowserWindow | null = null;
 let windowShown = false;
 let quitting = false;
+let personalHost: PersonalHost | undefined;
+let shutdownPromise: Promise<void> | undefined;
+let shutdownComplete = false;
 
 function serverUrl(): string {
   return resolveServerUrl(process.env.AGENTSTUDIO_SERVER_URL, storage.readSettings().serverUrl);
@@ -63,15 +74,23 @@ function serverUrl(): string {
 
 /** Only our own renderer document may use the IPC API. */
 function fromRenderer(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
-  const url = e.senderFrame?.url ?? "";
-  if (devServerUrl && url.startsWith(devServerUrl)) return true;
-  return url.split(/[?#]/)[0] === rendererFileUrl;
+  return !personalMode && fromOwnFrame(e);
+}
+
+function fromOwnFrame(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return !quitting && !!mainWindow && e.sender === mainWindow.webContents && e.senderFrame === mainWindow.webContents.mainFrame &&
+    isTrustedDocument(e.senderFrame.url, rendererDocumentUrl);
+}
+
+function fromPersonal(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return personalMode && fromOwnFrame(e);
 }
 
 function isOwnUrl(url: string): boolean {
-  if (devServerUrl) return url.startsWith(devServerUrl);
-  return url.split(/[?#]/)[0] === rendererFileUrl;
+  return isTrustedDocument(url, rendererDocumentUrl);
 }
+
+function documentCsp(): string { return personalMode ? personalCsp(devServerUrl) : buildCsp(serverUrl(), devServerUrl); }
 
 // ---- CSP ---------------------------------------------------------------------------
 
@@ -80,8 +99,8 @@ function installCsp() {
     // Dev: the renderer comes from the Vite server over http; add the header there.
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const headers = { ...details.responseHeaders };
-      if (details.url.startsWith(devServerUrl) && details.resourceType === "mainFrame") {
-        headers["Content-Security-Policy"] = [buildCsp(serverUrl(), devServerUrl)];
+      if (isOwnUrl(details.url) && details.resourceType === "mainFrame") {
+        headers["Content-Security-Policy"] = [documentCsp()];
       }
       callback({ responseHeaders: headers });
     });
@@ -89,13 +108,15 @@ function installCsp() {
   }
   // Production: intercept file:// so the HTML document carries a CSP header.
   // Only files inside the bundled renderer directory are served.
-  const rendererDir = pathToFileURL(join(__dirname, "../renderer")).href + "/";
+  const rendererDir = resolve(__dirname, "../renderer");
   protocol.handle("file", async (request) => {
-    if (!request.url.startsWith(rendererDir)) return new Response("Not found", { status: 404 });
+    let filename: string;
+    try { filename = resolve(fileURLToPath(request.url)); } catch { return new Response("Not found", { status: 404 }); }
+    if (!filename.startsWith(`${rendererDir}${sep}`)) return new Response("Not found", { status: 404 });
     const res = await net.fetch(request, { bypassCustomProtocolHandlers: true });
     const headers = new Headers(res.headers);
     if (request.url.split(/[?#]/)[0]!.endsWith(".html")) {
-      headers.set("Content-Security-Policy", buildCsp(serverUrl()));
+      headers.set("Content-Security-Policy", documentCsp());
       headers.set("Content-Type", "text/html; charset=utf-8");
     }
     return new Response(res.body, { status: res.status, headers });
@@ -117,7 +138,7 @@ function createWindow() {
     trafficLightPosition: { x: 16, y: 18 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1c1e" : "#f5f5f7",
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, personalMode ? "../preload/personal.js" : "../preload/index.js"),
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
@@ -159,7 +180,7 @@ function createWindow() {
   });
   win.webContents.on("will-attach-webview", (e) => e.preventDefault());
 
-  if (devServerUrl) void win.loadURL(devServerUrl);
+  if (devServerUrl) void win.loadURL(rendererDocumentUrl);
   else void win.loadFile(rendererHtml);
 }
 
@@ -294,6 +315,48 @@ function registerIpc() {
   });
 }
 
+function registerPersonalIpc() {
+  ipcMain.on(PERSONAL_IPC.info, (event) => {
+    event.returnValue = fromPersonal(event) ? { platform: process.platform, version: __APP_VERSION__ } : null;
+  });
+  ipcMain.handle(PERSONAL_IPC.request, (event, input: unknown) => {
+    if (!fromPersonal(event) || !personalHost) throw new Error("forbidden");
+    return personalHost.request(input as Parameters<PersonalHost["request"]>[0]);
+  });
+  ipcMain.handle(PERSONAL_IPC.saveArtifact, (event, id: unknown) => {
+    if (!fromPersonal(event) || !personalHost || typeof id !== "string") throw new Error("forbidden");
+    return personalHost.saveArtifact(id);
+  });
+  ipcMain.handle(PERSONAL_IPC.restart, async (event) => {
+    if (!fromPersonal(event) || !personalHost) throw new Error("forbidden");
+    await personalHost.restart();
+  });
+}
+
+function sendPersonalCommand(command: PersonalCommand) {
+  if (!personalMode) return;
+  focusWindow();
+  mainWindow?.webContents.send(PERSONAL_IPC.command, command);
+}
+
+function installMenu() {
+  const personalItems: Electron.MenuItemConstructorOptions[] = personalMode ? [
+    { label: "新任务", accelerator: "CmdOrCtrl+N", click: () => sendPersonalCommand("new") },
+    { label: "搜索", accelerator: "CmdOrCtrl+K", click: () => sendPersonalCommand("search") },
+  ] : [];
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: app.name, submenu: [
+      { role: "about" },
+      ...(personalMode ? [{ label: "设置…", accelerator: "CmdOrCtrl+,", click: () => sendPersonalCommand("settings") }, { type: "separator" as const }] : []),
+      { role: "services" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" },
+    ] },
+    { label: "文件", submenu: [...personalItems, ...(personalItems.length ? [{ type: "separator" as const }] : []), { role: "close" }] },
+    { label: "编辑", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
+    { label: "显示", submenu: [{ role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }] },
+    { label: "窗口", submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "front" }] },
+  ]));
+}
+
 // ---- lifecycle ----------------------------------------------------------------------
 
 const gotLock = userDataDir ? true : app.requestSingleInstanceLock();
@@ -311,17 +374,41 @@ if (!gotLock) {
     if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(appIcon);
     const dir = app.getPath("userData");
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    storage = new DesktopStorage(dir);
-    notifier = new DesktopNotifier(storage, () => {
-      focusWindow();
-      mainWindow?.webContents.send(IPC.notifyClicked);
-    });
+    if (!personalMode) {
+      storage = new DesktopStorage(dir);
+      notifier = new DesktopNotifier(storage, () => {
+        focusWindow(); mainWindow?.webContents.send(IPC.notifyClicked);
+      });
+      connectors = new ConnectorManager(connectorsEnvFromProcess(), dir);
+    } else {
+      personalHost = new PersonalHost({
+        dataDir: resolve(process.env.AGENTSTUDIO_PERSONAL_DATA_DIR || join(dir, "personal")),
+        workerPath: join(__dirname, "personal/worker.mjs"), staticDir: join(__dirname, "../renderer/personal"),
+        // Finder launches have a minimal PATH. Add ordinary installation paths
+        // without sourcing shell startup files or changing the selected account.
+        env: { ...process.env, PATH: [process.env.PATH, join(homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].filter(Boolean).join(delimiter) },
+        fork: (path, args, options) => utilityProcess.fork(path, args, options),
+        processIdentity: (pid) => {
+          const metric = app.getAppMetrics().find((entry) => entry.pid === pid && entry.type === "Utility" && entry.name === "AgentStudio Personal Runtime");
+          return metric ? { pid: metric.pid, creationTime: metric.creationTime, type: metric.type, name: metric.name || "" } : null;
+        },
+        buildRef: process.env.PERSONAL_BUILD_REF || __APP_REVISION__, codexCommand: process.env.AGENTSTUDIO_CODEX_BIN,
+        testExportDir: process.env.AGENTSTUDIO_PERSONAL_EXPORT_DIR,
+        onChanged: (event) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(PERSONAL_IPC.changed, event); },
+        chooseSavePath: async (name) => {
+          const options = { defaultPath: join(app.getPath("downloads"), name), filters: [{ name: "Markdown", extensions: ["md"] }] };
+          const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
+          return result.canceled ? null : result.filePath || null;
+        },
+      });
+    }
     // Deny every permission request (camera, mic, geolocation, ...) except notifications.
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === "notifications"));
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(!personalMode && permission === "notifications"));
     installCsp();
-    connectors = new ConnectorManager(connectorsEnvFromProcess(), dir);
     registerIpc();
-    void connectors.start().catch((err) => console.error("[agentstudio] connectors failed to start:", err));
+    registerPersonalIpc(); installMenu();
+    if (personalMode) void personalHost?.start().catch(() => { /* request() exposes a recoverable startup error to the trusted UI */ });
+    else void connectors.start().catch(() => console.error("[agentstudio] connectors failed to start"));
     createWindow();
     app.on("activate", () => {
       // Connector windows are hidden but count as windows; check ours. It may
@@ -333,8 +420,11 @@ if (!gotLock) {
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
     quitting = true;
-    void connectors?.stop();
+    if (shutdownComplete) return;
+    event.preventDefault();
+    if (!shutdownPromise) shutdownPromise = (async () => { await personalHost?.stop(); await connectors?.stop(); })()
+      .finally(() => { shutdownComplete = true; app.quit(); });
   });
 }
