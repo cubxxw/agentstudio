@@ -107,6 +107,37 @@ afterEach(async () => {
   vi.clearAllTimers(); vi.useRealTimers();
 });
 
+describe("background session startup", () => {
+  it("starts a restored connector without waiting for the page's full load", async () => {
+    const load = deferred<void>(); fake.loads.push(load);
+    const session = new WebSession({ partition: "persist:synthetic-websession", url: "https://example.invalid/", title: "Synthetic service" });
+    let opened = false;
+    void session.open().then(() => { opened = true; });
+    await turn();
+    expect(opened).toBe(true);
+    expect(session.webContents).not.toBeNull();
+    expect(fake.windows[0]!.options.webPreferences).toMatchObject({
+      partition: "persist:synthetic-websession", contextIsolation: true, sandbox: true, nodeIntegration: false,
+    });
+    expect(fake.windows[0]!.visible).toBe(false);
+    session.close(); await turn();
+    expect(session.webContents).toBeNull();
+  });
+
+  it("records a late navigation failure without rejecting startup or losing the owned session", async () => {
+    const load = deferred<void>(); fake.loads.push(load);
+    const session = new WebSession({ partition: "persist:synthetic-websession", url: "https://example.invalid/", title: "Synthetic service" });
+    let opened = false;
+    void session.open().then(() => { opened = true; });
+    await turn();
+    expect(opened).toBe(true);
+    load.reject(new Error("Synthetic resource load failed")); await turn();
+    expect(session.broken).toContain("didn't load");
+    expect(session.webContents).not.toBeNull();
+    session.close();
+  });
+});
+
 describe("web sign-in readiness and cancellation", () => {
   it("does not expose an interactive login window while its initial page is still loading", async () => {
     const f = fixture();

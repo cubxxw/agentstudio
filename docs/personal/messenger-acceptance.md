@@ -16,3 +16,9 @@
 截图仅包含隔离合成资料：[群聊](images/messenger-group.png)、[联系人](images/messenger-contact.png)。测试脚本每轮生成唯一目录并写 JSON 回执；失败也写回执和截图，最后关闭本轮自有进程。CI 上传新 IM 及原任务视图的浏览器产物。
 
 没有由这些证据证明的范围：真实私人 Grok Bot/Muse/Dots/Cue 账号、Claude 实际模型执行、Pi/Gemini/OpenCode 执行适配、跨设备人类消息、手机原生客户端、推送、公网部署、Developer ID 和 Notarization。它们不被伪装成“全部 Agent 已在线”。
+
+## 2026-11-11：日常工作区恢复
+
+GET-483 初次安装后，用户在 macOS 系统窗口允许了 `AgentStudio Safe Storage`。随后发现另一个可复现阻塞：旧网页连接的 `WebSession.open()` 等待完整 `loadURL`，第三方资源迟迟不结束时，`manager.start → services.restore → personalStartup` 会一起挡住本机 API。
+
+修复让后台会话导航独立进行，保留快照、登录、历史基线和发送前检查；没有更换账号、导出凭据或绕过钥匙串。新增两个测试先复现失败再通过，桌面全部 106/106。实际 Electron 的隔离恢复验收 6 项通过：合成网页的图片响应一直不结束时，本机后台、联系人和固定 IPC 仍可用；原连接身份保留且不泄露 Bearer；退出不等网络结束。实际日常 profile 的运行版本与数据保留仍须安装后单独读回。
