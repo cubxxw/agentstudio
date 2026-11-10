@@ -4,7 +4,25 @@
 
 The Mac Electron app opens the personal workspace by default. Its renderer shares `apps/personal` UI, uses the dedicated `window.agentStudioPersonal` preload and fixed IPC, and leaves API HTTP to its owned utility. It does not read the old session or start legacy connectors. Personal data belongs to the Electron profile's `personal` directory; the auxiliary web build has separate `.local/personal` data. See [setup](personal/README.md) and [the IPC contract](api.md#default-personal-desktop-ipc).
 
-The existing native window and traffic lights remain. Closing hides it while work continues; Dock activation reopens it, and quit closes its utility. Native menu commands are New (`⌘N`), Search (`⌘K`) and Settings (`⌘,`). At narrow widths and true Electron zoom, the list opens as a drawer. A save action opens the native dialog, then reports the saved artifact's byte hash.
+The existing native window and traffic lights remain. Closing hides it while work continues; Dock activation reopens it, and quit closes its utility. Native menu commands are New (`⌘N`), Search (`⌘K`) and Settings (`⌘,`). The default is a Telegram-inspired messenger: navigation rail, contact/chat list, conversation; narrow widths use a single list or chat with Back. Reload/deep links restore the selected chat. A save action opens the native dialog, then reports the saved artifact's byte hash.
+
+| Messenger element | `data-testid` |
+| --- | --- |
+| App / navigation | `im-app`, `im-nav-chats`, `im-nav-contacts`, `im-nav-approvals` |
+| New / settings / search / refresh | `im-new`, `im-settings`, `im-search`, `im-refresh` |
+| List filters | `im-filter-all`, `im-filter-group`, `im-filter-agent`, `im-filter-human`, `im-filter-history` |
+| Chat / contact / approval rows | `im-chat-<id>`, `im-contact-<id>`, `im-approval-<id>` |
+| New conversation / group / contact | `im-welcome-start`, `im-new-group`, `im-new-contact`, `im-start-<contactId>` |
+| Contact profile / start / edit | `im-contact-detail`, `im-start-chat`, `im-edit-contact` |
+| Contact editor / fields | `im-contact-editor`, `im-kind-agent`, `im-kind-human`, `im-contact-name`, `im-contact-handle`, `im-contact-description`, `im-contact-backend`, `im-contact-instructions`, `im-contact-save` |
+| Group editor / name / members / policy | `im-group-editor`, `im-group-name`, `im-group-search`, `im-member-<contactId>`, `im-policy-<contactId>`, `im-group-save` |
+| Conversation / information / create group | `im-main`, `im-chat-info`, `im-info`, `im-promote-group`, `im-back` |
+| Messages / reply / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-reply-message`, `im-run-status` |
+| Composer / text / send / file / mentions | `im-composer`, `im-message-input`, `im-send`, `im-attach`, `im-mention-<contactId>` |
+| Approvals / return / original artifact | `im-pending-bar`, `im-approval-open-chat`, `im-open-artifact` |
+| Existing task resume | `im-legacy-workspace` |
+
+The shared reader, connection preferences and decision cards retain their `personal-*` IDs below. The retained task UI is explicitly selected by `?workspace=tasks`, including in its browser/native regression scripts. It is not the default homepage. `node dev/messenger-acceptance.mjs` tests the default browser IM; add `--native` after desktop build for actual bundled Electron and IPC. Both use isolated profiles and clearly synthetic CLI/remote responses.
 
 | Element | `data-testid` |
 |---|---|

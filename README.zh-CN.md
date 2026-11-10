@@ -2,7 +2,7 @@
 
 <h1 align="center">AgentStudio</h1>
 
-**Mac 应用现在默认打开个人工作间。** 从一句话开始，把进展、决定与可读成果留在同一件事里，继续使用仓库原有的 macOS 窗口。Electron 自己管理本机 SQLite 后台，默认模式不需要启动 Matrix 服务。安装、运行与边界见[Mac 使用说明](docs/personal/README.md)。独立 Web 入口保留为开发和 QA 辅助。
+**Mac 应用默认打开个人 IM。** 创建 Agent 联系人、私聊、拉群讨论，在同一个审批入口查看具体动作；继续使用仓库原有的 macOS 窗口。Electron 自己管理本机 SQLite 后台，默认模式不需要启动 Matrix 服务。安装、运行与边界见[Mac 使用说明](docs/personal/README.md)。独立 Web 入口保留为开发和 QA 辅助。
 
 [English](README.md) · **简体中文**
 
@@ -15,7 +15,7 @@
 
 > **Alpha 阶段。** 目前从 macOS 源码构建。已提供本机 ad-hoc 打包命令；打包产物运行、Developer ID 签名和公证需要分别验收，不能视为已发布安装包。
 
-默认工作间以事情为单位保存对话、后台执行、精确预览和成果。原来的聊天与 Agent 收件箱通过 `AGENTSTUDIO_WORKSPACE=matrix` 保留，继续使用原服务和账号，不自动迁移数据。
+默认工作间以联系人和聊天为中心，保存身份、群响应策略、后台执行、精确预览与成果。人类联系人当前只保存在本机，尚无跨设备消息投递。历史任务提供原任务视图入口，保留原有草稿和恢复请求。详见 [IM 使用说明](docs/personal/messenger.md)。原来的聊天与 Agent 收件箱通过 `AGENTSTUDIO_WORKSPACE=matrix` 保留，继续使用原服务和账号，不自动迁移数据。
 
 当前状态：早期开发阶段（v0.1）。macOS 优先：先做桌面端（Electron），之后再做手机端（Expo）。目前没有任何托管服务，所有东西都运行在你自己的 Mac 上。
 

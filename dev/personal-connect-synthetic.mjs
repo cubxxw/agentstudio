@@ -192,6 +192,8 @@ const providerSnapshot = async (cueInstanceId, samples) => application.evaluate(
 const launch = async () => {
   application = await _electron.launch({ executablePath, args: packagedApp ? [] : [join(root, 'apps/desktop')], env });
   page = await application.firstWindow();
+  await page.getByTestId("im-app").waitFor();
+  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); }
   page.on('pageerror', error => errors.push(String(error.message).split('\n')[0]));
   await page.getByTestId('personal-desktop-rail').waitFor();
   verify(page.url().startsWith('file:'), 'the personal renderer loads from a bundled local file');

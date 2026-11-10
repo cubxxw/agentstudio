@@ -20,6 +20,12 @@ describe("personal IPC capabilities", () => {
     expect(() => readPersonalRequest({ path: "/api/threads", method: "POST", body: { text: "字".repeat(700_000) } })).toThrow();
   });
 
+  it("allows fixed messenger capabilities without arbitrary identities or URL syntax", () => {
+    for (const path of ["/api/contacts", "/api/contacts/agent_codex", "/api/approvals"]) expect(readPersonalRequest({ path, method: "GET" }).path).toBe(path);
+    for (const path of ["/api/contacts", "/api/contacts/contact_owned", "/api/chats", "/api/chats/thr_owned"]) expect(readPersonalRequest({ path, method: "POST", body: { clientId: "owned-request" } }).path).toBe(path);
+    for (const path of ["/api/contacts/../../connection", "/api/contacts/contact_owned?account=other", "/api/chats/https://example.com", "/api/chats/thr_owned/members", "/api/approvals/bulk"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
+  });
+
   it("only accepts opaque artifact identifiers for the native save dialog", () => {
     expect(isArtifactId("art_97bf-accepted")).toBe(true);
     for (const id of ["/etc/passwd", "art_x/../../secret", "https://example.com/", null, "thread_1"]) expect(isArtifactId(id)).toBe(false);

@@ -1,6 +1,6 @@
 # @agentstudio/desktop
 
-The macOS Electron app opens the personal workspace by default. It preserves the existing `hiddenInset` window, traffic lights, draggable regions and Mac menus. One conversation owns its progress, decisions and Markdown results. The original Matrix inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`.
+The macOS Electron app opens the personal messenger by default: contacts, direct/group chats, and unified approvals. It preserves the existing `hiddenInset` window, traffic lights, draggable regions and Mac menus. Conversations own their progress, versioned decisions and Markdown results. Existing task threads have a visible resume action into `?workspace=tasks`, preserving their original drafts/recovery requests. The original Matrix inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`.
 
 ## Build and run the Mac app
 
@@ -56,7 +56,7 @@ pnpm package:mac
 
 Signing uses the ad-hoc identity `-`, without Hardened Runtime and with only the JIT entitlement. The script reads the resulting signature flags and entitlements back. It does not discover a Developer ID identity, notarize, publish or claim Gatekeeper distribution acceptance. The local `.app` has been launched and checked for package-owned runtime, saved CLI/MCP history and export hashes; the packaged native smoke also passed. Exact versions, retry history and limits are in the [macOS acceptance ledger](../../docs/personal/macos-acceptance.md). A successful build alone is not that acceptance.
 
-Vite embeds the Git HEAD with `-dirty` when there are uncommitted files; an unavailable Git identity is `unknown-source`. The native health response includes that build reference, six backend module hashes and the bundled personal UI-entry hash. `PERSONAL_BUILD_REF` is an explicit test override. A clean merged-source rebuild is required before labeling a bundle with the merge revision.
+Vite embeds the Git HEAD with `-dirty` when there are uncommitted files; an unavailable Git identity is `unknown-source`. The native health response includes that build reference, seven backend module hashes and the bundled personal UI-entry hash. `PERSONAL_BUILD_REF` is an explicit test override. A clean merged-source rebuild is required before labeling a bundle with the merge revision.
 
 ## Connect existing assistants
 

@@ -48,13 +48,34 @@ interface PersonalDesktopBridge {
 
 | Method | Paths |
 | --- | --- |
-| GET | `/api/health`, `/api/bootstrap`, `/api/integrations`, `/api/connections`, `/api/memories`, `/api/threads/:id`, `/api/artifacts/:id`, `/api/connections/:id/tools` |
-| POST | `/api/threads`, `/api/connections`, `/api/memories`, `/api/integrations/refresh`, `/api/integrations/connect`, `/api/integrations/local/codex`, `/api/integrations/local/claude`, `/api/threads/:id/messages`, `/api/threads/:id/retry`, `/api/threads/:id/reconcile`, `/api/threads/:id/cancel`, `/api/decisions/:id` |
+| GET | `/api/health`, `/api/bootstrap`, `/api/contacts`, `/api/contacts/:id`, `/api/approvals`, `/api/integrations`, `/api/connections`, `/api/memories`, `/api/threads/:id`, `/api/artifacts/:id`, `/api/connections/:id/tools` |
+| POST | `/api/contacts`, `/api/contacts/:id`, `/api/chats`, `/api/chats/:id`, `/api/threads`, `/api/connections`, `/api/memories`, `/api/integrations/refresh`, `/api/integrations/connect`, `/api/integrations/local/codex`, `/api/integrations/local/claude`, `/api/threads/:id/messages`, `/api/threads/:id/retry`, `/api/threads/:id/reconcile`, `/api/threads/:id/cancel`, `/api/decisions/:id` |
 | DELETE | `/api/connections/:id`, `/api/memories/:id` |
 
 Main forwards to its own utility's random loopback port after validating the sender document and ownership handshake. There is no renderer route for SSE or artifact download: `onChanged` invalidates the UI snapshot, and `saveArtifact` uses a native dialog plus byte/hash readback. Runtime restart does not replay POST requests. `GET /api/health` includes the build reference, backend/UI hashes and desktop runtime versions.
 
 Personal JSON uses **camelCase**, independently of the Matrix `/v1` contract below. `POST /api/threads` and `POST /api/threads/:id/messages` accept `{text,clientId,mode?,localAgentId?,connectionId?,attachments?,memoryIds?,action?}` and return the full thread. `localAgentId` accepts `codex` or `claude`; when omitted, the server snapshots the saved local selection (default `codex`) into the accepted run. `mode: "codex"` remains the compatibility name for automatic local routing and can use either adapter. Changing the default does not change an accepted run. `clientId` identifies an immutable request: same route/key/body returns its accepted receipt, even if a selected memory or completed connection was later removed; changed content returns 409. New requests validate current dependencies. Decisions require `{choice,version,clientId}`. Followups are durable sequential runs with context ending at their own message ID. Unknown execution blocks replay and later runs; an unconfirmed CLI stop also blocks new work using that same local assistant across threads.
+
+### Personal contacts and messaging
+
+The default personal homepage is an IM. Its contacts and conversations live in the same profile database as existing tasks; no Matrix data is imported. All mutations below require `clientId` (same body replays the accepted response, changed body returns 409).
+
+| Route | Contract |
+| --- | --- |
+| `GET /api/contacts` | `{contacts}`; refreshes bounded local discovery and projects saved connections; preserves user-edited identity fields |
+| `GET /api/contacts/:id` | One contact, including configured persona, backend binding, capability and login status; not proof of provider identity |
+| `POST /api/contacts` | `{clientId,kind:"agent"\|"human",name,handle,description?,instructions?,color?,binding?}`; returns contact. Agent binding is `{type:"local",localAgentId}` or `{type:"connection",connectionId}`; human contacts are local-only |
+| `POST /api/contacts/:id` | Same identity fields plus current `version`; updates increment version, stale writes return 409. Discovered contacts retain their backend |
+| `POST /api/chats` | `{clientId,kind:"direct"\|"group",memberIds,title?}`; adds `self`. A direct chat reuses the peer's existing conversation. Group requires a title. Creation never runs a model |
+| `POST /api/chats/:id` | Group only: `{clientId,version,title?,memberIds?,responsePolicies?:{[contactId]:"mention"\|"always"\|"manual"}}`; maximum 30 supplied members. New members receive only post-join material |
+| `POST /api/threads/:id/messages` | For chat threads: `{clientId,text,attachments?,memoryIds?,replyTo?}`. Server selects bound agents; caller cannot redirect via `mode`, `connectionId` or `action`. Stores one user message and zero or more runs |
+| `GET /api/approvals` | `{approvals}`; pending first, with original `threadId`, `threadTitle`, and frozen agent identity. Choices still use `/api/decisions/:id` with current version and a separate idempotent request |
+
+Contacts have unique 2–32 character lowercase handles (`[a-z][a-z0-9_-]{1,31}`), an identity version and `availability` (`ready|unsupported|not_installed|login_required|disconnected|local_only|self`). Names are at most 80 characters, descriptions 300, persona instructions 3000. This version discovers Codex, Claude Code, Pi, Gemini CLI and OpenCode; only Codex and Claude have executable local adapters. A connection removed later remains a visibly disconnected contact rather than silently rebinding it.
+
+Private agents respond directly. Groups default to exact `@handle`/reply addressing, with `@all` for executable members; paused members never auto-respond. Agent replies never enqueue agents. Unavailable or uncertain broadcast members are skipped with `message.skippedContacts`; a direct or explicit unavailable target returns 409 before accepting the message. Per-agent lanes let other members continue while one awaits approval or reconciliation; a new addressed message invalidates only that agent's old previews. The same run keeps its accepted persona, participants, visibility boundary and backend on retry. A2A approvals show the exact filtered conversation/identity payload; MCP planning uses the same filtered context. Joining does not grant earlier history or other conversations. Prompt boundaries do not override the CLI's actual configured plugin permissions.
+
+Human contacts and their messages currently stay on this Mac. `deliveryState:"local_only"` is not remote delivery. Existing task threads remain readable in the IM and have an explicit `?workspace=tasks&thread=:id` resume action; their old recovery keys and drafts remain untouched.
 
 ### Personal discovery and quick connections
 

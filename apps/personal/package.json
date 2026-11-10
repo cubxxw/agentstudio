@@ -5,7 +5,7 @@
   "type": "module",
   "license": "Apache-2.0",
   "exports": {
-    "./ui": "./src/App.tsx",
+    "./ui": "./src/Messenger.tsx",
     "./styles.css": "./src/styles.css",
     "./desktop-contract": "./src/desktop-contract.ts",
     "./native": "./src/native.ts"

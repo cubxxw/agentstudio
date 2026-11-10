@@ -21,7 +21,7 @@ async (page, until) => {
       { id, count },
     ));
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(base);
+  await page.goto(`${base}/?workspace=tasks`);
   await testId("personal-app").waitFor();
   await testId("personal-composer-input").fill(
     "这段未发送的中文草稿，刷新后应接上。",
@@ -203,7 +203,7 @@ async (page, until) => {
     "missing executor never creates successful output",
   );
   await page.screenshot({ path: `${shot}/qa-blocked-desktop.png` });
-  await page.goto(`${base}/?thread=${threadId}`);
+  await page.goto(`${base}/?workspace=tasks&thread=${threadId}`);
   await testId("personal-artifact").last().waitFor();
   await testId("personal-composer-input").fill("网络中断时仍保留的草稿。");
   await page.context().setOffline(true);

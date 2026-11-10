@@ -1,0 +1,70 @@
+# 联系人、聊天与审批
+
+GET-483 · 2026-11-10。当前默认 Mac 入口是个人 IM，先连接本人和自己的 Agent。界面采用 Telegram 式的窄导航、会话列表、蓝色动作和简洁消息气泡。人类联系人可以添加，但当前没有跨设备网络投递；保存、送达和实际回复分开表述。
+
+![实际 Electron 中的合成群聊验收](images/messenger-group.png)
+
+截图来自实际 Electron 的隔离验收，正文明确为合成响应，没有真实私人会话。
+
+## 开始使用
+
+1. 打开“联系人”。系统发现这台 Mac 的 Codex、Claude Code、Pi、Gemini CLI、OpenCode，并把已有的 A2A/MCP 连接列为联系人。只有 Codex/Claude 当前有可执行的本地 adapter；未安装、待登录和暂未支持执行分别显示。
+2. 点“添加联系人”，选择 Agent，填写名称、唯一用户名、简介和身份指令，再绑定一个实际助手。可以为同一个后端创建研究伙伴、写作伙伴等独立身份；更改身份从之后接受的消息起生效。
+3. 点“发送消息”打开私聊。再次打开同一个联系人会继续原聊天，不会每次建立新任务。文本和附件只保存一次，回复带具体身份，成果原文仍可打开和保存。
+4. 从新聊天入口建群，或从私聊右上角创建新群，选择成员和名称。群默认只在 `@用户名` 或回复该 Agent 消息时响应；输入 `@` 会列出群内 Agent。群信息里可逐位改成“每条消息”或“暂停回应”。
+5. `@all` 只调度可执行成员。不可用/有未知结果的成员跳过并说明原因，不阻挡其他伙伴。Agent 的回复不会再触发 Agent，没有自动互相唤醒循环。显式要求不可用成员回复会保留草稿并给出准确错误。
+6. 远端发送与工具调用仍展示具体目标、身份、内容/参数。可在“审批”集中决定，再回到原聊天查看结果。批准只授权该版本动作，不等于送达、执行成功或外部效果已经核验。
+
+![联系人身份编辑与具体后端绑定](images/messenger-contact.png)
+
+## 响应与上下文
+
+| 场景 | 行为 |
+| --- | --- |
+| 私聊 | 当前联系人直接响应，不自动切换到其他服务 |
+| 群内普通消息 | 先保存；默认不唤醒 Agent |
+| `@handle` 或回复 | 唤醒被精准指定的群内成员，部分用户名或非成员不触发 |
+| `@all` / 每条消息策略 | 各成员形成独立的顺序执行；不可用广播成员明确跳过 |
+| 一位成员等审批/结果未知 | 保留它的动作与核查状态，其他成员可继续 |
+| 新要求发给另一位成员 | 不撤销原成员的审批 |
+| 更新身份/群成员 | 已接受的执行保留原身份、成员、后端和上下文快照 |
+| 新成员加入 | 不传入群前消息；入群前接受的运行即使后来回复，也保留原接收成员范围 |
+| 后台中断或回执丢失 | 保留原操作标识，未知副作用先核查，不盲目重复执行 |
+
+运行快照只给当前 Agent 自身的身份指令；群内其他人只有名称/用户名/简介等身份卡。群与私聊相互隔离，原 CLI 的插件权限边界没有因此变成强制文件系统隔离。A2A 预览包含实际发送的上下文；MCP 计划和调用使用相同可见范围。
+
+草稿按聊天分别保存。异步回包不能清掉后来写的文字；网络超时保留原请求及 clientId，明确未接受的 4xx 拒绝则允许修改重发。存储写满后保留窗口内的每段草稿，提示重载无法保证恢复。旧任务可在列表中打开并点“继续任务、查看原有草稿”，回 `?workspace=tasks`；旧请求恢复逻辑和原草稿不转换成新发送。
+
+## 参考研究与取舍
+
+Raft 的公开 HEAD 在本轮读回为 [`db5e399f017d584e49597e3a28757645d6807893`](https://github.com/botiverse/raft-source/tree/db5e399f017d584e49597e3a28757645d6807893)。本轮重新读取固定版本 DM、profile、mention 手册及 `peerCard.ts`，并沿用[此前针对同一快照的源码观察](research/raft-observation.md)。未启动 Raft，也未将其源码或私人会话复制进产品；下面是行为分析与独立设计。
+
+| 产品 / 一手来源 | 观察 | 在 AgentStudio 的取舍 |
+| --- | --- | --- |
+| [Raft DM](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/manual/agent-knowledge/dm.md) | 私聊按参与者复用，身份卡帮助恢复交谈对象；手册还注明已有 DM 加人 UI 的限制 | 按稳定联系人 ID 复用私聊；显式建群/加人，新群不默默复制私聊历史 |
+| [Raft peerCard.ts](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/packages/cli/src/ax/peerCard.ts#L53) | 按当前上下文记录是否实际展示对方身份，输出失败不把卡片记作已看见；机制受配置开关影响 | 每次接受消息直接快照身份，不依赖模型记住某个 UI 卡片；当前版本无跨运行时的 seen-card 协议 |
+| [Raft Agent Profile](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/manual/agent-knowledge/agent-profile.md) | 身份与运行状态分开；不同类型 Agent 对身份修改有权限差异 | 联系人身份可独立编辑；执行能力/登录状态单列，身份名称不冒充服务账号认证 |
+| [Raft mention](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/manual/agent-knowledge/mention.md#L292) | 成员可见性、被动投递与显式注意力不同；提及是聚焦回应的信号 | 群成员范围由服务端核对，响应策略确定化，不要求模型自己遵守“少插话”；禁止回复自动形成机器人循环 |
+| [Telegram Bot Features](https://core.telegram.org/bots/features) | 机器人是有身份的聊天对象；群内隐私与可交互消息有明确能力边界 | 用消息型 UI 和独立身份；审批是可追溯动作，采用极简导航与蓝色强调。视觉是本项目的设计判断，不声称 Telegram 授权或协议兼容 |
+| [Signal Group chats](https://support.signal.org/hc/en-us/articles/360007319331-Group-chats) | 选择联系人、命名、创建的短路径；成员与权限有独立设置 | 简洁建群和按需展开的成员/策略设置，不要求先建组织、频道或项目 |
+| [Slackbot](https://slack.com/help/articles/202026038-How-to-work-with-Slackbot) | 信息访问跟随可见范围，共享写入有明确确认 | 复用执行进度、停止和精确审批；视觉和主要导航不采用频道工作台 |
+
+Raft 是 FSL-1.1-ALv2 source-available 镜像，本项目独立实现上述机制，没有移植它的实现。不会把身份卡、通知投递或 Agent 自述当作真实执行证明。
+
+## 开发与验收入口
+
+数据仍是现有个人 profile 的 SQLite WAL，新增联系人记录与聊天字段；旧记录无需破坏式迁移。桌面仍由独立 preload 的固定 IPC 访问自有 utility，生产 renderer 不发 API HTTP。七个后端模块均参与复制、watch 和运行指纹。协议见 [API](../api.md#personal-contacts-and-messaging)，界面 test-id 见 [客户端合同](../clients.md)。
+
+```sh
+pnpm --filter @agentstudio/personal build
+node --test apps/personal/server/messenger.test.mjs
+node dev/messenger-acceptance.mjs
+pnpm --filter @agentstudio/desktop build
+node dev/messenger-acceptance.mjs --native
+# 明确使用现有 Codex 配置，只有合成输入，无私人资料：
+node dev/messenger-real.mjs --real
+```
+
+`AGENTSTUDIO_MESSENGER_EVIDENCE_DIR` 选择产物父目录；每轮使用独立目录和 profile。合成验收不调用真实模型；`--real` 另行记录实际 CLI 状态，不能用登录配置代替真实执行。实际安装包可用 `AGENTSTUDIO_PACKAGED_APP` 指定后运行同一流程。远端私人账号、真实 Claude 执行、跨设备多人、推送和公网服务不由这些测试证明。
+
+本轮结果见[验收记录](messenger-acceptance.md)。

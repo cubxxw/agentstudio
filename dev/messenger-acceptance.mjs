@@ -1,0 +1,188 @@
+// Isolated synthetic IM journey. No real model or third-party account is called.
+// Build personal first. For native also build desktop, then add --native.
+import { createRequire } from 'node:module';
+import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import http from 'node:http';
+import { createPersonalServer } from '../apps/personal/server/index.mjs';
+const requireDesktop = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
+const { chromium, _electron } = createRequire(requireDesktop.resolve('@playwright/test'))('playwright');
+const { expect } = requireDesktop('@playwright/test');
+const native = process.argv.includes('--native');
+const parent = resolve(process.env.AGENTSTUDIO_MESSENGER_EVIDENCE_DIR || 'output/playwright/messenger');
+await mkdir(parent, { recursive: true });
+const output = await mkdtemp(join(parent, native ? 'native-' : 'browser-'));
+const cli = join(output, 'synthetic-codex');
+await writeFile(cli, `#!${process.execPath}
+if(process.argv.includes('--version')){console.log('codex 0.0.1-synthetic');process.exit(0)}
+if(process.argv.includes('login')){console.error('Logged in');process.exit(0)}
+let prompt='';for await(const c of process.stdin)prompt+=c;
+const context=JSON.parse(prompt.split('<untrusted_thread_context>\\n')[1].split('\\n</untrusted_thread_context>')[0]);
+const who=context.agentIdentity.name;const text='这是合成验收回复，没有调用真实模型。\\n\\n我会以「'+who+'」的身份继续这段讨论，先把问题拆清楚，再一起推进。\\n\\n'+(context.agentIdentity.instructions||'你可以继续补充想法，我会沿着这段对话接着回答。');
+console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text}}));console.log(JSON.stringify({type:'turn.completed'}));
+`, { mode: 0o700 });
+let submissions = 0;
+const remote = http.createServer(async (req, res) => {
+  let text = ''; for await (const part of req) text += part;
+  const rpc = JSON.parse(text); submissions++;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { kind: 'message', role: 'agent', messageId: 'synthetic-reply', parts: [{ kind: 'text', text: '这条合成远端回复只在批准后发送，未调用任何真实账号。' }] } }));
+});
+await new Promise(r => remote.listen(0, '127.0.0.1', r));
+let server, browser, application, context, page;
+const checks = [], errors = [];
+const check = name => { checks.push(name); console.log(`PASS ${name}`); };
+const request = async (path, body) => {
+  if (native) return page.evaluate(async ({ path, body }) => {
+    const r = await window.agentStudioPersonal.request({ path: `/api${path}`, method: body ? 'POST' : 'GET', ...(body ? { body } : {}) });
+    if (r.status >= 400) throw new Error(`HTTP ${r.status}: ${JSON.stringify(r.body)}`);
+    return r.body;
+  }, { path, body });
+  const r = await fetch(`http://127.0.0.1:${server.address().port}/api${path}`, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, ...(body ? { body: JSON.stringify(body) } : {}) });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  return r.json();
+};
+const waitThread = async (id, predicate) => {
+  let thread;
+  await expect.poll(async () => { thread = await request(`/threads/${id}`); return predicate(thread); }, { timeout: 20000 }).toBe(true);
+  return thread;
+};
+const refresh = async () => { await page.getByTestId('im-refresh').click(); };
+const capture = async name => { await page.screenshot({ path: join(output, `${name}.png`) }); };
+try {
+  if (native) {
+    const env = { ...process.env, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, PERSONAL_BUILD_REF: 'synthetic-messenger-acceptance' };
+    for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
+    const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
+    application = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentStudio') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+    page = await application.firstWindow(); context = page.context();
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1200, height: 780 }));
+  } else {
+    server = await createPersonalServer({ dataDir: join(output, 'data'), port: 0, codexCommand: cli, staticDir: resolve('apps/personal/dist') });
+    await server.listen();
+    browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { channel: 'chrome' } : {}) });
+    context = await browser.newContext({ viewport: { width: 1320, height: 860 } }); page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}`);
+  }
+  page.on('pageerror', e => errors.push(e.message));
+  await expect(page.getByTestId('im-app')).toBeVisible();
+  await expect(page.getByTestId('im-quick-agent_codex')).toBeVisible({ timeout: 20000 });
+  check('default homepage is the messenger with actual discovery and no invented chats');
+  await capture('home');
+  const con = await request('/connections', { name: '合成远端', type: 'a2a', url: `http://127.0.0.1:${remote.address().port}/rpc` });
+  await request('/contacts'); await refresh();
+  await page.getByTestId('im-nav-contacts').click(); await page.getByTestId('im-new').click();
+  await page.getByTestId('im-contact-name').fill('研究伙伴');
+  await page.getByTestId('im-contact-handle').fill('research');
+  await page.getByTestId('im-contact-description').fill('一起查证，慢慢想清楚。');
+  await page.getByTestId('im-contact-backend').selectOption(JSON.stringify({ type: 'local', localAgentId: 'codex' }));
+  await page.getByTestId('im-contact-instructions').fill('先核对来源，再给出清晰的结论。');
+  await page.getByTestId('im-contact-save').click();
+  await expect(page.getByTestId('im-contact-detail')).toContainText('研究伙伴');
+  const researcher = (await request('/contacts')).contacts.find(c => c.handle === 'research');
+  check('custom agent identity is persisted against a specific backend');
+  await capture('contact');
+  await page.getByTestId('im-start-chat').click();
+  await expect(page.getByTestId('im-message-input')).toBeVisible();
+  const directId = new URL(page.url()).searchParams.get('thread');
+  await page.getByTestId('im-message-input').fill('我们来讨论一个想法：怎样让人和 Agent 自然地一起协作？');
+  await page.getByTestId('im-send').click();
+  await waitThread(directId, t => t.runs[0]?.status === 'completed');
+  await expect(page.getByTestId('im-message')).toHaveCount(2);
+  check('direct message invokes the bound agent and attributes its real returned reply');
+  await page.getByTestId('im-message-input').fill('这份草稿刷新之后还在。');
+  await page.reload(); await expect(page.getByTestId('im-message-input')).toHaveValue('这份草稿刷新之后还在。');
+  await page.getByTestId('im-message-input').fill('');
+  check('reload restores the same chat and its draft');
+  await capture('direct-chat');
+  await page.getByTestId('im-promote-group').click();
+  await page.getByTestId('im-group-name').fill('想法讨论室');
+  await page.getByTestId('im-member-agent_codex').check();
+  await page.getByTestId(`im-member-connection_${con.id}`).check();
+  await page.getByTestId('im-group-save').click();
+  await expect(page.getByTestId('im-chat-info')).toContainText('想法讨论室');
+  const groupId = new URL(page.url()).searchParams.get('thread');
+  await page.getByTestId('im-message-input').fill('先记下一个想法。'); await page.getByTestId('im-send').click();
+  await expect.poll(async () => (await request(`/threads/${groupId}`)).messages.length).toBe(1);
+  expect((await request(`/threads/${groupId}`)).runs.length).toBe(0);
+  check('ambient group message is saved without waking agents');
+  await page.getByTestId('im-message-input').fill('@');
+  await page.getByTestId(`im-mention-${researcher.id}`).click();
+  await expect(page.getByTestId('im-message-input')).toHaveValue('@research ');
+  await page.getByTestId('im-message-input').fill('@research 帮我整理这些想法。'); await page.getByTestId('im-send').click();
+  const mentioned = await waitThread(groupId, t => t.runs[0]?.status === 'completed');
+  expect(mentioned.runs.length).toBe(1); expect(mentioned.runs[0].contactId).toBe(researcher.id);
+  check('mention picker targets exactly one group member');
+  const remoteContact = (await request('/contacts')).contacts.find(c => c.binding?.connectionId === con.id);
+  await page.getByTestId('im-message-input').fill(`@${remoteContact.handle} 请继续这段讨论。`); await page.getByTestId('im-send').click();
+  await waitThread(groupId, t => t.decisions.some(d => d.state === 'pending'));
+  expect(submissions).toBe(0); await expect(page.getByTestId('im-pending-bar')).toBeVisible();
+  await page.getByTestId('im-message-input').fill('@codex 你先帮我看看。'); await page.getByTestId('im-send').click();
+  await waitThread(groupId, t => t.runs.at(-1)?.status === 'completed');
+  check('another agent replies while a remote member waits for approval');
+  await capture('group-chat');
+  await page.getByTestId('im-pending-bar').click(); await expect(page.getByTestId('personal-decision')).toBeVisible();
+  await capture('approval');
+  await page.getByTestId('personal-decision-approve').click();
+  await waitThread(groupId, t => t.runs.some(r => r.contactId === remoteContact.id && r.status === 'completed'));
+  expect(submissions).toBe(1); await page.getByTestId('im-approval-open-chat').click();
+  await expect(page.getByTestId('im-timeline')).toContainText('这条合成远端回复只在批准后发送');
+  check('unified approval executes once and returns to the original group');
+  await page.getByTestId('im-info').click();
+  await page.getByTestId(`im-policy-${researcher.id}`).selectOption('always');
+  await page.getByTestId('im-group-save').click();
+  await expect(page.getByTestId('im-group-editor')).toHaveCount(0);
+  await page.getByTestId('im-message-input').fill('这次不提及也回应。'); await page.getByTestId('im-send').click();
+  await waitThread(groupId, t => t.runs.at(-1)?.status === 'completed' && t.runs.at(-1).contactId === researcher.id);
+  check('per-agent group response policy is saved and applied');
+  await page.getByTestId('im-message-input').fill('切换聊天时保留这段群聊草稿');
+  await page.getByTestId(`im-chat-${directId}`).click(); await page.getByTestId(`im-chat-${groupId}`).click();
+  await expect(page.getByTestId('im-message-input')).toHaveValue('切换聊天时保留这段群聊草稿');
+  check('switching chats preserves separate drafts');
+  await page.getByTestId('im-info').click();
+  await page.getByTestId('im-member-agent_pi').check(); await page.getByTestId('im-group-save').click();
+  await expect(page.getByTestId('im-group-editor')).toHaveCount(0);
+  await page.getByTestId('im-message-input').fill('@pi 请回复'); await page.getByTestId('im-send').click();
+  await expect(page.getByTestId('im-message-input')).toHaveValue('@pi 请回复');
+  await expect(page.getByTestId('im-main')).toContainText('暂时不能回复');
+  await page.getByTestId('im-message-input').fill('@research 改发给可用的伙伴'); await page.getByTestId('im-send').click();
+  await waitThread(groupId, t => t.messages.some(m => m.text === '@research 改发给可用的伙伴') && t.runs.at(-1)?.status === 'completed');
+  check('a rejected message can be corrected without replaying the rejected target');
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (name, value) { if (name.startsWith('agentstudio.messenger.draft.')) throw new DOMException('Synthetic quota', 'QuotaExceededError'); return original.call(this, name, value); };
+  });
+  await page.getByTestId('im-message-input').fill('存储写满时，这份草稿切走再回来也不能丢。');
+  await page.getByTestId(`im-chat-${directId}`).click(); await page.getByTestId(`im-chat-${groupId}`).click();
+  await expect(page.getByTestId('im-message-input')).toHaveValue('存储写满时，这份草稿切走再回来也不能丢。');
+  check('storage quota failure still preserves drafts while switching chats');
+  await page.reload(); await expect(page.getByTestId('im-message-input')).toBeVisible();
+  await page.getByTestId('im-message-input').fill('窄窗刷新后继续这份草稿');
+  if (!native) {
+    await page.setViewportSize({ width: 390, height: 844 }); await page.reload();
+    await expect(page.getByTestId('im-message-input')).toBeVisible();
+    await capture('narrow-chat');
+    await page.getByTestId('im-back').click(); await expect(page.getByTestId('im-new')).toBeVisible();
+    await page.getByTestId(`im-chat-${groupId}`).click();
+    check('narrow reload opens the selected chat and Back restores its list');
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' }); await capture('dark-chat');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    check('dark mode and narrow layout do not overflow the viewport');
+  } else {
+    const health = await request('/health'); expect(health.build.serverFiles['messenger.mjs']).toBeTruthy();
+    expect(page.url().startsWith('file:')).toBe(true);
+    const keys = await page.evaluate(() => ({ node: typeof require !== 'undefined', legacy: Boolean(window.agentStudioDesktop) }));
+    expect(keys).toEqual({ node: false, legacy: false });
+    check('real Electron uses bundled files, fixed IPC, owned utility and the new module hash');
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2));
+    await expect(page.getByTestId('im-message-input')).toBeVisible(); await capture('native-zoom');
+    await page.getByTestId('im-back').click(); await expect(page.getByTestId('im-new')).toBeVisible();
+    check('real Electron 200 percent zoom retains chat and list navigation');
+  }
+  expect(errors).toEqual([]); check('no renderer exceptions');
+} catch (e) { await page?.screenshot({ path: join(output, 'failure.png') }).catch(() => {}); throw e; }
+finally {
+  await writeFile(join(output, 'receipt.json'), JSON.stringify({ synthetic: true, native, checks, errors, submissions, output }, null, 2));
+  await application?.close(); await browser?.close(); await server?.close(); await new Promise(r => remote.close(r));
+  console.log(JSON.stringify({ output, passed: checks.length, synthetic: true }));
+}

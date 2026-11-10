@@ -39,6 +39,12 @@ export type Message = {
   createdAt: string;
   attachments?: Attachment[];
   artifactId?: string;
+  runId?: string;
+  contactId?: string;
+  contactSnapshot?: Contact;
+  replyTo?: string | null;
+  deliveryState?: string;
+  skippedContacts?: { id: string; name: string; reason: string }[];
 };
 export type Run = {
   id: string;
@@ -56,6 +62,8 @@ export type Run = {
   routingReason?: string;
   remoteReceipt?: unknown;
   externalVerification?: unknown;
+  contactId?: string;
+  contactSnapshot?: Contact;
 };
 export type Artifact = {
   id: string;
@@ -92,6 +100,11 @@ export type ThreadSummary = {
   status: Status;
   summary: string;
   updatedAt: string;
+  kind?: "direct" | "group";
+  memberIds?: string[];
+  version?: number;
+  lastMessage?: { text: string; contactId?: string } | null;
+  pendingApprovals?: number;
 };
 export type Thread = ThreadSummary & {
   createdAt: string;
@@ -100,6 +113,7 @@ export type Thread = ThreadSummary & {
   artifacts: Artifact[];
   decisions: Decision[];
   events: { id: string; type: string; text: string; createdAt: string }[];
+  responsePolicies?: Record<string, ResponsePolicy>;
 };
 export type Connection = {
   id: string;
@@ -116,6 +130,16 @@ export type Connection = {
   };
 };
 export type Memory = { id: string; text: string; createdAt: string };
+export type ResponsePolicy = "mention" | "always" | "manual";
+export type Contact = {
+  id: string; kind: "agent" | "human"; name: string; handle: string;
+  description: string; instructions: string; color: string; version: number;
+  discovered?: boolean; providerName?: string;
+  binding: { type: "local"; localAgentId: LocalAgentId } | { type: "connection"; connectionId: string } | null;
+  availability: "self" | "ready" | "unsupported" | "not_installed" | "login_required" | "disconnected" | "local_only";
+  availabilityReason?: string;
+};
+export type Approval = Decision & { threadId: string; threadTitle: string; contact: Contact | null };
 export type Bootstrap = {
   threads: ThreadSummary[];
   connections: Connection[];

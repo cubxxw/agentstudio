@@ -123,6 +123,10 @@ export class PersonalStore {
   }
 
   nextQueuedRun(thread) {
+    if (thread.kind === 'group') {
+      return thread.runs.find((run, index) => run.status === 'queued' && !thread.runs.slice(0, index).some(previous =>
+        previous.contactId === run.contactId && (['queued', 'running', 'verifying', 'needs_input'].includes(previous.status) || this.unresolved(previous)))) || null;
+    }
     const index = thread.runs.findIndex((run) => run.status === 'queued');
     if (index < 0 || thread.runs.slice(0, index).some((run) => ['queued', 'running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run))) return null;
     return thread.runs[index];
@@ -162,11 +166,11 @@ export class PersonalStore {
   }
 
   appendRun(thread, input) {
-    if (thread.runs.some((run) => this.unresolved(run) || run.requiresReconciliation)) {
+    if (thread.runs.some((run) => (thread.kind !== 'group' || run.contactId === input.contactId) && (this.unresolved(run) || run.requiresReconciliation))) {
       throw new APIError(409, 'unknown_execution', '原任务执行结果尚未确认，请先核查，补充内容不会重新提交该操作');
     }
-    const pending = thread.runs.filter((run) => run.status === 'needs_input');
-    if (!input.reuseMessageId) for (const previous of pending) {
+    const pending = thread.runs.filter((run) => run.status === 'needs_input' && (thread.kind !== 'group' || run.contactId === input.contactId));
+    if (!input.reuseMessageId || (thread.kind === 'group' && input.contactId)) for (const previous of pending) {
       previous.status = 'cancelled'; previous.finishedAt = now(); previous.cancellationReason = '用户补充了要求，旧预览已失效';
       for (const decision of thread.decisions.filter((item) => item.runId === previous.id && item.state === 'pending')) {
         decision.state = 'cancelled'; decision.version += 1; decision.cancellationReason = previous.cancellationReason;
@@ -180,6 +184,9 @@ export class PersonalStore {
     if (!input.reuseMessageId) thread.messages.push(message);
     const run = { id: id('run'), status: 'queued', mode: input.mode || 'codex', connectionId: input.connectionId || null,
       localAgentId: input.localAgentId || 'codex',
+      ...(input.contactId ? { contactId: input.contactId, contactSnapshot: input.contactSnapshot,
+        participantSnapshot: input.participantSnapshot, conversationSnapshot: input.conversationSnapshot, visibleAfterMessageId: input.visibleAfterMessageId,
+        responsePolicy: input.responsePolicy } : {}),
       messageId: message.id, memoryIds: input.memoryIds || thread.memoryIds || [], createdAt: now(),
       action: input.action || null, phase: 'prepare', deliveryState: 'not_sent', actionState: 'not_started', verificationState: 'not_started' };
     thread.runs.push(run);

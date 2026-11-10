@@ -67,9 +67,12 @@ jobs:
           '
           node dev/personal-browser.mjs
           node dev/personal-browser.mjs edges
+          node dev/messenger-acceptance.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: personal-browser-evidence
-          path: output/playwright/personal/
+          path: |
+            output/playwright/personal/
+            output/playwright/messenger/
           if-no-files-found: ignore

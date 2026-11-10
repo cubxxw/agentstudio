@@ -71,7 +71,10 @@ async function fixture(t, value = {}) {
     home: directory, commands, env: { ...process.env, PATH: bin, LOCAL_AGENT_FIXTURE: JSON.stringify(value), LOCAL_AGENT_TRACE: trace },
     spawn(command, args, options) {
       calls.push({ command, args, options }); active++; maximum = Math.max(active, maximum);
-      const child = spawn(command, args, options);
+      // Execute synthetic scripts with the trusted interpreter. Fresh executable
+      // shebang files can spend >3s in macOS launch checks before Node even starts;
+      // that is unrelated to the adapter's 2.5s protocol probe being tested.
+      const child = spawn(process.execPath, [command, ...args], options);
       child.once('close', () => { active--; if (child.pid) closed.add(child.pid); }); return child;
     },
   };
