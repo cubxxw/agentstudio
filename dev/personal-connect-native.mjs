@@ -29,12 +29,12 @@ const capture = async name => {
   captures.push({ name, method: 'native-window' });
 };
 const openConnections = async () => {
-  await page.getByTestId('personal-desktop-connections').click();
+  await page.getByTestId('im-settings').click();
   await page.getByTestId('personal-local-use-claude').waitFor();
 };
 const send = async text => {
-  await page.getByTestId('personal-composer-input').fill(text);
-  await page.getByTestId('personal-composer-send').click();
+  await page.getByTestId('im-message-input').fill(text);
+  await page.getByTestId('im-send').click();
   await page.waitForURL(/thread=thr_/);
   return new URL(page.url()).searchParams.get('thread');
 };
@@ -47,8 +47,8 @@ try {
   application = await _electron.launch({ executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [join(root, 'apps/desktop')], env });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
-  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); } page.on('pageerror', error => errors.push(error.message));
-  await page.getByTestId('personal-desktop-rail').waitFor();
+   page.on('pageerror', error => errors.push(error.message));
+  await page.getByTestId('im-rail').waitFor();
   await openConnections();
   const detected = await api('/integrations');
   verify(detected.agents.filter(agent => ['codex', 'claude'].includes(agent.id)).every(agent => agent.installed && agent.auth.status === 'configured'), 'native discovery finds existing Codex and Claude login configuration');
@@ -65,10 +65,12 @@ try {
   await expect.poll(async () => (await api('/bootstrap')).settings.localAgentId).toBe(executionAgent);
   await expect(page.getByTestId(`personal-local-use-${executionAgent}`)).toContainText('正在使用');
   await page.keyboard.press('Escape');
+  await page.getByTestId('im-new').click(); await page.getByTestId('im-new-notes').click();
+  await page.getByTestId('im-send-options-toggle').click(); await page.getByTestId('im-task-mode').selectOption('codex');
   const localId = await send('合成验收资料：今天有20分钟阅读，准备2分钟、阅读16分钟、记录2分钟。请生成一份简短中文Markdown清单，并写出这三个步骤的总分钟数。不调用工具，不读取文件，不作外部操作。');
   const local = await complete(localId);
   verify(local.runs[0].localAgentId === executionAgent && local.artifacts[0].source === executionAgent, `actual result is produced by the selected ${executionAgent} CLI`);
-  await page.getByTestId('personal-open-result').click(); await page.getByTestId('personal-reader').waitFor(); await capture(`${executionAgent}-real-result`); await page.keyboard.press('Escape');
+  await page.getByTestId('im-results').click(); await page.getByTestId('im-artifact').last().click(); await page.getByTestId('personal-reader').waitFor(); await capture(`${executionAgent}-real-result`); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
   await openConnections(); await page.getByTestId('personal-local-use-claude').click();
   await expect.poll(async () => (await api('/bootstrap')).settings.localAgentId).toBe('claude');
   verify((await api(`/threads/${localId}`)).runs[0].localAgentId === executionAgent, 'switching defaults never rewrites accepted task executor identity');
@@ -80,8 +82,10 @@ try {
   await expect(page.getByTestId('personal-preset-connect-exa')).toContainText('已连接', { timeout: 45000 });
   verify(true, 'DeepWiki and Exa connect with one click and real handshakes, without URL or credential input');
   await capture('connections-linked');
-  await page.keyboard.press('Escape'); await page.getByTestId('personal-new').click();
+  await page.keyboard.press('Escape'); await page.getByTestId('im-new').click(); await page.getByTestId('im-new-notes').click();
+  await page.getByTestId('im-send-options-toggle').click(); await page.getByTestId('im-task-mode').selectOption('codex');
   const mcpId = await send('用已经连接的 DeepWiki 读取 facebook/react 的公开文档目录。不要用 Exa 或其他工具，不修改任何外部数据。');
+  await page.getByTestId('im-pending-bar').click();
   await page.getByTestId('personal-decision-approve').waitFor({ timeout: 180000 });
   verify((await api(`/threads/${mcpId}`)).status === 'needs_input', 'a quick-connected tool still waits for the precise execution decision');
   await page.getByTestId('personal-decision-approve').click();
@@ -91,7 +95,7 @@ try {
   application = await _electron.launch({ executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [join(root, 'apps/desktop')], env });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
-  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); } await page.getByTestId('personal-desktop-rail').waitFor();
+   await page.getByTestId('im-rail').waitFor();
   const restored = await api('/bootstrap');
   verify(restored.settings.localAgentId === 'codex' && restored.connections.length === 2 && [localId, mcpId].every(id => restored.threads.some(thread => thread.id === id && thread.status === 'completed')), 'chosen CLI, quick connections and actual results survive native app restart');
   verify(errors.length === 0, 'connection journeys have no renderer exceptions');

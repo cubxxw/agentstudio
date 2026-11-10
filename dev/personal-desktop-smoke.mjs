@@ -35,6 +35,7 @@ const env = {
   AGENTSTUDIO_CODEX_BIN: join(profile, "missing-synthetic-codex-no-model-calls"),
   AGENTSTUDIO_MOCK_KEYCHAIN: "1",
   AGENTSTUDIO_TEST_NOTIFICATIONS: "1",
+  AGENTSTUDIO_MOCK_KEYCHAIN: "1",
   PERSONAL_BUILD_REF: "personal-desktop-synthetic-smoke",
 };
 for (const key of ["ELECTRON_RUN_AS_NODE", "ELECTRON_RENDERER_URL", "AGENTSTUDIO_PERSONAL_DATA_DIR", "PERSONAL_DATA_DIR"]) delete env[key];
@@ -107,11 +108,12 @@ const noPageOverflow = async (name) => {
   verify(true, name);
 };
 const openLatestReader = async () => {
-  await page.getByTestId("personal-open-result").click();
+  await page.getByTestId("im-results").click(); await page.getByTestId("im-artifact").last().click();
   await expect(page.getByTestId("personal-reader")).toBeVisible();
   return page.getByTestId("personal-reader");
 };
 const closeReader = async () => {
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("personal-modal")).toHaveCount(0);
 };
@@ -141,8 +143,8 @@ const menuClick = (label) => application.evaluate(({ Menu, BrowserWindow }, labe
   return { label: item.label, accelerator: item.accelerator };
 }, label);
 const sendThroughUI = async (text) => {
-  await page.getByTestId("personal-composer-input").fill(text);
-  await page.getByTestId("personal-composer-send").click();
+  await page.getByTestId("im-message-input").fill(text);
+  await page.getByTestId("im-send").click();
   await expect.poll(() => new URL(page.url()).searchParams.get("thread")).toMatch(/^thr_/);
   return new URL(page.url()).searchParams.get("thread");
 };
@@ -167,10 +169,10 @@ try {
     args: packagedApp ? [] : [join(root, "apps/desktop")], env, timeout: 30_000 });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
-  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); }
+
   page.on("pageerror", (error) => metadata.rendererErrors.push(error.message));
-  await expect(page.getByTestId("personal-app")).toBeVisible();
-  await expect(page.getByTestId("personal-desktop-rail")).toBeVisible();
+  await expect(page.getByTestId("im-app")).toBeVisible();
+  await expect(page.getByTestId("im-rail")).toBeVisible();
   metadata.url = page.url();
   metadata.bridge = await page.evaluate(() => ({ keys: Object.keys(window.agentStudioPersonal).sort(),
     legacyExposed: Boolean(window.agentStudioDesktop), hasRequire: typeof require !== "undefined",
@@ -204,8 +206,9 @@ try {
   verify(true, "renderer direct HTTP is blocked by CSP; requests use the owned utility bridge");
   await capture("native-first-boot");
 
-  await page.getByTestId("personal-sample").click();
-  await expect(page.getByTestId("personal-artifact")).toHaveCount(1);
+  await page.getByTestId("im-new").click(); await page.getByTestId("im-new-notes").click();
+  await page.getByTestId("im-attach").setInputFiles({ name: "reading-notes.md", mimeType: "text/markdown", buffer: Buffer.from("# 20 分钟阅读安排\n\n合成验收资料。准备2分钟，阅读16分钟，记录2分钟。") });
+  await sendThroughUI("整理这份合成阅读安排。");
   const sampleId = new URL(page.url()).searchParams.get("thread");
   const sample = await waitCompleted(sampleId);
   metadata.local = { threadId: sampleId, status: sample.status, artifacts: sample.artifacts };
@@ -215,15 +218,15 @@ try {
   await capture("native-report-light");
   await closeReader();
 
-  await page.getByTestId("personal-new").click();
-  await page.getByTestId("personal-mode-menu").click();
-  await page.getByTestId("personal-mode-local").click();
+  await page.getByTestId("im-new").click(); await page.getByTestId("im-new-notes").click();
+  await page.getByTestId("im-send-options-toggle").click();
+  await page.getByTestId("im-task-mode").selectOption("local");
   const fixture = join(output, "synthetic-long-reading.md");
   await writeFile(fixture, longSource);
-  await page.getByTestId("personal-attachment-input").setInputFiles(fixture);
+  await page.getByTestId("im-attach").setInputFiles(fixture);
   const longId = await sendThroughUI("只在本地整理这份合成中文资料，保留十八节原文、宽表格和长代码。此操作不是 AI 判断。");
   const longThread = await waitCompleted(longId);
-  await expect(page.getByTestId("personal-artifact")).toHaveCount(1);
+  verify((await request(`/threads/${longId}`)).artifacts.length === 1, "first long source artifact is saved");
   const source = longThread.messages.flatMap((message) => message.attachments || [])[0];
   verify(source?.text === longSource, "UI upload preserves all eighteen synthetic Chinese sections and original bytes");
   reader = await openLatestReader();
@@ -258,19 +261,19 @@ try {
   // deterministic report quotes that request, providing a real source link.
   await sendThroughUI(`继续本地整理，并核对[已保存的合成原文](#source-${source.id})。保留所有原文；不调用 AI 或第三方工具。`);
   const linkedThread = await waitCompleted(longId, 2);
-  await expect(page.getByTestId("personal-artifact")).toHaveCount(2);
+  verify((await request(`/threads/${longId}`)).artifacts.length === 2, "both long source artifact versions are saved");
   reader = await openLatestReader();
   await expect(reader).toContainText("NATIVE-SYNTHETIC-LONG-SOURCE-END");
   await reader.locator(`a[href="#source-${source.id}"]`).first().click();
-  await expect(page.getByTestId("personal-modal")).toHaveCount(2);
+  await expect(page.getByTestId("personal-modal")).toHaveCount(3);
   await expect(page.getByTestId("personal-modal").last()).toContainText("NATIVE-SYNTHETIC-LONG-SOURCE-END");
   await capture("native-long-source-light");
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("personal-modal")).toHaveCount(1);
+  await expect(page.getByTestId("personal-modal")).toHaveCount(2);
   await expect(reader).toBeVisible();
   verify(true, "first Escape closes only the source and retains the report");
   await closeReader();
-  await expect(page.getByTestId("personal-open-result")).toBeFocused();
+  await expect(page.getByTestId("im-results")).toBeFocused();
   verify(true, "second Escape closes the report and restores its trigger focus");
   metadata.longReading = { threadId: longId, sourceBytes: Buffer.byteLength(longSource), sourceSha256: digest(longSource),
     sections: 18, artifacts: linkedThread.artifacts };
@@ -291,7 +294,7 @@ try {
   await capture("native-760");
   reader = await openLatestReader();
   await expect(reader).toContainText("NATIVE-SYNTHETIC-LONG-SOURCE-END");
-  await expect(page.getByTestId("personal-modal-close")).toBeInViewport();
+  await expect(page.getByTestId("personal-modal-close").last()).toBeInViewport();
   await noPageOverflow("760px dark long reader has no page overflow");
   await capture("native-reader-dark-760");
   await closeReader();
@@ -302,18 +305,18 @@ try {
   await expect.poll(() => page.evaluate(() => innerWidth)).toBe(600);
   metadata.zoomFactor = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getZoomFactor());
   verify(metadata.zoomFactor === 2, "200% uses actual Electron webContents zoom, not viewport emulation");
-  await expect(page.getByTestId("personal-menu")).toBeVisible();
+  await expect(page.getByTestId("im-back")).toBeVisible();
   await capture("native-zoom-200");
-  await page.getByTestId("personal-menu").click();
-  await expect(page.getByTestId("personal-sidebar")).toBeInViewport();
-  metadata.zoom200 = await page.getByTestId("personal-sidebar").evaluate((element) => ({ sidebarAccessible: !element.inert, cssWidth: innerWidth }));
+  await page.getByTestId("im-back").click();
+  await expect(page.getByTestId("im-list-panel")).toBeInViewport();
+  metadata.zoom200 = await page.getByTestId("im-list-panel").evaluate((element) => ({ sidebarAccessible: !element.inert, cssWidth: innerWidth }));
   verify(metadata.zoom200.sidebarAccessible, "sidebar remains accessible at native 200% zoom");
   await noPageOverflow("native 200% sidebar has no page overflow");
   await capture("native-zoom-200-sidebar");
-  await page.getByTestId("personal-sidebar-close").click();
+  await page.getByTestId(`im-chat-${longId}`).click();
   reader = await openLatestReader();
   await expect(reader).toContainText("NATIVE-SYNTHETIC-LONG-SOURCE-END");
-  await expect(page.getByTestId("personal-modal-close")).toBeInViewport();
+  await expect(page.getByTestId("personal-modal-close").last()).toBeInViewport();
   await noPageOverflow("native 200% dark reader keeps its close control and local overflow");
   await capture("native-reader-dark-zoom-200");
   await closeReader();
@@ -332,13 +335,15 @@ try {
   verify(metadata.reopened && metadata.backgroundContinued, "close hides the same native window while its local utility continues");
   metadata.menuCommands = {};
   metadata.menuCommands.search = await menuClick("搜索");
-  await expect(page.getByTestId("personal-search")).toBeFocused();
+  await expect(page.getByTestId("im-search")).toBeFocused();
   metadata.menuCommands.settings = await menuClick("设置…");
   await expect(page.getByTestId("personal-modal")).toBeVisible();
   await page.getByTestId("personal-modal-close").click();
-  metadata.menuCommands.new = await menuClick("新任务");
-  await expect(page.getByTestId("personal-composer-input")).toBeFocused();
-  verify(true, "native search, settings and new-task menu commands reach the personal UI");
+  metadata.menuCommands.new = await menuClick("新聊天");
+  await expect(page.getByTestId("im-new-notes")).toBeVisible();
+  await page.getByTestId("im-new-notes").click();
+  await expect(page.getByTestId("im-message-input")).toBeFocused();
+  verify(true, "native search, settings and new-chat menu commands reach the personal UI");
   const final = await request("/bootstrap");
   verify(final.connections.length === 0, "smoke never connects a real remote service");
   for (const thread of final.threads) {

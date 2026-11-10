@@ -33,7 +33,9 @@ GET-483 · 2026-11-10。当前默认 Mac 入口是个人 IM，先连接本人和
 
 运行快照只给当前 Agent 自身的身份指令；群内其他人只有名称/用户名/简介等身份卡。群与私聊相互隔离，原 CLI 的插件权限边界没有因此变成强制文件系统隔离。A2A 预览包含实际发送的上下文；MCP 计划和调用使用相同可见范围。
 
-草稿按聊天分别保存。异步回包不能清掉后来写的文字；网络超时保留原请求及 clientId，明确未接受的 4xx 拒绝则允许修改重发。存储写满后保留窗口内的每段草稿，提示重载无法保证恢复。旧任务可在列表中打开并点“继续任务、查看原有草稿”，回 `?workspace=tasks`；旧请求恢复逻辑和原草稿不转换成新发送。
+草稿按聊天分别保存。异步回包不能清掉后来写的文字；网络超时保留原请求及 clientId，明确未接受的 4xx 拒绝则允许修改重发。存储写满后保留窗口内的每段草稿，提示重载无法保证恢复。历史任务直接在同一聊天界面继续，不再切换工作台。旧草稿、附件、执行方式和连接自动恢复；未确认请求保留原 clientId、原记忆快照和精确正文，等待手动重试。新聊天里的“整理资料”可继续尚未建立会话的旧草稿。原 `?workspace=tasks&thread=…` 链接仍能打开对应会话。已保存的新草稿优先，旧存储作为恢复备份保留。创建回执迟到时，不覆盖目标会话新写的内容。
+
+点击聊天右上角信息或成果按钮，可以查看全部成果版本、执行与审批记录；详细回执按需展开。联系人/群成员设置在聊天标题中打开。连接、记忆、阅读和审批共用同一套字体、蓝色操作与明暗主题；后台失联后可显式恢复自有后台。
 
 ## 参考研究与取舍
 
@@ -59,8 +61,10 @@ Raft 是 FSL-1.1-ALv2 source-available 镜像，本项目独立实现上述机�
 pnpm --filter @agentstudio/personal build
 node --test apps/personal/server/messenger.test.mjs
 node dev/messenger-acceptance.mjs
+node dev/conversation-acceptance.mjs
 pnpm --filter @agentstudio/desktop build
 node dev/messenger-acceptance.mjs --native
+node dev/conversation-acceptance.mjs --native
 # 明确使用现有 Codex 配置，只有合成输入，无私人资料：
 node dev/messenger-real.mjs --real
 ```

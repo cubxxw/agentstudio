@@ -128,7 +128,7 @@ try {
   expect(submissions).toBe(1); await page.getByTestId('im-approval-open-chat').click();
   await expect(page.getByTestId('im-timeline')).toContainText('这条合成远端回复只在批准后发送');
   check('unified approval executes once and returns to the original group');
-  await page.getByTestId('im-info').click();
+  await page.getByTestId('im-chat-info').click();
   await page.getByTestId(`im-policy-${researcher.id}`).selectOption('always');
   await page.getByTestId('im-group-save').click();
   await expect(page.getByTestId('im-group-editor')).toHaveCount(0);
@@ -139,7 +139,7 @@ try {
   await page.getByTestId(`im-chat-${directId}`).click(); await page.getByTestId(`im-chat-${groupId}`).click();
   await expect(page.getByTestId('im-message-input')).toHaveValue('切换聊天时保留这段群聊草稿');
   check('switching chats preserves separate drafts');
-  await page.getByTestId('im-info').click();
+  await page.getByTestId('im-chat-info').click();
   await page.getByTestId('im-member-agent_pi').check(); await page.getByTestId('im-group-save').click();
   await expect(page.getByTestId('im-group-editor')).toHaveCount(0);
   await page.getByTestId('im-message-input').fill('@pi 请回复'); await page.getByTestId('im-send').click();

@@ -75,7 +75,7 @@ Contacts have unique 2–32 character lowercase handles (`[a-z][a-z0-9_-]{1,31}`
 
 Private agents respond directly. Groups default to exact `@handle`/reply addressing, with `@all` for executable members; paused members never auto-respond. Agent replies never enqueue agents. Unavailable or uncertain broadcast members are skipped with `message.skippedContacts`; a direct or explicit unavailable target returns 409 before accepting the message. Per-agent lanes let other members continue while one awaits approval or reconciliation; a new addressed message invalidates only that agent's old previews. The same run keeps its accepted persona, participants, visibility boundary and backend on retry. A2A approvals show the exact filtered conversation/identity payload; MCP planning uses the same filtered context. Joining does not grant earlier history or other conversations. Prompt boundaries do not override the CLI's actual configured plugin permissions.
 
-Human contacts and their messages currently stay on this Mac. `deliveryState:"local_only"` is not remote delivery. Existing task threads remain readable in the IM and have an explicit `?workspace=tasks&thread=:id` resume action; their old recovery keys and drafts remain untouched.
+Human contacts and their messages currently stay on this Mac. `deliveryState:"local_only"` is not remote delivery. Existing task threads continue in the same IM shell through their original `/api/threads/:id/messages` endpoint. Old `?workspace=tasks&thread=:id` links open that same shell. Their old draft keys are retained as backups; the renderer reconstructs original unconfirmed requests without changing their clientId, fingerprint, memory snapshot or create/message route.
 
 ### Personal discovery and quick connections
 
