@@ -147,16 +147,18 @@ export class WebSession {
   }
 
   /**
-   * Shows a sign-in window on the service and resolves once isSignedIn(page)
-   * is true there (checked every second), then reloads the hidden session
-   * window, which shares the cookies. Rejects on cancel or window close.
+   * Waits for service controls or initial navigation before showing the form.
+   * Authentication/cancellation checks run independently of unrelated resources
+   * in the page's full-load promise.
    */
-  async signIn(isSignedIn: (wc: WebContents) => Promise<boolean>, signal: AbortSignal): Promise<void> {
+  async signIn(isSignedIn: (wc: WebContents) => Promise<boolean>, signal: AbortSignal, onReady?: () => void, isReady?: (wc: WebContents) => Promise<boolean>): Promise<void> {
+    if (signal.aborted) throw new Error("cancelled");
     const win = new BrowserWindow({
+      show: false,
       width: 980,
       height: 820,
       title: `Sign in: ${this.opts.title}`,
-      webPreferences: { partition: this.opts.partition, contextIsolation: true, sandbox: true, nodeIntegration: false },
+      webPreferences: { partition: this.opts.partition, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
     });
     this.loginWin = win;
     // Keep our title, so the user can tell this is AgentStudio's sign-in window.
@@ -164,23 +166,62 @@ export class WebSession {
     // Sign-in pages may open provider popups (Apple, Google, Meta); keep them in the same partition.
     win.webContents.setWindowOpenHandler(({ url }) =>
       /^https?:\/\//.test(url)
-        ? { action: "allow", overrideBrowserWindowOptions: { webPreferences: { partition: this.opts.partition, contextIsolation: true, sandbox: true } } }
+        ? { action: "allow", overrideBrowserWindowOptions: { webPreferences: { partition: this.opts.partition, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } } }
         : { action: "deny" },
     );
-    await win.loadURL(this.opts.url).catch(() => {});
+    const popups = new Set<BrowserWindow>();
+    win.webContents.on("did-create-window", (popup) => {
+      popups.add(popup);
+      popup.once("closed", () => popups.delete(popup));
+    });
+    let shown = false, finished = false;
+    let rejectWait!: (error: Error) => void;
+    const interrupted = new Promise<never>((_resolve, reject) => { rejectWait = reject; });
+    // The load promise may fail before the first asynchronous DOM check settles.
+    void interrupted.catch(() => {});
+    const abort = () => rejectWait(new Error("cancelled"));
+    const closed = () => { if (!finished) rejectWait(new Error("The sign-in window was closed before signing in.")); };
+    signal.addEventListener("abort", abort, { once: true });
+    win.once("closed", closed);
+    const deadline = setTimeout(() => rejectWait(new Error("Sign-in page load timed out; check the connection and try again.")), 90_000);
+    const showReady = () => {
+      if (finished || signal.aborted || win.isDestroyed() || shown) return;
+      clearTimeout(deadline);
+      shown = true; win.show(); win.focus(); onReady?.();
+    };
+    let poll: ReturnType<typeof setTimeout> | undefined;
     try {
+      void win.loadURL(this.opts.url).then(() => {
+        clearTimeout(deadline);
+        try { showReady(); }
+        catch { rejectWait(new Error("Sign-in page could not load; check the connection and try again.")); }
+      }, (error: unknown) => {
+        const detail = error as { code?: string; errno?: number } | null;
+        const navigationChanged = detail?.code === "ERR_ABORTED" || detail?.errno === -3 || (error instanceof Error && /ERR_ABORTED/.test(error.message));
+        if (!finished && !(shown && navigationChanged)) rejectWait(new Error("Sign-in page could not load; check the connection and try again."));
+      });
       for (;;) {
         if (signal.aborted) throw new Error("cancelled");
         if (win.isDestroyed()) throw new Error("The sign-in window was closed before signing in.");
-        if (await isSignedIn(win.webContents).catch(() => false)) break;
-        await new Promise((r) => setTimeout(r, 1000));
+        const signedIn = await Promise.race([isSignedIn(win.webContents).catch(() => false), interrupted]);
+        if (signal.aborted) throw new Error("cancelled");
+        if (signedIn) break;
+        if (!shown && isReady && await Promise.race([isReady(win.webContents).catch(() => false), interrupted])) showReady();
+        await Promise.race([new Promise<void>((resolve) => { poll = setTimeout(resolve, 1000); }), interrupted]);
       }
     } finally {
+      finished = true; clearTimeout(deadline); clearTimeout(poll);
+      signal.removeEventListener("abort", abort);
+      win.removeListener("closed", closed);
+      for (const popup of popups) if (!popup.isDestroyed()) popup.destroy();
       if (!win.isDestroyed()) win.destroy();
-      this.loginWin = null;
+      if (this.loginWin === win) this.loginWin = null;
     }
-    if (this.webContents) await this.reload();
-    else await this.open();
+    if (signal.aborted) throw new Error("cancelled");
+    // Starting the authenticated background page must not keep a successful
+    // login waiting on an unrelated second navigation or streaming resource.
+    const background = this.webContents ? this.reload() : this.open();
+    void background.catch(() => { this.broken = "the signed-in service page could not be opened"; });
   }
 }
 

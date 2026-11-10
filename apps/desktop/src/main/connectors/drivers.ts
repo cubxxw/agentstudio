@@ -90,6 +90,18 @@ const clickLabel = (root, label) => {
 };
 `;
 
+// Login readiness reads only Boolean DOM state, never credentials or messages.
+// The main-frame API can inspect these controls before unrelated media finishes;
+// Electron's WebContents execution helpers wait for the entire navigation.
+export const MUSE_LOGIN_STATE = String.raw`(() => {
+  const visible = (e) => !!e && e.getClientRects().length > 0;
+  const signedIn = [...document.querySelectorAll('textarea[aria-label="Message"]')].some(visible);
+  const buttons = [...document.querySelectorAll('button')].filter(visible);
+  const ready = signedIn || buttons.some(b => b.textContent.trim() === 'Continue' && !b.disabled) ||
+    (document.readyState === 'complete' && buttons.some(b => /^(Log in as|Continue as)\s/i.test(b.textContent.trim()) && !b.disabled));
+  return { signedIn, ready };
+})()`;
+
 export const MUSE_DRIVER = String.raw`(() => {
 ${COMMON}
 const composer = () => [...document.querySelectorAll('textarea[aria-label="Message"]')].filter(visible)[0] || null;

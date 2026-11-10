@@ -32,6 +32,7 @@ flowchart LR
   - The page runs in a hidden window. Page scripts run in an isolated world.
   - The user agent is plain Chrome, without the Electron token.
   - Sign-in happens in a visible window on the same partition.
+  - **Muse login readiness.** The window starts hidden with a loading state in Connect. Its public login controls can become interactive before images/video finish loading. A main-frame check returns only `signedIn`/`ready` booleans, so the usable form can appear without Electron's full-navigation JavaScript wait. This does not read passwords, codes, account labels or conversations; chat drivers still run in isolated world 1999. Initial loading is bounded to 90 seconds; cancel/close interrupts loading and pending checks, closes owned login/popups, and a cancelled request cannot reopen them. An ordinary `ERR_ABORTED` navigation after readiness does not invalidate the auth flow. See [the actual Muse investigation](personal/muse-login.md).
 - **Offline behaviour.** When the Mac app is closed, these agents don't answer. When it starts again, the connectors resume.
 
 ## Grok Bot
