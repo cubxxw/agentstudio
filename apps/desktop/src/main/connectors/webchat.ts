@@ -62,6 +62,8 @@ export class WebChatConnector implements Connector {
   private pending = new Map<string, { text: string; polls: number }>();
   private approvals = new Map<string, { messageId: string; labels: Map<string, string> }>();
   private pendingAsk: string | null = null;
+  /** Personal mode: local single-turn association, armed only after our user echo. */
+  private personalReply: { messageId: string; text: string; echoed: boolean } | null = null;
   private workingSince = 0;
   private baselined = false;
   private avatarImg: AvatarImage | null = null;
@@ -125,11 +127,15 @@ export class WebChatConnector implements Connector {
       this.status = { status: "needs_login", message: `Sign in to ${this.cfg.name} again.` };
       throw new Error(`${this.cfg.name} is signed out. Open it from AgentStudio's Connect screen and sign in again.`);
     }
+    const personal = msg.session_id.startsWith("personal:");
+    if (personal && (!this.baselined || snap.busy || this.pending.size || this.approvals.size)) throw new Error("The service has an unfinished conversation; open it before sending another task.");
     // Anything already on the page is history, not a reply to this message
     // (except a reply still streaming in, which we keep waiting for).
     for (const m of snap.messages) if (!this.pending.has(m.id)) this.seen.add(m.id);
     const text = msg.ask ? askPrompt(msg.ask) : msg.text;
     this.ownTexts.add(text.trim());
+    if (personal) this.personalReply = { messageId: msg.message_id, text: text.trim(), echoed: false };
+    try {
     const res = await this.session.eval<{ ok: boolean; error?: string; pressEnter?: boolean }>(
       `globalThis.__agentstudio.submit(${JSON.stringify(text)})`,
     );
@@ -140,6 +146,7 @@ export class WebChatConnector implements Connector {
     this.workingSince = Date.now();
     this.emitter?.emit({ type: "status", state: "working", text: "Working" });
     this.schedule(this.cfg.pollMs);
+    } catch (error) { if (personal) this.personalReply = null; throw error; }
   }
 
   async decide(externalId: string, choice: string): Promise<void> {
@@ -287,12 +294,15 @@ export class WebChatConnector implements Connector {
 
   private process(snap: Snapshot) {
     const emit = (e: Parameters<Emitter["emit"]>[0]) => this.emitter?.emit(e);
+    let processedAssistant = false;
     for (const m of snap.messages) {
       if (this.seen.has(m.id)) continue;
       if (m.role === "user") {
         this.seen.add(m.id);
         // Typed in the service itself (AgentStudio's own sends are skipped).
-        if (m.text && !this.ownTexts.delete(m.text.trim())) emit({ type: "message", text: truncate(m.text, MAX_TEXT), from_user: true, via: this.cfg.name });
+        const ours = this.ownTexts.delete(m.text.trim());
+        if (ours && this.personalReply?.text === m.text.trim()) this.personalReply.echoed = true;
+        if (m.text && !ours) { this.personalReply = null; emit({ type: "message", text: truncate(m.text, MAX_TEXT), from_user: true, via: this.cfg.name }); }
         continue;
       }
       // Replies stream in: emit once the text is stable and the agent is idle.
@@ -304,6 +314,7 @@ export class WebChatConnector implements Connector {
       }
       this.pending.delete(m.id);
       this.seen.add(m.id);
+      processedAssistant = true;
       this.cfg.trace?.("webchat.reply", { agent: this.cfg.name, chars: m.text.length, actions: m.actions, widget: !!m.widget });
       if (m.text) {
         if (this.pendingAsk) {
@@ -311,7 +322,7 @@ export class WebChatConnector implements Connector {
           this.pendingAsk = null;
           emit({ type: "drafts", task_id: taskId, drafts: parseDrafts(m.text).map((text) => ({ text })) });
         } else {
-          emit({ type: "message", text: truncate(m.text, MAX_TEXT) });
+          emit({ type: "message", text: truncate(m.text, MAX_TEXT), ...(this.personalReply?.echoed ? { reply_to: this.personalReply.messageId } : {}) });
         }
       }
       const choices = buttonChoices(m.actions);
@@ -320,10 +331,19 @@ export class WebChatConnector implements Connector {
         this.approvals.set(id, { messageId: m.id, labels: new Map(choices.map((c) => [c.key, c.label])) });
         emit({ type: "approval_request", external_id: id, title: truncate(m.text.split("\n")[0] || `${this.cfg.name} needs your decision`, 300), choices });
       } else if (m.widget && !m.text) {
+        if (this.personalReply) this.emitter?.inputRequired?.(this.personalReply.messageId);
         // An interactive card (checklist, picker, ...) AgentStudio can't show yet.
         emit({ type: "message", text: `${this.cfg.name} sent an interactive card AgentStudio can't show yet. View it in ${this.cfg.name}: ${this.cfg.url}` });
       }
-      if (!snap.busy) emit({ type: "status", state: "idle" });
+    }
+    // One snapshot can contain several reply bubbles. Retain the same association
+    // until every pending bubble is stable, then publish a single completion signal.
+    if (!snap.busy && processedAssistant && this.pending.size === 0) {
+      emit({ type: "status", state: "idle" });
+      if (this.personalReply) {
+        if (!this.personalReply.echoed) this.emitter?.uncertain?.(this.personalReply.messageId);
+        this.personalReply = null;
+      }
     }
   }
 }

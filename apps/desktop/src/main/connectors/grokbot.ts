@@ -457,6 +457,7 @@ export class GrokBotConnector implements Connector {
   private seen = new Map<string, number>(); // entry id -> updated_seq emitted or pending
   private pending = new Map<string, { updated: number; polls: number; text: string }>();
   private pendingAsk: string | null = null;
+  private personalReply: { messageId: string; providerMessageId: string; text: string; echoed: boolean } | null = null;
   private widgets = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
 
@@ -563,10 +564,20 @@ export class GrokBotConnector implements Connector {
   async send(msg: InboundMessage): Promise<void> {
     const text = msg.ask ? askPrompt(msg.ask) : msg.text;
     const id = randomUUID();
+    const personal = msg.session_id.startsWith("personal:");
+    if (personal) {
+      if (this.pending.size || this.widgets.size || this.personalReply) throw new Error("The service has an unfinished conversation; inspect it first.");
+      const before = await this.list();
+      this.data.lastSeq = Math.max(this.data.lastSeq ?? 0, ...before.map((entry) => Number(entry.seq ?? 0)));
+      for (const entry of before) this.seen.set(String(entry.entry_id ?? entry.seq), Number(entry.updated_seq ?? 0));
+      this.onChange();
+      this.personalReply = { messageId: msg.message_id, providerMessageId: id, text: text.trim(), echoed: false };
+    }
     this.ownMessageIds.add(id);
     this.ownTexts.add(text.trim());
     if (msg.ask) this.pendingAsk = msg.ask.task_id;
     const now = Date.now();
+    try {
     const res = await this.client.rpc(
       "SendGrokBotUserMessage",
       SendGrokBotUserMessageRequest,
@@ -574,9 +585,11 @@ export class GrokBotConnector implements Connector {
       SendGrokBotUserMessageResponse,
     );
     this.cfg.trace?.("grokbot.send", { dispatched: res.dispatched });
+    if (personal && res.dispatched === false) throw new Error("The service did not confirm dispatch");
     this.emitter?.emit({ type: "status", state: "working", text: "Working" });
     this.activeUntil = Date.now() + 10 * 60_000;
     this.schedule(this.cfg.pollActiveMs);
+    } catch (error) { if (personal) this.personalReply = null; throw error; }
   }
 
   async decide(externalId: string, choice: string): Promise<void> {
@@ -626,6 +639,7 @@ export class GrokBotConnector implements Connector {
   private process(entries: ProtoMessage[]) {
     const emit = (e: Parameters<Emitter["emit"]>[0]) => this.emitter?.emit(e);
     const latestSeq = Math.max(0, ...entries.map((e) => Number(e.seq ?? 0)));
+    let processedAssistant = false;
     for (const e of entries) {
       const id = String(e.entry_id || e.seq);
       const updated = Number(e.updated_seq ?? 0);
@@ -648,12 +662,18 @@ export class GrokBotConnector implements Connector {
       if (parsed.kind === "user") {
         this.seen.set(id, updated);
         // What the user typed in Grok Bot itself (AgentStudio's own sends are skipped).
-        const ours = (parsed.nonce && this.ownMessageIds.delete(parsed.nonce)) || this.ownTexts.delete(parsed.text);
-        if (!ours) emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), from_user: true, via: "Grok Bot" });
+        let ours: boolean | string | undefined;
+        if (this.personalReply) {
+          ours = parsed.nonce ? parsed.nonce === this.personalReply.providerMessageId && this.ownMessageIds.delete(parsed.nonce)
+            : parsed.text.trim() === this.personalReply.text && this.ownTexts.delete(parsed.text);
+          if (ours) { this.ownTexts.delete(parsed.text); this.personalReply.echoed = true; }
+        } else ours = (parsed.nonce && this.ownMessageIds.delete(parsed.nonce)) || this.ownTexts.delete(parsed.text);
+        if (!ours) { this.personalReply = null; emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), from_user: true, via: "Grok Bot" }); }
         continue;
       }
       if (parsed.kind === "notice") {
         this.seen.set(id, updated);
+        if (this.personalReply?.echoed) this.emitter?.inputRequired?.(this.personalReply.messageId);
         emit({ type: "message", text: parsed.text });
         continue;
       }
@@ -670,19 +690,28 @@ export class GrokBotConnector implements Connector {
       }
       this.pending.delete(id);
       this.seen.set(id, updated);
+      processedAssistant = true;
       if (this.pendingAsk) {
         const taskId = this.pendingAsk;
         this.pendingAsk = null;
         emit({ type: "drafts", task_id: taskId, drafts: parseDrafts(parsed.text).map((text) => ({ text })) });
       } else {
-        emit({ type: "message", text: truncate(parsed.text, MAX_TEXT) });
+        emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), ...(this.personalReply?.echoed ? { reply_to: this.personalReply.messageId } : {}) });
       }
-      emit({ type: "status", state: "idle" });
     }
     const maxDone = Math.max(this.data.lastSeq ?? 0, ...entries.filter((e) => !this.pending.has(String(e.entry_id || e.seq))).map((e) => Number(e.seq ?? 0)));
     if (maxDone !== this.data.lastSeq) {
       this.data.lastSeq = maxDone;
       this.onChange();
+    }
+    // A poll can contain several assistant entries and a later decision card.
+    // Keep their association and ordering until the entire pending batch settles.
+    if (processedAssistant && this.pending.size === 0) {
+      emit({ type: "status", state: "idle" });
+      if (this.personalReply) {
+        if (!this.personalReply.echoed) this.emitter?.uncertain?.(this.personalReply.messageId);
+        this.personalReply = null;
+      }
     }
   }
 }

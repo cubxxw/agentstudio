@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isArtifactId, isTrustedDocument, personalCsp, readPersonalRequest } from "../src/shared/personal-api";
+import { isArtifactId, isTrustedDocument, personalCsp, readPersonalRequest, readNativeIntegration } from "../src/shared/personal-api";
 
 describe("personal IPC capabilities", () => {
   it("accepts the existing task, approval, memory and connection routes", () => {
@@ -23,6 +23,21 @@ describe("personal IPC capabilities", () => {
   it("only accepts opaque artifact identifiers for the native save dialog", () => {
     expect(isArtifactId("art_97bf-accepted")).toBe(true);
     for (const id of ["/etc/passwd", "art_x/../../secret", "https://example.com/", null, "thread_1"]) expect(isArtifactId(id)).toBe(false);
+  });
+
+  it("allows discovery and fixed connection actions without exposing a command launcher", () => {
+    expect(readPersonalRequest({ path: "/api/integrations", method: "GET" }).path).toBe("/api/integrations");
+    expect(readPersonalRequest({ path: "/api/integrations/local/claude", method: "POST", body: {} }).method).toBe("POST");
+    expect(readNativeIntegration({ kind: "connect", serviceId: "cue" })).toEqual({ kind: "connect", serviceId: "cue" });
+    expect(readNativeIntegration({ kind: "submit", flowId: "owned-flow", value: "synthetic-input" }).kind).toBe("submit");
+    expect(readNativeIntegration({ kind: "reconnect", instanceId: "owned-instance" })).toEqual({ kind: "reconnect", instanceId: "owned-instance" });
+    for (const action of [
+      { kind: "local-login", agentId: "sh" }, { kind: "connect", serviceId: "custom" },
+      { kind: "services", command: "anything" }, { kind: "local-login", agentId: "codex", args: ["exec"] },
+      { kind: "progress", flowId: "../../another-profile" }, { kind: "submit", flowId: "owned", value: "x".repeat(8001) },
+      { kind: "open", instanceId: "https://example.com/" }, { kind: "__proto__" },
+      { kind: "reconnect", instanceId: "owned", url: "https://example.com/", token: "untrusted" },
+    ]) expect(() => readNativeIntegration(action)).toThrow();
   });
 });
 

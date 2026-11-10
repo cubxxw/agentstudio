@@ -41,6 +41,7 @@ import { api, key } from "./api";
 import { desktopBridge } from "./native";
 import appIcon from "@agentstudio/brand/assets/agentstudio.png";
 import { RichText } from "./Markdown";
+import { Connections } from "./Connections";
 import type {
   Artifact,
   Attachment,
@@ -381,11 +382,6 @@ function Preferences({
   const [tab, setTab] = useState<"connections" | "memory" | "about">(
     initialTab,
   );
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [token, setToken] = useState("");
-  const [type, setType] = useState<"a2a" | "mcp">("a2a");
   const [memory, setMemory] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -395,7 +391,6 @@ function Preferences({
     try {
       await work();
       await onRefresh();
-      setAdding(false);
       setMemory("");
     } catch (e) {
       setError(errorText(e));
@@ -429,177 +424,7 @@ function Preferences({
       </div>
       <div className="preferences-content">
         {tab === "connections" && (
-          <>
-            <p className="section-intro">
-              先用本机助手开始。需要其他能力时，再连接你自己的服务。
-            </p>
-            <div className="connection-row">
-              <div className="connection-symbol">
-                <MessageCircle size={20} />
-              </div>
-              <div>
-                <strong>本机助手</strong>
-                <p>
-                  {data.settings.codexAvailable
-                    ? "Codex CLI 已找到，使用本机已有配置"
-                    : "未找到 Codex CLI。安装并登录后可重试。"}
-                </p>
-              </div>
-              <span
-                className={`small-label${data.settings.codexAvailable ? " connected" : ""}`}
-              >
-                {data.settings.codexAvailable ? "可用" : "未连接"}
-              </span>
-            </div>
-            <div className="connection-row">
-              <div className="connection-symbol">
-                <FileText size={20} />
-              </div>
-              <div>
-                <strong>本地资料整理</strong>
-                <p>文本统计与原文整理，在本机完成，不调用模型</p>
-              </div>
-              <span className="small-label connected">可用</span>
-            </div>
-            {data.connections.map((connection) => (
-              <div className="connection-row" key={connection.id}>
-                <div className="connection-symbol">
-                  <Unplug size={20} />
-                </div>
-                <div>
-                  <strong>{connection.name}</strong>
-                  <p>
-                    {connection.type.toUpperCase()} · {connection.url}
-                  </p>
-                  <p>
-                    {connection.error ||
-                      "使用对方服务的账号与权限。授权范围由对方执行。"}
-                  </p>
-                  {connection.auth?.configured && (
-                    <p>凭据已在本机保存；账号身份由服务端验证。</p>
-                  )}
-                </div>
-                <button
-                  className="icon-button"
-                  disabled={busy}
-                  aria-label={`移除 ${connection.name}`}
-                  onClick={() =>
-                    void mutate(() =>
-                      api(`/connections/${connection.id}`, undefined, "DELETE"),
-                    )
-                  }
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))}
-            {!adding ? (
-              <button
-                className="text-button add-connection"
-                data-testid="personal-add-connection"
-                onClick={() => {
-                  setToken("");
-                  setAdding(true);
-                }}
-              >
-                <Plus size={16} />
-                连接一个服务
-              </button>
-            ) : (
-              <form
-                className="connection-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void mutate(async () => {
-                    await api("/connections", {
-                      name,
-                      type,
-                      url,
-                      ...(token ? { token } : {}),
-                    });
-                    setName("");
-                    setUrl("");
-                    setToken("");
-                  });
-                }}
-              >
-                <label>
-                  名称
-                  <input
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="例如：我的研究助手"
-                    data-testid="personal-connection-name"
-                  />
-                </label>
-                <label>
-                  连接方式
-                  <select
-                    value={type}
-                    onChange={(e) => setType(e.target.value as "a2a" | "mcp")}
-                    data-testid="personal-connection-type"
-                  >
-                    <option value="a2a">远端 Agent（A2A）</option>
-                    <option value="mcp">工具服务（MCP）</option>
-                  </select>
-                </label>
-                <label>
-                  服务地址
-                  <input
-                    required
-                    type="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://…"
-                    data-testid="personal-connection-url"
-                  />
-                </label>
-                <details className="credential-details">
-                  <summary data-testid="personal-connection-auth-toggle">
-                    连接需要访问凭据？
-                  </summary>
-                  <label>
-                    访问令牌（可选）
-                    <input
-                      type="password"
-                      autoComplete="new-password"
-                      spellCheck={false}
-                      value={token}
-                      onChange={(event) => setToken(event.target.value)}
-                      maxLength={8000}
-                      data-testid="personal-connection-token"
-                    />
-                  </label>
-                  <p className="field-help">
-                    只用于本机服务向这个地址认证，不交给模型，也不会放进聊天或执行预览。
-                  </p>
-                </details>
-                <p className="field-help">
-                  只连接你有权使用的服务。连接不会自动分享历史对话；派工前会展示本次发送的资料。
-                </p>
-                <div className="form-actions">
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => {
-                      setToken("");
-                      setAdding(false);
-                    }}
-                  >
-                    取消
-                  </button>
-                  <button
-                    disabled={busy}
-                    className="primary-button"
-                    data-testid="personal-connection-save"
-                  >
-                    {busy ? "正在添加…" : "添加连接地址"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </>
+          <Connections data={data} onRefresh={onRefresh} />
         )}
         {tab === "memory" && (
           <>
@@ -669,7 +494,8 @@ function Preferences({
             </p>
             <h3>账号与资料</h3>
             <p>
-              数据保存在这台电脑的本地工作区。本机助手沿用已有 Codex
+              数据保存在这台电脑的本地工作区。本机助手沿用已有
+              {data.settings.localAgentId === "claude" ? " Claude Code " : " Codex "}
               配置，向相应模型提供本次事情的上下文。远端服务使用它自己的账号、工具和权限。
             </p>
             <p>
@@ -746,6 +572,12 @@ function DecisionView({
     not_provided: "未提供独立核验",
     cancelled: "已停止本机等待",
   };
+  const localService = (() => {
+    try {
+      const endpoint = new URL(readable?.endpoint || "");
+      return ["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname) && /^\/a2a\/[A-Za-z0-9_-]+$/.test(endpoint.pathname);
+    } catch { return false; }
+  })();
   return (
     <section
       className={`decision${pending ? " decision-pending" : ""}`}
@@ -764,7 +596,7 @@ function DecisionView({
               <dt>使用身份</dt>
               <dd>
                 {decision.identity.label}，
-                {decision.identity.authentication === "bearer"
+                {localService ? "沿用连接时的服务登录；账号归属尚未独立核验" : decision.identity.authentication === "bearer"
                   ? "使用该连接保存的凭据，由服务端验证账号"
                   : "公开访问，不使用账号凭据"}
               </dd>
@@ -773,7 +605,7 @@ function DecisionView({
           {readable.endpoint && (
             <div>
               <dt>发送到</dt>
-              <dd>{readable.endpoint}</dd>
+              <dd>{localService ? `${decision.identity?.label || "个人 Agent"} · 通过这台 Mac 连接` : readable.endpoint}</dd>
             </div>
           )}
           {Object.entries(readable.params?.arguments ?? {}).map(

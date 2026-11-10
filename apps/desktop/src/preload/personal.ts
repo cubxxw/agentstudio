@@ -10,6 +10,7 @@ const api: AgentStudioPersonal = {
   request: (input) => ipcRenderer.invoke(PERSONAL_IPC.request, input),
   saveArtifact: (id) => ipcRenderer.invoke(PERSONAL_IPC.saveArtifact, id),
   restart: () => ipcRenderer.invoke(PERSONAL_IPC.restart),
+  nativeIntegration: (request) => ipcRenderer.invoke(PERSONAL_IPC.integration, request),
   onChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on(PERSONAL_IPC.changed, listener);

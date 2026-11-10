@@ -15,7 +15,8 @@ import { DOTS_DRIVER, MUSE_DRIVER } from "./drivers";
 import { grokAvatar } from "./grokavatar";
 import { cueWebSignIn, createCueApiKey, handleCueLink, type CueWebConfig } from "./cueweb";
 import { CUE_DEFAULTS, CueAuthError, CueClient, CueConnector, cueAccountKey, type CueConfig, type CueData } from "./cue";
-import { SERVICES, type AvatarImage, type Connector, type ConnectorSummary, type LoginProgress, type ServiceId, type Trace } from "./types";
+import { SERVICES, type AvatarImage, type Connector, type ConnectorSummary, type DirectConnectorEvent, type LoginProgress, type ServiceId, type Trace } from "./types";
+import type { InboundMessage } from "./protocol";
 // Official images (packages/brand), used until the service shows the agent's own avatar.
 import chatgptIcon from "@agentstudio/brand/assets/chatgpt.png?asset";
 import cueIcon from "@agentstudio/brand/assets/cue.png?asset";
@@ -129,6 +130,7 @@ export class ConnectorManager {
   constructor(
     private readonly env: ConnectorsEnv,
     private readonly userData: string,
+    private readonly options: { partitionPrefix?: string; eventSink?: (id: string, event: DirectConnectorEvent) => void; disableTracing?: boolean } = {},
   ) {
     this.host = new ConnectorHost(
       env.port,
@@ -139,14 +141,15 @@ export class ConnectorManager {
         r.record.bridgeSession = session;
         this.persist();
       },
+      options.eventSink,
     );
     this.store = new ConnectorStore(userData);
-    if (process.env.AGENTSTUDIO_CONNECTOR_TRACE_NETWORK === "1") {
+    if (!options.disableTracing && process.env.AGENTSTUDIO_CONNECTOR_TRACE_NETWORK === "1") {
       const dir = join(userData, "connector-traces");
       mkdirSync(dir, { recursive: true });
       this.networkTraceFile = join(dir, `network-${new Date().toISOString().slice(0, 10)}.jsonl`);
     }
-    if (process.env.AGENTSTUDIO_CONNECTOR_TRACE === "1") {
+    if (!options.disableTracing && process.env.AGENTSTUDIO_CONNECTOR_TRACE === "1") {
       const dir = join(userData, "connector-traces");
       mkdirSync(dir, { recursive: true });
       const file = join(dir, `${new Date().toISOString().slice(0, 10)}.jsonl`);
@@ -161,7 +164,7 @@ export class ConnectorManager {
   }
 
   async start() {
-    await this.host.listen();
+    if (!this.options.eventSink) await this.host.listen();
     const records = this.store.load();
     repairGrokNames(records);
     // Until a record is running, it is kept as stored: saving while others start
@@ -172,12 +175,13 @@ export class ConnectorManager {
         await this.run(record);
         this.dormant.delete(record.id);
       } catch (err) {
-        console.warn(`[connectors] couldn't start ${record.service} ${record.id}:`, err);
+        console.warn(`[connectors] couldn't start ${record.service} ${record.id}:`, this.options.eventSink ? "personal service requires recovery" : err);
       }
     }
   }
 
   async stop() {
+    for (const id of this.logins.keys()) this.cancel(id);
     for (const r of this.running.values()) await r.connector.stop().catch(() => {});
     this.running.clear();
     await this.host.close();
@@ -186,6 +190,14 @@ export class ConnectorManager {
   services() {
     return SERVICES;
   }
+
+  /** Private main-process registration only; never expose this to a renderer. */
+  registrations() {
+    return [...this.running.values()].map(({ record }) => ({ instanceId: record.id, name: record.name, token: record.token }));
+  }
+
+  sendDirect(id: string, message: InboundMessage) { return this.host.sendDirect(id, message); }
+  decideDirect(id: string, externalId: string, choice: string) { return this.host.decideDirect(id, externalId, choice); }
 
   list(): ConnectorSummary[] {
     return [...this.running.values()].map(({ record, connector }) => ({
@@ -282,7 +294,7 @@ export class ConnectorManager {
       ? {
           name: "Muse",
           description: "Meta's Muse, through your own muse.ai session on this Mac.",
-          partition: "persist:agentstudio-muse",
+          partition: `${this.options.partitionPrefix ?? "persist:agentstudio"}-muse`,
           url: this.env.museUrl,
           driver: MUSE_DRIVER,
           pollMs: 800,
@@ -295,7 +307,7 @@ export class ConnectorManager {
       : {
           name: "Dots",
           description: "ChatGPT Dots, through your own ChatGPT session on this Mac.",
-          partition: "persist:agentstudio-dots",
+          partition: `${this.options.partitionPrefix ?? "persist:agentstudio"}-dots`,
           url: this.env.dotsUrl,
           driver: DOTS_DRIVER,
           pollMs: 800,
@@ -460,7 +472,14 @@ export class ConnectorManager {
 
   /** Starts the new instances and hands the renderer what it needs to register them. */
   private async finish(login: Login, items: { record: InstanceRecord; connector?: Connector }[]) {
-    for (const { record, connector } of items) await this.run(record, connector);
+    for (const { record, connector } of items) {
+      if (login.abort.signal.aborted) throw new Error("cancelled");
+      await this.run(record, connector);
+      if (login.abort.signal.aborted) {
+        for (const item of items) if (this.running.has(item.record.id)) await this.remove(item.record.id);
+        throw new Error("cancelled");
+      }
+    }
     this.persist();
     login.progress = {
       state: "ready",

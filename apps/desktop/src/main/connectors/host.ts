@@ -12,7 +12,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AgentEvent, InboundMessage } from "./protocol";
 import { PROTOCOL_VERSION } from "./protocol";
 import type { BridgeSession as Session } from "./store";
-import { UnknownApprovalError, type Connector, type Emitter } from "./types";
+import { UnknownApprovalError, type Connector, type DirectConnectorEvent, type Emitter } from "./types";
 
 export type HostedInstance = {
   id: string;
@@ -37,6 +37,8 @@ export class ConnectorHost {
     private readonly log: (msg: string, extra?: Record<string, unknown>) => void = () => {},
     /** Called when the bridge opens or closes an instance's session (to keep it across restarts). */
     private readonly onSession: (id: string, session: Session | undefined) => void = () => {},
+    /** Private in-process consumer; when present, no bridge callbacks/history queue is used. */
+    private readonly eventSink?: (id: string, event: DirectConnectorEvent) => void,
   ) {}
 
   get baseUrl(): string {
@@ -86,6 +88,7 @@ export class ConnectorHost {
     return {
       emit,
       profileChanged: () => this.sendProfile(inst.id),
+      ...(this.eventSink ? { uncertain: (messageId: string) => this.eventSink!(inst.id, { type: "uncertain", messageId }), inputRequired: (messageId: string) => this.eventSink!(inst.id, { type: "input_required", messageId }) } : {}),
     };
   }
 
@@ -103,6 +106,19 @@ export class ConnectorHost {
     this.instances.delete(id);
   }
 
+  /** Main-process capability: the caller owns persistence, concurrency and authorization. */
+  async sendDirect(id: string, message: InboundMessage): Promise<void> {
+    const entry = this.instances.get(id);
+    if (!entry || !this.eventSink) throw new Error("Unknown direct connector");
+    await entry.connector.send(message);
+  }
+
+  async decideDirect(id: string, externalId: string, choice: string): Promise<void> {
+    const entry = this.instances.get(id);
+    if (!entry || !this.eventSink) throw new Error("Unknown direct connector");
+    await entry.connector.decide(externalId, choice);
+  }
+
   /** URL of the instance's current avatar; the version changes with the image, so the bridge re-fetches it. */
   private async avatarUrl(id: string): Promise<string | undefined> {
     const entry = this.instances.get(id);
@@ -113,6 +129,7 @@ export class ConnectorHost {
   }
 
   private async deliver(entry: { id: string; session?: Session; held?: AgentEvent[] }, evt: AgentEvent) {
+    if (this.eventSink) { this.eventSink(entry.id, evt); return; }
     const s = entry.session;
     if (!s) {
       // The bridge connects right after a sign-in finishes; keep what comes first.
@@ -149,6 +166,8 @@ export class ConnectorHost {
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse) {
+    // Personal services use a separate authenticated A2A host, never this legacy surface.
+    if (this.eventSink) return json(res, 404, { error: { code: "not_found", message: "not found" } });
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (url.pathname === "/health") return json(res, 200, { ok: true });
     const m = /^\/c\/([A-Za-z0-9_-]{1,64})\/agentstudio\/v0\/(.+)$/.exec(url.pathname);

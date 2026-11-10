@@ -36,7 +36,8 @@ The Matrix gallery and video document the retained inbox. The default personal w
 ## What it does
 
 - **Personal conversations:** write a request, attach text, and return to its progress, decisions and results.
-- **Local execution:** use the configured Codex CLI or explicitly choose deterministic local organization. Missing CLI or provider limits remain visible blockers.
+- **Click to connect:** discover existing local assistants, choose Codex or Claude Code, sign in to personal services, or enable DeepWiki and Exa without entering protocol settings. See [connection setup and evidence](docs/personal/connection-design.md).
+- **Local execution:** use the selected CLI or explicitly choose deterministic local organization. Missing CLI or provider limits remain visible blockers; Claude's real execution remains unverified in this batch.
 - **Approved connections:** prepare an A2A submission or exact MCP call, then approve its target and payload. A successful tool response is distinct from independent verification of an external effect.
 - **Native persistence:** closing the Mac window hides it while its utility continues. Quit shuts down that owned utility; saved queues and uncertain results are recovered on the next launch.
 

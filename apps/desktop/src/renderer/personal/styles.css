@@ -262,6 +262,11 @@ html.macos-app {
 .macos-app .preferences-content input,
 .macos-app .preferences-content textarea,
 .macos-app .preferences-content select { background: var(--paper); border-color: var(--line); color: var(--ink); }
+.macos-app .integration-section-heading h3 { font-family: var(--font-display); font-size: 18px; }
+.macos-app .integration-symbol { background: var(--glass); box-shadow: var(--glass-ring); }
+.macos-app .integration-button { background: var(--canvas); }
+.macos-app .integration-button.is-selected { background: var(--accent-soft); }
+.macos-app .integration-flow { border-color: var(--line); }
 .macos-app .reader-modal { width: min(940px, calc(100vw - 48px)); }
 .macos-app .reader-scroll .prose { font-size: 17px; line-height: 1.95; }
 .macos-app .reader-toolbar { background: var(--glass); border-color: var(--line); }

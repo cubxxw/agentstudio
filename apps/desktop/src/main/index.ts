@@ -6,8 +6,8 @@
 // A strict CSP limits network access to the configured server origin.
 
 import { existsSync, mkdirSync } from "node:fs";
-import { delimiter, join, resolve, sep } from "node:path";
-import { homedir } from "node:os";
+import { join, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   BrowserWindow,
@@ -33,7 +33,10 @@ import { ConnectorManager, connectorsEnvFromProcess } from "./connectors/manager
 import { buildDiagnostics, writeDiagnostics } from "./diagnostics";
 import appIcon from "../../resources/icon.png?asset";
 import { PersonalHost } from "./personal-host";
-import { PERSONAL_IPC, isTrustedDocument, personalCsp, type PersonalCommand } from "../shared/personal-api";
+import { PersonalServices } from "./personal-services";
+import { LocalLoginHost, localExecutionEnv } from "./local-login";
+import type { NativeIntegrationReply } from "@agentstudio/personal/desktop-contract";
+import { PERSONAL_IPC, isTrustedDocument, personalCsp, readNativeIntegration, type PersonalCommand } from "../shared/personal-api";
 
 declare const __APP_VERSION__: string;
 declare const __APP_REVISION__: string;
@@ -65,6 +68,17 @@ let mainWindow: BrowserWindow | null = null;
 let windowShown = false;
 let quitting = false;
 let personalHost: PersonalHost | undefined;
+let personalServices: PersonalServices | undefined;
+let localLogin: LocalLoginHost | undefined;
+let personalStartup = Promise.resolve();
+let personalStartupFailed = false;
+const nativeConnections = new Map<string, string>();
+const nativeRegistrations = new Map<string, Promise<string>>();
+const nativeInstanceRegistration = new Map<string, Promise<string>>();
+// Keep the original idempotent registration until removal is confirmed. A lost
+// POST receipt must be recovered before deleting its provider instance.
+const nativeRegistrationInputs = new Map<string, { instanceId: string; name: string; url: string; token: string }>();
+const nativeRemovals = new Set<string>();
 let shutdownPromise: Promise<void> | undefined;
 let shutdownComplete = false;
 
@@ -319,8 +333,10 @@ function registerPersonalIpc() {
   ipcMain.on(PERSONAL_IPC.info, (event) => {
     event.returnValue = fromPersonal(event) ? { platform: process.platform, version: __APP_VERSION__ } : null;
   });
-  ipcMain.handle(PERSONAL_IPC.request, (event, input: unknown) => {
+  ipcMain.handle(PERSONAL_IPC.request, async (event, input: unknown) => {
     if (!fromPersonal(event) || !personalHost) throw new Error("forbidden");
+    await personalStartup;
+    if (personalStartupFailed) return { status: 503, body: { error: { code: "native_restore_failed", message: "已保存的个人服务尚未恢复，任务已保留且没有再次发送。请重新启动后台重试。" } } };
     return personalHost.request(input as Parameters<PersonalHost["request"]>[0]);
   });
   ipcMain.handle(PERSONAL_IPC.saveArtifact, (event, id: unknown) => {
@@ -329,8 +345,110 @@ function registerPersonalIpc() {
   });
   ipcMain.handle(PERSONAL_IPC.restart, async (event) => {
     if (!fromPersonal(event) || !personalHost) throw new Error("forbidden");
+    if (personalStartupFailed) {
+      await personalServices?.restore();
+      personalStartupFailed = false;
+    }
     await personalHost.restart();
   });
+  ipcMain.handle(PERSONAL_IPC.integration, async (event, input: unknown): Promise<NativeIntegrationReply> => {
+    if (!fromPersonal(event) || !personalServices || !personalHost || !localLogin) throw new Error("forbidden");
+    const action = readNativeIntegration(input);
+    try {
+      await personalStartup;
+      if (quitting || !fromPersonal(event)) return { state: "failed", message: "应用正在退出，没有开始新的连接。" };
+      if (action.kind === "local-login") return localLogin.begin(action.agentId);
+      if (action.kind === "local-login-status") return localLogin.status(action.flowId);
+      if (action.kind === "local-login-cancel") return localLogin.cancel(action.flowId);
+      if (action.kind === "services") {
+        const instances = await personalServices.list();
+        return { state: "catalog", providers: personalServices.services(), instances: instances.map(instance => ({
+          id: instance.id, service: instance.service, name: instance.name, status: instance.status,
+          canOpen: instance.canOpen, connectionId: nativeConnections.get(instance.id),
+        })) };
+      }
+      if (action.kind === "connect") return { state: "waiting", flowId: await personalServices.begin(action.serviceId), message: "请按提示完成你自己的账号登录" };
+      if (action.kind === "progress") {
+        const progress = await personalServices.progress(action.flowId);
+        if (progress.state === "ready") {
+          const connectionIds = [];
+          const instances = progress.instances.length ? progress.instances : await personalServices.registrations();
+          for (const instance of instances) connectionIds.push(await registerNativeInstance(instance));
+          if (instances.some(instance => nativeRemovals.has(instance.instanceId))) return { state: "failed", flowId: action.flowId, message: "这项连接正在断开，没有重新启用。" };
+          return { state: "ready", flowId: action.flowId, instances: progress.instances.map(instance => ({ instanceId: instance.instanceId, name: instance.name })), connectionIds };
+        }
+        return { ...await personalServices.publicProgress(action.flowId), flowId: action.flowId };
+      }
+      if (action.kind === "choose") await personalServices.choose(action.flowId, action.choiceId);
+      if (action.kind === "submit") await personalServices.submit(action.flowId, action.value);
+      if (action.kind === "cancel") {
+        const latest = await personalServices.progress(action.flowId);
+        if (latest.state === "ready") {
+          const connectionIds = [];
+          for (const instance of latest.instances) connectionIds.push(await registerNativeInstance(instance));
+          return { state: "ready", flowId: action.flowId, message: "登录已经完成；你可以在已连接列表中断开。", connectionIds };
+        }
+        await personalServices.cancel(action.flowId); return { state: "cancelled", flowId: action.flowId };
+      }
+      if (action.kind === "open") {
+        const instance = (await personalServices.list()).find(item => item.id === action.instanceId);
+        if (!instance?.canOpen) return { state: "failed", message: "请到原服务的 App 中处理，再回来核查这件事；本机不会代你批准。" };
+        await personalServices.open(action.instanceId); return { state: "ready" };
+      }
+      if (action.kind === "reconnect") {
+        const instance = (await personalServices.registrations()).find(item => item.instanceId === action.instanceId);
+        if (!instance) return { state: "failed", message: "登录记录已不存在，请重新连接这个账号。" };
+        return { state: "ready", connectionIds: [await registerNativeInstance(instance)] };
+      }
+      if (action.kind === "remove") {
+        nativeRemovals.add(action.instanceId);
+        let removed = false;
+        try {
+          try { await nativeInstanceRegistration.get(action.instanceId); } catch { /* Recover the original receipt below. */ }
+          let connectionId = nativeConnections.get(action.instanceId);
+          const registration = nativeRegistrationInputs.get(action.instanceId);
+          if (!connectionId && registration) connectionId = await registerNativeInstance(registration, true);
+          if (connectionId) {
+            const response = await personalHost.request({ path: `/api/connections/${connectionId}`, method: "DELETE" });
+            if (response.status >= 300) return { state: "failed", message: "这项连接还有进行中或待核查的事情，请先处理原任务。" };
+            nativeConnections.delete(action.instanceId);
+          }
+          await personalServices.remove(action.instanceId); removed = true; nativeConnections.delete(action.instanceId);
+          nativeRegistrationInputs.delete(action.instanceId);
+          mainWindow?.webContents.send(PERSONAL_IPC.changed, {}); return { state: "ready" };
+        } finally { if (!removed) nativeRemovals.delete(action.instanceId); }
+      }
+      return { state: "waiting", ...("flowId" in action ? { flowId: action.flowId } : {}) };
+    } catch {
+      return { state: "failed", ...("flowId" in action ? { flowId: action.flowId } : {}), message: "连接暂时未完成。已有任务与登录信息保留，请重试或到原服务检查账号。" };
+    }
+  });
+}
+
+async function registerNativeInstance(instance: { instanceId: string; name: string; url: string; token: string }, recoveringRemoval = false): Promise<string> {
+  if ((nativeRemovals.has(instance.instanceId) && !recoveringRemoval) || quitting) throw new Error("Native instance is being removed");
+  const registering = nativeInstanceRegistration.get(instance.instanceId);
+  if (registering) return registering;
+  const identity = createHash("sha256").update(JSON.stringify(instance)).digest("hex");
+  nativeRegistrationInputs.set(instance.instanceId, { ...instance });
+  const active = nativeRegistrations.get(identity);
+  if (active) return active;
+  const pending = (async () => {
+    const response = await personalHost!.request({ path: "/api/connections", method: "POST", body: {
+      name: instance.name, type: "a2a", url: instance.url, token: instance.token, clientId: `native-${identity}`,
+    } });
+    const connection = response.body as { id?: string };
+    if (response.status >= 300 || !connection.id) throw new Error("Native registration failed");
+    nativeConnections.set(instance.instanceId, connection.id);
+    mainWindow?.webContents.send(PERSONAL_IPC.changed, {});
+    return connection.id;
+  })();
+  nativeRegistrations.set(identity, pending);
+  nativeInstanceRegistration.set(instance.instanceId, pending);
+  try { return await pending; } finally {
+    nativeRegistrations.delete(identity);
+    if (nativeInstanceRegistration.get(instance.instanceId) === pending) nativeInstanceRegistration.delete(instance.instanceId);
+  }
 }
 
 function sendPersonalCommand(command: PersonalCommand) {
@@ -367,7 +485,7 @@ if (!gotLock) {
   // Sign-in callbacks (cuedev:// for Cue) come back as links.
   app.on("open-url", (e, url) => {
     e.preventDefault();
-    if (connectors?.handleLink(url)) focusWindow();
+    if (connectors?.handleLink(url) || personalServices?.handleLink(url)) focusWindow();
   });
   app.whenReady().then(() => {
     // Run from source, the app is Electron's own bundle: give it AgentStudio's icon in the Dock.
@@ -381,12 +499,14 @@ if (!gotLock) {
       });
       connectors = new ConnectorManager(connectorsEnvFromProcess(), dir);
     } else {
+      personalServices = new PersonalServices({ userData: dir, env: connectorsEnvFromProcess() });
+      localLogin = new LocalLoginHost({ onChanged: () => { mainWindow?.webContents.send(PERSONAL_IPC.changed, {}); } });
       personalHost = new PersonalHost({
         dataDir: resolve(process.env.AGENTSTUDIO_PERSONAL_DATA_DIR || join(dir, "personal")),
         workerPath: join(__dirname, "personal/worker.mjs"), staticDir: join(__dirname, "../renderer/personal"),
         // Finder launches have a minimal PATH. Add ordinary installation paths
         // without sourcing shell startup files or changing the selected account.
-        env: { ...process.env, PATH: [process.env.PATH, join(homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].filter(Boolean).join(delimiter) },
+        env: localExecutionEnv(),
         fork: (path, args, options) => utilityProcess.fork(path, args, options),
         processIdentity: (pid) => {
           const metric = app.getAppMetrics().find((entry) => entry.pid === pid && entry.type === "Utility" && entry.name === "AgentStudio Personal Runtime");
@@ -407,7 +527,13 @@ if (!gotLock) {
     installCsp();
     registerIpc();
     registerPersonalIpc(); installMenu();
-    if (personalMode) void personalHost?.start().catch(() => { /* request() exposes a recoverable startup error to the trusted UI */ });
+    if (personalMode) personalStartup = (async () => {
+      let restored = false;
+      try { restored = await personalServices!.restore(); }
+      catch { personalStartupFailed = true; return; }
+      await personalHost?.start();
+      if (restored) for (const instance of await personalServices!.registrations()) await registerNativeInstance(instance);
+    })().catch(() => { /* request() exposes runtime errors without exposing provider diagnostics */ });
     else void connectors.start().catch(() => console.error("[agentstudio] connectors failed to start"));
     createWindow();
     app.on("activate", () => {
@@ -424,7 +550,7 @@ if (!gotLock) {
     quitting = true;
     if (shutdownComplete) return;
     event.preventDefault();
-    if (!shutdownPromise) shutdownPromise = (async () => { await personalHost?.stop(); await connectors?.stop(); })()
+    if (!shutdownPromise) shutdownPromise = (async () => { localLogin?.stop(); await personalHost?.stop(); await personalServices?.stop(); await connectors?.stop(); })()
       .finally(() => { shutdownComplete = true; app.quit(); });
   });
 }

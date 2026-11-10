@@ -264,6 +264,7 @@ export class CueConnector implements Connector {
   private ownTexts = new Set<string>();
   private pending = new Map<string, Pending>();
   private pendingAsk: { taskId: string; texts: string[] } | null = null;
+  private personalReply: { messageId: string; text: string; echoed: boolean } | null = null;
 
   constructor(
     private readonly cfg: CueConfig,
@@ -323,9 +324,21 @@ export class CueConnector implements Connector {
 
   async send(msg: InboundMessage): Promise<void> {
     const text = msg.ask ? askPrompt(msg.ask) : msg.text;
+    const personal = msg.session_id.startsWith("personal:");
+    if (personal) {
+      if (this.pending.size || this.personalReply) throw new Error("Cue has an unfinished conversation; inspect it first.");
+      const before = await this.client.events(this.data.agent.taskId, 50);
+      const status = before.filter((event) => event.type === "status_update").at(-1)?.status_update?.agent_status;
+      if (status === "running" || status === "waiting") throw new Error("Cue is still working or waiting; inspect the original conversation first.");
+      for (const event of before) this.seen.add(event.id);
+      this.data.since = Math.max(this.data.since ?? 0, ...before.map((event) => event.timestamp));
+      this.onChange();
+      this.personalReply = { messageId: msg.message_id, text: text.trim(), echoed: false };
+    }
     if (msg.ask) this.pendingAsk = { taskId: msg.ask.task_id, texts: [] };
     this.ownTexts.add(text.trim());
-    await this.client.send(this.data.agent.taskId, text);
+    try { await this.client.send(this.data.agent.taskId, text); }
+    catch (error) { if (personal) this.personalReply = null; throw error; }
     // A plain message answers (or skips) whatever Cue was waiting for.
     for (const id of this.pending.keys()) this.emitter?.emit({ type: "approval_cancel", external_id: id });
     this.pending.clear();
@@ -396,7 +409,11 @@ export class CueConnector implements Connector {
       switch (e.type) {
         case "user_message": {
           const text = (e.user_message?.content ?? "").trim();
-          if (this.ownTexts.delete(text)) break;
+          if (this.ownTexts.delete(text)) {
+            if (this.personalReply?.text === text) this.personalReply.echoed = true;
+            break;
+          }
+          this.personalReply = null;
           // Said in the Cue app: show it, and whatever AgentStudio was asking is moot.
           const m = messageOf(e);
           if (m) emit(m);
@@ -416,10 +433,11 @@ export class CueConnector implements Connector {
           const msg = messageOf(e);
           if (!msg) break;
           if (this.pendingAsk && msg.text) this.pendingAsk.texts.push(msg.text);
-          else emit(msg);
+          else emit({ ...msg, ...(this.personalReply?.echoed ? { reply_to: this.personalReply.messageId } : {}) });
           break;
         }
         case "error_message":
+          if (this.personalReply) { this.emitter?.uncertain?.(this.personalReply.messageId); this.personalReply = null; }
           emit({ type: "message", text: `⚠️ ${e.error_message?.content || "Cue ran into an error."}` });
           emit({ type: "status", state: "idle" });
           break;
@@ -431,6 +449,7 @@ export class CueConnector implements Connector {
             break;
           }
           if (s.agent_status === "waiting") {
+            if (this.personalReply) this.emitter?.inputRequired?.(this.personalReply.messageId);
             const d = s.status_detail ?? {};
             const type = d.waiting_for_event_type ?? "";
             if (type !== "messageAskUser" && type !== "cascadeAskUser" && d.waiting_for_event_id) {
@@ -445,8 +464,10 @@ export class CueConnector implements Connector {
             }
           }
           if (s.agent_status === "stopped" || s.agent_status === "error" || s.agent_status === "waiting") {
+            if (this.personalReply && (s.agent_status === "error" || !this.personalReply.echoed)) this.emitter?.uncertain?.(this.personalReply.messageId);
             this.flushAsk();
             emit({ type: "status", state: "idle" });
+            if (s.agent_status !== "waiting") this.personalReply = null;
           }
           break;
         }

@@ -96,6 +96,14 @@ export class PersonalStore {
     });
   }
 
+  replay(route, key, input) {
+    if (typeof key !== 'string' || key.length < 8 || key.length > 160) throw new APIError(400, 'bad_request', 'clientId 必须是 8–160 字符的唯一请求标识');
+    const previous = this.db.prepare('SELECT fingerprint,body FROM idempotency WHERE route=? AND key=?').get(route, key);
+    if (!previous) return { found: false };
+    if (previous.fingerprint !== digest(JSON.stringify(input))) throw new APIError(409, 'idempotency_conflict', '相同 clientId 的请求内容不同');
+    return { found: true, value: JSON.parse(previous.body) };
+  }
+
   updateThread(threadId, fn) {
     return this.transaction(() => {
       const thread = this.require('thread', threadId);
@@ -111,7 +119,7 @@ export class PersonalStore {
   }
 
   unresolved(run) {
-    return run.status === 'unknown' || (run.requiresReconciliation && !['queued', 'running', 'verifying'].includes(run.status));
+    return run.status === 'unknown' || run.cancelPending || (run.requiresReconciliation && !['queued', 'running', 'verifying'].includes(run.status));
   }
 
   nextQueuedRun(thread) {
@@ -121,13 +129,16 @@ export class PersonalStore {
   }
 
   refreshThread(thread) {
-    const unknown = thread.runs.find((run) => this.unresolved(run));
+    const unknown = thread.runs.find((run) => this.unresolved(run) && !run.cancelPending);
+    const stopping = thread.runs.find(run => run.cancelPending);
     const queued = thread.runs.filter((run) => run.status === 'queued');
     const active = thread.runs.find((run) => ['running', 'verifying'].includes(run.status));
     const pending = thread.runs.find((run) => run.status === 'needs_input');
     if (unknown) {
       thread.status = 'unknown';
       thread.summary = queued.length ? '原任务结果尚未确认；补充已保存，核查后再继续' : unknown.error || '远端执行尚未确认，请先核查原任务';
+    } else if (stopping) {
+      thread.status = 'running'; thread.summary = '已请求停止，正在确认本机助手退出';
     } else if (active) {
       thread.status = active.status;
       if (queued.length) thread.summary = '补充已保存，会在当前运行结束后接着处理';
@@ -168,6 +179,7 @@ export class PersonalStore {
     };
     if (!input.reuseMessageId) thread.messages.push(message);
     const run = { id: id('run'), status: 'queued', mode: input.mode || 'codex', connectionId: input.connectionId || null,
+      localAgentId: input.localAgentId || 'codex',
       messageId: message.id, memoryIds: input.memoryIds || thread.memoryIds || [], createdAt: now(),
       action: input.action || null, phase: 'prepare', deliveryState: 'not_sent', actionState: 'not_started', verificationState: 'not_started' };
     thread.runs.push(run);
@@ -194,7 +206,8 @@ export class PersonalStore {
     for (const thread of this.list('thread')) {
       let changed = false;
       for (const run of thread.runs) {
-        if (!['running', 'verifying'].includes(run.status)) continue;
+        if (!['running', 'verifying'].includes(run.status) && !run.cancelPending) continue;
+        if (run.cancelPending) { run.stopUnconfirmed = true; run.requiresReconciliation = true; run.cancelPending = false; }
         run.status = run.mode === 'local' ? 'blocked' : 'unknown';
         run.error = run.mode === 'local' ? '服务重启中断了本地整理，可重试' : '服务重启时任务尚未确认结果；先核查，避免重复执行';
         run.finishedAt = now();

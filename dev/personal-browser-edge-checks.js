@@ -42,6 +42,20 @@ async (page, until) => {
     "explicit memory persists after reload",
   );
   await testId("personal-tab-connections").click();
+  verify(await testId("personal-connection-type").count() === 0, "protocol configuration is hidden from the default connection flow");
+  await testId("personal-own-service").click();
+  await testId("personal-own-service-url").fill("http://insecure.invalid");
+  await testId("personal-own-service-save").click();
+  await testId("personal-integrations-error").waitFor();
+  verify(await testId("personal-own-service-url").inputValue() === "http://insecure.invalid", "failed automatic connection preserves its address for correction");
+  await testId("personal-own-service-url").fill("http://127.0.0.1:18746");
+  await testId("personal-own-service-save").click();
+  await until(async () => {
+    const data = await (await page.request.get(`${base}/api/bootstrap`)).json();
+    return data.connections.some(item => item.name === "合成自动识别助手" && item.type === "a2a");
+  });
+  verify(true, "one address discovers the agent name and protocol without a token");
+  await until(async () => await testId("personal-own-service-save").count() === 0);
   await testId("personal-add-connection").click();
   await testId("personal-connection-name").fill("合成远端助手");
   await testId("personal-connection-url").fill("http://127.0.0.1:18746");

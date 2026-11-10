@@ -9,6 +9,23 @@ export type Status =
   | "cancelled"
   | "unknown";
 export type Mode = "codex" | "local" | "connection";
+export type LocalAgentId = "codex" | "claude" | "pi" | "gemini" | "opencode";
+export type LocalAgent = {
+  id: LocalAgentId;
+  name: string;
+  installed: boolean;
+  version: string | null;
+  auth: { status: "configured" | "required" | "unknown" | "unsupported"; method?: string };
+  execution: { supported: boolean; reason?: string };
+  setupUrl: string;
+  loginCommandId: string | null;
+};
+export type Integrations = {
+  checkedAt: string;
+  agents: LocalAgent[];
+  selectedLocalAgentId: LocalAgentId;
+  presets: { id: string; name: string; description: string; account: string; connectionId: string | null }[];
+};
 export type Attachment = {
   id?: string;
   name: string;
@@ -27,6 +44,7 @@ export type Run = {
   id: string;
   status: Status;
   mode: Mode;
+  localAgentId?: LocalAgentId;
   connectionId?: string;
   createdAt: string;
   startedAt?: string;
@@ -102,6 +120,6 @@ export type Bootstrap = {
   threads: ThreadSummary[];
   connections: Connection[];
   memories: Memory[];
-  settings: { defaultMode: Mode; codexAvailable: boolean };
+  settings: { defaultMode: Mode; codexAvailable: boolean; localAgentId?: LocalAgentId };
   runtime?: Record<string, unknown>;
 };
