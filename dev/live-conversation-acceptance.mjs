@@ -10,11 +10,12 @@ const native = process.argv.includes('--native');
 const parent = resolve(process.env.AGENTSTUDIO_LIVE_EVIDENCE_DIR || 'output/playwright/live-conversations');
 await mkdir(parent, { recursive: true });
 const output = await mkdtemp(join(parent, native ? 'native-' : 'browser-'));
-const directory = join(output, 'pi-profile'), cli = join(output, 'synthetic-pi'), release = join(output, 'release'), trace = join(output, 'trace.jsonl');
+const directory = join(output, 'pi-profile'), cli = join(output, 'synthetic-pi.cjs'), release = join(output, 'release'), trace = join(output, 'trace.jsonl');
 await mkdir(directory);
 await writeFile(cli, `#!${process.execPath}\n${await readFile(new URL('./fixtures/live-pi.cjs', import.meta.url), 'utf8')}`, { mode: 0o700 });
 // Warm this fresh owned executable before the unchanged production probe budget.
-spawnSync(cli, ['--version'], { timeout: 10000, stdio: 'ignore' });
+const warm = spawnSync(cli, ['--version'], { timeout: 10000, stdio: 'ignore' });
+if (warm.status !== 0) throw new Error('Owned synthetic Pi executable did not start');
 await writeFile(join(directory, 'SYSTEM.md'), '你是合成研究伙伴。请先核对来源，再清晰回答。');
 const defaults = model => writeFile(join(directory, 'settings.json'), JSON.stringify({ defaultProvider: 'fixture', defaultModel: model, defaultThinkingLevel: 'high', modelThinkingLevels: { 'fixture/beta': 'low' } }));
 await defaults('alpha');
