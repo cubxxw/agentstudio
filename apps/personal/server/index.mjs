@@ -7,6 +7,7 @@ import { PersonalWorker, codexAvailable, discoverMCP, initializeMCP, rpc } from 
 import { validateBearerToken } from './vault.mjs';
 import { discoverLocalAgents } from './local-agents.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
+import { Messenger } from './messenger.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoDir = resolve(appDir, '../..');
@@ -95,7 +96,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -106,6 +107,7 @@ export async function createPersonalServer(options = {}) {
   const port = options.port ?? Number(process.env.PERSONAL_PORT || 18740);
   const store = new PersonalStore(dataDir);
   store.recover();
+  const messenger = new Messenger(store);
   const clients = new Set();
   const notify = (event = {}) => {
     options.onChange?.(event);
@@ -184,6 +186,19 @@ export async function createPersonalServer(options = {}) {
       const method = request.method;
       let match;
       if (method === 'GET' && path === '/api/health') return json(response, 200, { ok: true, service: 'agentstudio-personal', durableQueue: true, build });
+      if (method === 'GET' && path === '/api/contacts') return json(response, 200, { contacts: messenger.sync(await localAgents()) });
+      if (method === 'GET' && (match = path.match(/^\/api\/contacts\/([A-Za-z0-9_-]+)$/))) return json(response, 200, messenger.publicContact(store.require('contact', match[1])));
+      if (method === 'POST' && (path === '/api/contacts' || (match = path.match(/^\/api\/contacts\/([A-Za-z0-9_-]+)$/)))) {
+        const contactId = match?.[1], body = await readJSON(request);
+        const result = store.idempotent(`contacts:${contactId || 'create'}`, body.clientId, body, () => messenger.saveContact(body, contactId));
+        notify(); return json(response, contactId ? 200 : 201, result);
+      }
+      if (method === 'GET' && path === '/api/approvals') return json(response, 200, { approvals: messenger.approvals() });
+      if (method === 'POST' && (path === '/api/chats' || (match = path.match(/^\/api\/chats\/([A-Za-z0-9_-]+)$/)))) {
+        const threadId = match?.[1], body = await readJSON(request);
+        const result = store.idempotent(`chats:${threadId || 'create'}`, body.clientId, body, () => threadId ? messenger.updateChat(threadId, body) : messenger.createChat(body));
+        notify({ threadId: result.id }); return json(response, threadId ? 200 : 201, result);
+      }
       if ((method === 'GET' && path === '/api/integrations') || (method === 'POST' && path === '/api/integrations/refresh')) {
         if (method === 'POST') await readJSON(request);
         const detected = await localAgents(method === 'POST');
@@ -235,7 +250,9 @@ export async function createPersonalServer(options = {}) {
       }
       if (method === 'GET' && path === '/api/bootstrap') {
         return json(response, 200, {
-          threads: store.list('thread').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt }) => ({ id: threadId, title, status, summary, updatedAt })),
+          threads: store.list('thread').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
+            ...(kind ? { kind, memberIds, version } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
+            pendingApprovals: decisions.filter(d => d.state === 'pending').length })),
           connections: store.list('connection').map(publicConnection), memories: store.list('memory'),
           settings: { defaultMode: 'codex', codexAvailable: codex.available, codexVersion: codex.version,
             localAgentId: store.get('setting', 'local-agent')?.agentId || 'codex' },
@@ -263,8 +280,9 @@ export async function createPersonalServer(options = {}) {
       if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/messages$/))) {
         const threadId = match[1], body = await readJSON(request);
         const result = store.idempotent(`threads:${threadId}:messages`, body.clientId, body, () => {
-          const input = validateInput(store, body);
           const thread = store.require('thread', threadId);
+          if (thread.kind) return messenger.appendMessage(thread, body, input => validateInput(store, input));
+          const input = validateInput(store, body);
           store.appendRun(thread, input); return store.put('thread', thread);
         });
         notify({ threadId }); worker.kick(); return json(response, 200, result);
@@ -305,7 +323,9 @@ export async function createPersonalServer(options = {}) {
               if (action === 'reconcile') throw new APIError(409, 'no_remote_task', '没有远端 taskId，无法自动核查；请检查远端记录');
               if (run.status === 'unknown' || ['sending', 'delivered', 'unknown'].includes(run.deliveryState)) throw new APIError(409, 'unknown_execution', '上次执行结果未知，不能重复提交；请先人工核查');
               const message = thread.messages.find((item) => item.id === run.messageId);
-              store.appendRun(thread, { ...message, mode: run.mode, localAgentId: run.localAgentId || 'codex', connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id });
+              store.appendRun(thread, { ...message, mode: run.mode, localAgentId: run.localAgentId || 'codex', connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id,
+                contactId: run.contactId, contactSnapshot: run.contactSnapshot, participantSnapshot: run.participantSnapshot, conversationSnapshot: run.conversationSnapshot,
+                visibleAfterMessageId: run.visibleAfterMessageId, responsePolicy: run.responsePolicy });
             }
           }
           store.refreshThread(thread);

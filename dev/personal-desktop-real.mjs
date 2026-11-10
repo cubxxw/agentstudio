@@ -41,6 +41,8 @@ const waitForCompletion = async id => {
 const begin = async () => {
   application = await _electron.launch({ executablePath: executable, args: [join(root, "apps/desktop")], env, timeout: 30000 });
   page = await application.firstWindow();
+  await page.getByTestId("im-app").waitFor();
+  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); }
   page.on("pageerror", e => errors.push(e.message));
   await page.getByTestId("personal-desktop-rail").waitFor();
   await page.waitForFunction(() => document.body.innerText.includes("工作间在本机运行"));

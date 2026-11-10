@@ -166,6 +166,8 @@ try {
   application = await _electron.launch({ executablePath: executable,
     args: packagedApp ? [] : [join(root, "apps/desktop")], env, timeout: 30_000 });
   page = await application.firstWindow();
+  await page.getByTestId("im-app").waitFor();
+  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); }
   page.on("pageerror", (error) => metadata.rendererErrors.push(error.message));
   await expect(page.getByTestId("personal-app")).toBeVisible();
   await expect(page.getByTestId("personal-desktop-rail")).toBeVisible();

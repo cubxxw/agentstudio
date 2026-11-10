@@ -22,11 +22,15 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
     /^\/api\/(health|bootstrap|connections|memories)$/,
     /^\/api\/integrations$/,
+    /^\/api\/(contacts|approvals)$/,
+    new RegExp(`^/api/contacts/${opaqueId}$`),
     new RegExp(`^/api/(threads|artifacts)/${opaqueId}$`),
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
     /^\/api\/(threads|connections|memories)$/,
+    /^\/api\/(contacts|chats)$/,
+    new RegExp(`^/api/(contacts|chats)/${opaqueId}$`),
     /^\/api\/integrations\/(refresh|connect)$/,
     /^\/api\/integrations\/local\/(codex|claude)$/,
     new RegExp(`^/api/threads/${opaqueId}/(messages|retry|reconcile|cancel)$`),

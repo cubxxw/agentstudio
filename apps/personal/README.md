@@ -2,6 +2,8 @@
 
 `apps/personal` 提供共享 React 界面及本地 Node/SQLite 引擎。默认产品入口是现有 [macOS Electron 应用](../desktop/README.md)，沿用原生窗口、侧栏和菜单；独立 Web 仅作开发与辅助 QA，没有原生个人服务登录能力。
 
+默认 UI 现为联系人驱动的 IM：`src/Messenger.tsx` / `MessengerDialogs.tsx` / `messenger.css`；后端 `server/messenger.mjs` 管理联系人、私聊复用、群成员、身份快照和统一审批。详见[产品说明](../../docs/personal/messenger.md)和[API 合同](../../docs/api.md#personal-contacts-and-messaging)。历史任务通过可见恢复动作进入 `?workspace=tasks`，不改写其旧草稿或请求身份。
+
 ## 连接已有助手
 
 在 Mac 应用打开“连接与偏好”：

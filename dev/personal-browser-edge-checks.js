@@ -22,7 +22,7 @@ async (page, until) => {
       id,
     ));
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(base);
+  await page.goto(`${base}/?workspace=tasks`);
   await testId("personal-settings").click();
   await testId("personal-tab-memory").click();
   await testId("personal-memory-input").fill(

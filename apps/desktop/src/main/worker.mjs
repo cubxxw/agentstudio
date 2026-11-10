@@ -1,4 +1,4 @@
-// Copied beside the four unchanged backend ESM files. No browser sessions or
+// Copied beside the seven backend ESM files. No browser sessions or
 // renderer-provided paths are read here; only the owning main process configures it.
 import { createPersonalServer } from './index.mjs';
 import { DatabaseSync } from 'node:sqlite';

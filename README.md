@@ -2,8 +2,8 @@
 
 <h1 align="center">AgentStudio</h1>
 
-**The Mac app now opens the personal workspace by default.** Start from a sentence and keep
-progress, decisions and readable Markdown results in the existing macOS window. Its owned
+**The Mac app opens a personal messenger by default.** Create agent contacts, chat directly,
+bring your own agents into a group, and review their actions in one approval inbox. Its owned
 Electron utility runs SQLite locally; no Matrix stack is needed for this mode. See
 [Mac setup and boundaries](docs/personal/README.md). The standalone web interface remains a
 development and QA companion.
@@ -19,7 +19,7 @@ development and QA companion.
 
 > **Alpha.** macOS source builds. Local ad-hoc packaging is available as a build command; packaged-app acceptance, Developer ID signing and notarization are separate checks. Expect rough edges and breaking changes.
 
-The default workspace keeps one conversation per task, background execution, exact approval previews and saved results together. The original chats-and-agents inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`; it uses its existing accounts and services without an automatic migration.
+The default workspace keeps contact identities, private/group conversations, background execution, exact approval previews and saved results together. Human contacts are currently local-only; cross-device human messaging is a future step. Existing task conversations keep a visible resume action with their original drafts. The original chats-and-agents inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`; it uses its existing accounts and services without an automatic migration.
 
 Status: early development (v0.1). macOS first: the desktop app (Electron) comes first, then mobile (Expo). Nothing here is hosted yet; everything runs on your Mac.
 
@@ -35,7 +35,7 @@ The Matrix gallery and video document the retained inbox. The default personal w
 
 ## What it does
 
-- **Personal conversations:** write a request, attach text, and return to its progress, decisions and results.
+- **Personal messenger:** discover local agents, create distinct identities, reuse direct conversations, and form groups with per-agent mention/always/paused response policies. See the [messenger guide](docs/personal/messenger.md).
 - **Click to connect:** discover existing local assistants, choose Codex or Claude Code, sign in to personal services, or enable DeepWiki and Exa without entering protocol settings. See [connection setup and evidence](docs/personal/connection-design.md).
 - **Local execution:** use the selected CLI or explicitly choose deterministic local organization. Missing CLI or provider limits remain visible blockers; Claude's real execution remains unverified in this batch.
 - **Approved connections:** prepare an A2A submission or exact MCP call, then approve its target and payload. A successful tool response is distinct from independent verification of an external effect.

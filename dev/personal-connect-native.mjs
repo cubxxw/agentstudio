@@ -45,7 +45,9 @@ const complete = async id => {
 };
 try {
   application = await _electron.launch({ executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [join(root, 'apps/desktop')], env });
-  page = await application.firstWindow(); page.on('pageerror', error => errors.push(error.message));
+  page = await application.firstWindow();
+  await page.getByTestId("im-app").waitFor();
+  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); } page.on('pageerror', error => errors.push(error.message));
   await page.getByTestId('personal-desktop-rail').waitFor();
   await openConnections();
   const detected = await api('/integrations');
@@ -87,7 +89,9 @@ try {
   verify(mcp.artifacts[0].source === 'mcp' && mcp.runs[0].localAgentId === 'codex', 'selected Codex coordinates the actual public MCP execution');
   await application.close(); application = undefined;
   application = await _electron.launch({ executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [join(root, 'apps/desktop')], env });
-  page = await application.firstWindow(); await page.getByTestId('personal-desktop-rail').waitFor();
+  page = await application.firstWindow();
+  await page.getByTestId("im-app").waitFor();
+  { const legacyUrl = new URL(page.url()); legacyUrl.searchParams.set("workspace", "tasks"); await page.goto(legacyUrl.href); } await page.getByTestId('personal-desktop-rail').waitFor();
   const restored = await api('/bootstrap');
   verify(restored.settings.localAgentId === 'codex' && restored.connections.length === 2 && [localId, mcpId].every(id => restored.threads.some(thread => thread.id === id && thread.status === 'completed')), 'chosen CLI, quick connections and actual results survive native app restart');
   verify(errors.length === 0, 'connection journeys have no renderer exceptions');

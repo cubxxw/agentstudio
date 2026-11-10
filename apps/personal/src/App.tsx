@@ -152,7 +152,7 @@ function StatusMark({
   );
 }
 
-function Modal({
+export function Modal({
   title,
   children,
   onClose,
@@ -207,7 +207,7 @@ function Modal({
   );
 }
 
-function Reader({
+export function Reader({
   artifact,
   sources,
   onClose,
@@ -368,7 +368,7 @@ function Reader({
   );
 }
 
-function Preferences({
+export function Preferences({
   data,
   onRefresh,
   onClose,
@@ -522,7 +522,7 @@ function Preferences({
   );
 }
 
-function DecisionView({
+export function DecisionView({
   decision,
   onDecide,
   busy,
