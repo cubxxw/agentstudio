@@ -2,37 +2,48 @@ import { useRef, useState } from "react";
 import { Bot, Check, Plus, UserRound, Users } from "lucide-react";
 import { api, key } from "./api";
 import { Modal } from "./ConversationPanels";
-import type { Contact, ResponsePolicy, Thread } from "./types";
+import { Avatar, avatarIcons, avatarLabels } from "./ContactAvatar";
+import { AgentOptions } from "./AgentOptions";
+export { Avatar } from "./ContactAvatar";
+import type { AgentConfiguration, Contact, ResponsePolicy, Thread } from "./types";
 
 export const availabilityText: Record<Contact["availability"], string> = {
-  ready: "可以开始聊天", self: "本人", local_only: "本地联系人 · 尚未接入消息网络",
+  ready: "已连接", configuration_required: "模型配置需要更新", self: "本人", local_only: "本地联系人 · 尚未接入消息网络",
   unsupported: "已发现 · 暂不支持执行", not_installed: "尚未安装", login_required: "需要登录", disconnected: "连接已移除",
 };
-export function Avatar({ contact, group, size = "" }: { contact?: Pick<Contact, "name" | "color" | "kind">; group?: boolean; size?: string }) {
-  return <span className={`im-avatar ${contact?.color || "blue"} ${size}`} aria-hidden="true">
-    {group ? <Users size={22} /> : contact ? contact.name.trim().slice(0, 1).toUpperCase() : <Bot size={23} />}
-    {contact?.kind === "agent" && <span className="im-agent-mark"><Bot size={10} /></span>}
-  </span>;
-}
-
-export function ContactEditor({ contact, contacts, initialKind = "agent", onClose, onSaved }: {
-  contact?: Contact; contacts: Contact[]; initialKind?: "agent" | "human"; onClose: () => void; onSaved: (contact: Contact) => Promise<void>;
+export function ContactEditor({ contact, contacts, initialKind = "agent", onClose, onSaved, onRefresh }: {
+  contact?: Contact; contacts: Contact[]; initialKind?: "agent" | "human"; onClose: () => void; onRefresh: () => Promise<void>; onSaved: (contact: Contact) => Promise<void>;
 }) {
+  const backends = contacts.filter(c => c.kind === "agent" && c.discovered);
+  const preferred = backends.find(c => c.availability === "ready" && c.binding?.type === "local" && c.binding.localAgentId === "codex") || backends.find(c => c.availability === "ready") || backends[0];
   const [kind, setKind] = useState(contact?.kind || initialKind);
-  const [name, setName] = useState(contact?.name || "");
+  const [backend, setBackend] = useState(JSON.stringify(contact?.binding || preferred?.binding || null));
+  const selectedBackend = backends.find(c => JSON.stringify(c.binding) === backend);
+  const [name, setName] = useState(contact?.name || preferred?.name || "");
   const [handle, setHandle] = useState(contact?.handle || `agent-${key().slice(0, 6)}`);
   const [description, setDescription] = useState(contact?.description || "");
   const [instructions, setInstructions] = useState(contact?.instructions || "");
   const [color, setColor] = useState(contact?.color || "blue");
-  const backends = contacts.filter(c => c.kind === "agent" && c.discovered);
-  const preferred = backends.find(c => c.availability === "ready" && c.binding?.type === "local" && c.binding.localAgentId === "codex") || backends.find(c => c.availability === "ready" && c.binding?.type === "local") || backends.find(c => c.availability === "ready");
-  const [backend, setBackend] = useState(contact?.binding ? JSON.stringify(contact.binding) : JSON.stringify(preferred?.binding || backends[0]?.binding || null));
+  const [icon, setIcon] = useState(contact?.icon || "auto");
+  const [configuration, setConfiguration] = useState<AgentConfiguration>(contact?.configuration || { modelMode: "follow", thinking: "follow" });
+  const [refreshing, setRefreshing] = useState(false);
+  const [identityNotice, setIdentityNotice] = useState("");
+  const extractIdentity = async () => {
+    setRefreshing(true); setError("");
+    try {
+      const result = await api<{ instructions: string; sources: string[]; truncated: boolean }>("/integrations/local/pi/identity", {});
+      if (result.instructions) { setInstructions(result.instructions); setIdentityNotice(`已读取 ${result.sources.join("、")}${result.truncated ? " 的前 3000 字" : ""}，请检查后保存。`); }
+      else setIdentityNotice("未发现 Pi 保存的 SYSTEM.md 或 APPEND_SYSTEM.md，可以直接在下方定义身份。");
+    } catch (e) { setError(e instanceof Error ? e.message : "无法提取身份"); }
+    finally { setRefreshing(false); }
+  };
+  const refreshProfile = async () => { setRefreshing(true); setError(""); try { await api("/integrations/refresh", {}); await onRefresh(); } catch (e) { setError(e instanceof Error ? e.message : "无法读取配置"); } finally { setRefreshing(false); } };
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const pending = useRef<{ signature: string; clientId: string } | null>(null);
   const submit = async () => {
     setBusy(true); setError("");
     try {
-      const fields = { kind, name, handle, description, instructions, color, binding: kind === "agent" ? JSON.parse(backend) : null, ...(contact ? { version: contact.version } : {}) };
+      const fields = { kind, name, handle, description, instructions, color, icon, ...(kind === "agent" ? { configuration } : {}), binding: kind === "agent" ? JSON.parse(backend) : null, ...(contact ? { version: contact.version } : {}) };
       const signature = JSON.stringify(fields);
       if (pending.current?.signature !== signature) pending.current = { signature, clientId: key() };
       const saved = await api<Contact>(contact ? `/contacts/${contact.id}` : "/contacts", { ...fields, clientId: pending.current.clientId });
@@ -46,22 +57,25 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
         <button type="button" aria-pressed={kind === "agent"} data-testid="im-kind-agent" onClick={() => setKind("agent")}><Bot size={16} />Agent</button>
         <button type="button" aria-pressed={kind === "human"} data-testid="im-kind-human" onClick={() => setKind("human")}><UserRound size={16} />人</button>
       </div>}
-      <div className="im-identity-preview"><Avatar contact={{ name: name || "A", color, kind }} size="large" /><span>{name || "新的联系人"}<small>@{handle}</small></span></div>
+      <div className="im-identity-preview"><Avatar contact={{ name: name || "A", color, kind, icon, binding: selectedBackend?.binding || null }} size="large" /><span>{name || "新的联系人"}<small>@{handle}</small></span></div>
       <label>名称<input autoFocus required maxLength={80} value={name} onChange={e => setName(e.target.value)} data-testid="im-contact-name" /></label>
       <label>用户名<span className="im-field-hint">群聊中通过 @{handle} 提及</span><input required pattern="[a-z][a-z0-9_-]{1,31}" maxLength={32} value={handle} onChange={e => setHandle(e.target.value.toLowerCase())} data-testid="im-contact-handle" /></label>
       <label>简介<input maxLength={300} placeholder="一句话介绍这位联系人" value={description} onChange={e => setDescription(e.target.value)} data-testid="im-contact-description" /></label>
       {kind === "agent" && <>
-        <label>使用哪个助手<select value={backend} disabled={contact?.discovered} onChange={e => setBackend(e.target.value)} data-testid="im-contact-backend">
+        <label>使用哪个助手<select value={backend} disabled={contact?.discovered || refreshing} onChange={e => { const next = backends.find(c => JSON.stringify(c.binding) === e.target.value); if (!contact && name === selectedBackend?.name) setName(next?.name || ""); setBackend(e.target.value); setConfiguration({ modelMode: "follow", thinking: "follow" }); }} data-testid="im-contact-backend">
           {!backends.length && <option value="null">请先在设置中连接助手</option>}
           {backends.map(c => <option key={c.id} value={JSON.stringify(c.binding)}>{c.providerName || c.name} · {availabilityText[c.availability]}</option>)}
         </select></label>
-        <label>身份与回复方式<textarea rows={4} maxLength={3000} placeholder="例如：你是我的研究伙伴，先核对来源，再给出简洁结论。" value={instructions} onChange={e => setInstructions(e.target.value)} data-testid="im-contact-instructions" /></label>
+        <AgentOptions profile={selectedBackend?.profile} value={configuration} onChange={setConfiguration} refreshing={refreshing} onRefresh={() => void refreshProfile()} />
+        {selectedBackend?.binding?.type === "local" && selectedBackend.binding.localAgentId === "pi" && <div className="im-identity-import"><button type="button" className="im-text-button" disabled={refreshing || Boolean(instructions.trim())} data-testid="im-extract-identity" onClick={() => void extractIdentity()}>从 Pi 提取已保存的身份</button><p className="im-field-hint">{identityNotice || "读取 Pi 的全局身份文件，填入下方供你检查。已有身份请先清空，避免覆盖。"}</p></div>}
+        <label>身份与回复方式<textarea rows={4} maxLength={3000} disabled={refreshing} placeholder="例如：你是我的研究伙伴，先核对来源，再给出简洁结论。" value={instructions} onChange={e => setInstructions(e.target.value)} data-testid="im-contact-instructions" /></label>
         <p className="im-field-hint">身份和聊天记录保存在这台 Mac。更改身份从下一条消息起生效。</p>
       </>}
       {kind === "human" && <p className="im-callout">先保存到本机通讯录。对方尚不能收到消息，后续接入消息网络后再启用投递。</p>}
+      <div className="im-avatar-picker" aria-label="联系人图标">{Object.entries(avatarIcons).map(([id, Icon]) => <button key={id} type="button" aria-label={avatarLabels[id]} aria-pressed={icon === id} data-testid={`im-avatar-icon-${id}`} onClick={() => setIcon(id)}><Icon size={20} /></button>)}</div>
       <div className="im-colors" aria-label="头像颜色">{["blue", "violet", "teal", "orange", "rose"].map(c => <button className={`im-color ${c}`} type="button" key={c} aria-label={`${c}头像`} aria-pressed={color === c} onClick={() => setColor(c)}>{color === c && <Check size={15} />}</button>)}</div>
       {error && <p role="alert" className="im-error">{error}</p>}
-      <button className="im-primary" disabled={busy || (kind === "agent" && backend === "null")} data-testid="im-contact-save">{busy ? "正在保存…" : contact ? "保存更改" : "添加联系人"}</button>
+      <button className="im-primary" disabled={busy || refreshing || (kind === "agent" && backend === "null")} data-testid="im-contact-save">{busy ? "正在保存…" : contact ? "保存更改" : "添加联系人"}</button>
     </form>
   </Modal>;
 }

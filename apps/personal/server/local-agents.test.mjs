@@ -21,6 +21,7 @@ if (args[0] === '--version') later(() => {
   if (mode === 'probe-overflow') return write('x'.repeat(90000));
   write('Synthetic ' + id + ' 2.1.123\n' + secret); process.exitCode = 0;
 });
+else if (args.includes('rpc')) { process.stdin.setEncoding('utf8'); process.stdin.on('data', line => { const c = JSON.parse(line); write(JSON.stringify({ id:c.id, success:true, data:{models:[{provider:'synthetic',id:'model-a',reasoning:true}]} }) + '\n'); }); }
 else if ((args[0] === 'login' || args[0] === 'auth') && args[1] === 'status') later(() => {
   if (mode === 'auth-timeout') { setInterval(() => {}, 1000); return; }
   if (id === 'codex') {
@@ -97,22 +98,22 @@ async function until(predicate, timeout = 3000) {
 test('discovery awaits subprocess close, bounds concurrency, deduplicates and caches only safe public records', async t => {
   const f = await fixture(t, { probeDelayMs: 25 }); let now = 1000; f.deps.now = () => now;
   const [a, b] = await Promise.all([discoverLocalAgents({ deps: f.deps }), discoverLocalAgents({ deps: f.deps })]);
-  assert.equal(f.calls.length, 7); assert.ok(f.maxActive() <= 2); assert.equal(f.closed.size, 7);
+  assert.equal(f.calls.length, 8); assert.ok(f.maxActive() <= 2); assert.equal(f.closed.size, 8);
   assert.deepEqual(a, b); assert.equal(a.agents.length, 5);
   assert.equal(a.agents[0].version, '2.1.123'); assert.equal(a.agents[0].auth.status, 'configured');
   assert.deepEqual(a.agents[1].auth, { status: 'configured', method: 'claude.ai' });
-  assert.equal(a.agents.find(x => x.id === 'pi').execution.supported, false);
+  assert.equal(a.agents.find(x => x.id === 'pi').execution.supported, true);
   assert.ok(!JSON.stringify(a).includes(SECRET)); assert.ok(!JSON.stringify(a).includes(f.directory));
   assert.ok(!JSON.stringify(a).includes('email')); assert.ok(!JSON.stringify(a).includes('accessToken'));
   for (const { args, options } of f.calls) {
     assert.equal(options.shell, false);
-    assert.ok(args[0] === '--version' || ['login', 'auth'].includes(args[0]));
+    assert.ok(args[0] === '--version' || ['login', 'auth', '--mode'].includes(args[0]));
     assert.notDeepEqual(args, ['auth', 'status', '--json']);
   }
   a.agents[0].name = 'mutated';
-  assert.equal((await discoverLocalAgents({ deps: f.deps })).agents[0].name, 'Codex'); assert.equal(f.calls.length, 7);
-  await discoverLocalAgents({ force: true, deps: f.deps }); assert.equal(f.calls.length, 14);
-  now += 16_000; await discoverLocalAgents({ deps: f.deps }); assert.equal(f.calls.length, 21);
+  assert.equal((await discoverLocalAgents({ deps: f.deps })).agents[0].name, 'Codex'); assert.equal(f.calls.length, 8);
+  await discoverLocalAgents({ force: true, deps: f.deps }); assert.equal(f.calls.length, 16);
+  now += 16_000; await discoverLocalAgents({ deps: f.deps }); assert.equal(f.calls.length, 24);
 });
 
 test('missing trusted override never falls back to the host CLI; common user bin search needs no shell', async t => {
@@ -164,7 +165,7 @@ test('Codex execution sends stdin without shell, awaits real completion, and par
   const trace = JSON.parse(await readFile(f.trace));
   assert.equal(trace.input, 'Only this synthetic prompt; $(not a shell command)'); assert.equal(trace.cwd, await realpath(f.workspace));
   assert.deepEqual(trace.args, ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only', '-C', f.workspace, '-']);
-  assert.deepEqual(events, [{ type: 'started', agentId: 'codex' }, { type: 'completed', agentId: 'codex' }]);
+  assert.deepEqual(events, [{ type: 'started', agentId: 'codex' }, { type: 'progress', agentId: 'codex', phase: 'writing', text: result.markdown }, { type: 'completed', agentId: 'codex' }]);
   assert.ok(f.closed.has(trace.pid)); assert.equal(f.calls.at(-1).options.detached, process.platform !== 'win32');
 });
 
@@ -231,13 +232,13 @@ test('authentication probes have bounded time and unknown state, with no automat
   const start = Date.now(); const state = await discoverLocalAgents({ deps: f.deps });
   assert.ok(Date.now() - start < 3000);
   assert.equal(state.agents[1].auth.status, 'unknown');
-  assert.ok(f.calls.every(x => ['--version', 'auth', 'login'].includes(x.args[0])));
+  assert.ok(f.calls.every(x => ['--version', 'auth', 'login', '--mode'].includes(x.args[0])));
   assert.ok(f.calls.filter(x => x.args[0] === 'auth' || x.args[0] === 'login').every(x => x.args[1] === 'status'));
 });
 
 test('fixed IDs and unsupported adapters cannot supply executables or arguments', async t => {
   const f = await fixture(t);
-  for (const id of ['pi', 'gemini', 'opencode']) await assert.rejects(f.execute(id), safeError('execution_unsupported'));
+  for (const id of ['gemini', 'opencode']) await assert.rejects(f.execute(id), safeError('execution_unsupported'));
   await assert.rejects(f.execute('claude; touch injected'), safeError('unknown_agent'));
   await assert.rejects(f.execute('codex', { workspace: 'relative' }), safeError('invalid_input'));
   await assert.rejects(f.execute('codex', { prompt: '' }), safeError('invalid_input'));

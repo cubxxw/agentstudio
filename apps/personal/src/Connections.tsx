@@ -161,7 +161,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
     action={!agent.installed ? (webLink(agent.setupUrl) && <a className="integration-button" data-testid={`personal-local-install-${agent.id}`} href={webLink(agent.setupUrl)!} target="_blank" rel="noreferrer noopener">安装<ArrowUpRight size={13} /></a>)
       : !agent.execution.supported ? <span className="integration-state">暂未支持</span>
       : agent.auth.status === "configured" ? <button className={`integration-button${selected === agent.id ? " is-selected" : ""}`} data-testid={`personal-local-use-${agent.id}`} disabled={Boolean(busy) || selected === agent.id} onClick={() => void perform(`use-${agent.id}`, () => api(`/integrations/local/${agent.id}`, {}))}>{selected === agent.id ? <><Check size={14} />正在使用</> : busy === `use-${agent.id}` ? "正在切换…" : "使用"}</button>
-      : agent.auth.status === "required" && nativeAvailable ? <button className="integration-button" data-testid={`personal-local-login-${agent.id}`} disabled={Boolean(busy) || activeFlow} onClick={() => void beginLogin(agent)}>登录</button>
+      : agent.auth.status === "required" && nativeAvailable && ["codex", "claude"].includes(agent.id) ? <button className="integration-button" data-testid={`personal-local-login-${agent.id}`} disabled={Boolean(busy) || activeFlow} onClick={() => void beginLogin(agent)}>登录</button>
       : <button className="integration-button" disabled={Boolean(busy)} onClick={() => void perform("refresh", () => reload(true), false)}>检查登录</button>} />;
   const nativeIds = new Set((catalog?.instances || []).map(item => item.connectionId).filter(Boolean));
   const presetIds = new Set((integrations?.presets || []).map(item => item.connectionId).filter(Boolean));
@@ -173,8 +173,8 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
       <div className="integration-section-heading"><h3 id="connections-mac-title">这台 Mac</h3><button className="text-button" data-testid="personal-integrations-refresh" disabled={Boolean(busy)} onClick={() => void perform("refresh", () => reload(true), false)}><RefreshCw size={14} className={busy === "refresh" ? "working" : ""} />重新检查</button></div>
       <p className="integration-intro">选择之后开始的执行所用助手，正在进行的事情保持原来的安排。</p>
       {loading && <p className="integration-loading" role="status"><Loader2 size={15} className="working" />正在检查本机助手…</p>}
-      {integrations?.agents.filter(agent => agent.id === "codex" || agent.id === "claude").map(localRow)}
-      {integrations && <details className="integration-details"><summary>其他助手</summary>{integrations.agents.filter(agent => agent.id !== "codex" && agent.id !== "claude").map(localRow)}</details>}
+      {integrations?.agents.filter(agent => ["codex", "claude", "pi"].includes(agent.id)).map(localRow)}
+      {integrations && <details className="integration-details"><summary>其他助手</summary>{integrations.agents.filter(agent => !["codex", "claude", "pi"].includes(agent.id)).map(localRow)}</details>}
       <Row icon={<FileText size={19} />} name="本地资料整理" description="统计与保存原文，不调用模型" action={<span className="integration-state">始终可用</span>} />
       <p className="integration-note">登录状态只说明本机配置可读，不代表账号归属、额度或某次任务已完成。</p>
     </section>

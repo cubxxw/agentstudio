@@ -1,3 +1,5 @@
+import { StringDecoder } from 'node:string_decoder';
+import { piThinkingLevels, readAgentProfile, resolveExecution } from './agent-profiles.mjs';
 import { spawn as nativeSpawn } from 'node:child_process';
 import { access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -31,6 +33,9 @@ const MESSAGES = Object.freeze({
   spawn_failed: '本机助手无法启动，请检查本机安装与执行权限。',
   stop_unconfirmed: '本机助手停止尚未确认，请核查本次本机进程；未保存成功结果。',
   provider_limit: '当前助手的提供商额度或速率限制阻止了执行；没有切换提供商。',
+  provider_authentication_failed: '当前模型的提供商拒绝了认证，请在 Pi 中修复登录或 API Key，再重新读取配置；没有切换提供商。',
+  model_unavailable: '当前模型不可用，请重新读取本机配置或在联系人中选择模型；没有切换提供商。',
+  model_mismatch: '助手返回的模型与这次指定的模型不一致，未将结果标记为完成。',
   execution_failed: '本机助手没有返回成功的结构化文档结果，请核查 CLI 登录与配置。',
 });
 export class LocalAgentError extends Error {
@@ -40,7 +45,10 @@ export class LocalAgentError extends Error {
     this.status = ['unknown_agent', 'invalid_input'].includes(this.code) ? 400 : 503;
   }
 }
-const supported = (id) => id === 'codex' || id === 'claude';
+const supported = (id) => id === 'codex' || id === 'claude' || id === 'pi';
+// --no-context-files excludes AGENTS but Pi still discovers global SYSTEM files.
+// Explicit prompt sources prevent those files from changing accepted personas.
+const PI_PROMPT_ARGS = ['--system-prompt', 'You are an AgentStudio personal assistant. Follow the supplied task and the accepted agentIdentity persona. Use only the supplied conversation. Do not access unrelated data, invoke tools, change providers or claim external actions.', '--append-system-prompt', ''];
 const definition = (id) => {
   const agent = CATALOG.find((item) => item.id === id);
   if (!agent) throw new LocalAgentError('unknown_agent');
@@ -75,11 +83,13 @@ async function executableFor(agent, deps) {
 }
 
 // Private bounded capture; only parsed whitelisted values leave this module.
-function run(command, args, deps, { cwd, input = '', signal, probe = false } = {}) {
+function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId } = {}) {
   if (signal?.aborted) return Promise.reject(new LocalAgentError('cancelled'));
   return new Promise((resolveRun, reject) => {
     let child, deadline, escalation, reaping, closed = false, failure = null;
     let stdoutBytes = 0, stderrBytes = 0;
+    const decoder = new StringDecoder('utf8'); let framed = '';
+    const deliver = chunk => { framed += chunk; let at; while ((at = framed.indexOf('\n')) >= 0) { const line = framed.slice(0, at); framed = framed.slice(at + 1); try { onLine?.(line); if (responseId && JSON.parse(line)?.id === responseId) child.stdin.end(); } catch {} } };
     const stdout = [], stderr = [], cap = probe ? deps.maxProbeBytes : deps.maxOutputBytes;
     const cleanup = () => {
       clearTimeout(deadline); clearTimeout(escalation); clearTimeout(reaping);
@@ -87,6 +97,7 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false } = {
     };
     const finish = (code) => {
       if (closed) return;
+      if ((onLine || responseId) && !failure) { deliver(decoder.end()); if (framed.trim()) { try { onLine?.(framed); } catch {} } }
       closed = true; cleanup();
       if (failure) reject(new LocalAgentError(failure));
       else resolveRun({ code, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
@@ -120,6 +131,7 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false } = {
       const bytes = Buffer.from(chunk); stdoutBytes += bytes.length;
       if (stdoutBytes + (probe ? stderrBytes : 0) > cap) { stop('output_limit'); return; }
       stdout.push(bytes);
+      if (onLine || responseId) deliver(decoder.write(bytes));
     });
     child.stderr.on('data', (chunk) => {
       if (closed || failure) return;
@@ -135,7 +147,7 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false } = {
     child.stdin.on('error', () => {});
     signal?.addEventListener('abort', abort, { once: true });
     deadline = setTimeout(() => stop('timeout'), probe ? deps.probeTimeoutMs : deps.executionTimeoutMs);
-    child.stdin.end(input);
+    if (responseId) child.stdin.write(input); else child.stdin.end(input);
     if (signal?.aborted) abort();
   });
 }
@@ -147,6 +159,24 @@ async function probe(command, args, deps, signal) {
 }
 async function authentication(agent, command, deps, signal) {
   if (!supported(agent.id)) return { status: 'unsupported' };
+  if (agent.id === 'pi') {
+    let result;
+    try { result = await run(command, ['--mode', 'rpc', '--no-session', '--no-tools', '--offline', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', ...PI_PROMPT_ARGS], { ...deps, maxProbeBytes: 2_000_000 }, { probe: true, signal, cwd: deps.home, responseId: 'agentstudio-models', input: JSON.stringify({ id: 'agentstudio-models', type: 'get_available_models' }) + '\n' }); }
+    catch (error) { if (error.code === 'cancelled') throw error; }
+    // RPC metadata can contain transport headers. Project only these fields;
+    // never expose or persist the raw response, credentials or API addresses.
+    deps.piModels = [];
+    if (result?.code === 0) for (const line of result.stdout.split('\n')) {
+      let event; try { event = JSON.parse(line); } catch { continue; }
+      if (event.id !== 'agentstudio-models' || event.success !== true || !Array.isArray(event.data?.models)) continue;
+      for (const model of event.data.models.slice(0, 1000)) {
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(model.provider || '') || !/^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]{0,159}$/.test(model.id || '')) continue;
+        const thinkingLevels = piThinkingLevels(model);
+        deps.piModels.push({ provider: model.provider, id: model.id, name: typeof model.name === 'string' ? model.name.slice(0, 100) : model.id, reasoning: model.reasoning === true, images: Array.isArray(model.input) && model.input.includes('image'), thinkingLevels });
+      }
+    }
+    return { status: deps.piModels.length ? 'configured' : 'unknown' };
+  }
   const result = await probe(command, agent.id === 'codex' ? ['login', 'status'] : ['auth', 'status'], deps, signal);
   if (!result) return { status: 'unknown' };
   if (agent.id === 'codex') {
@@ -167,9 +197,10 @@ export async function discoverLocalAgents({ force = false, deps: injected = {} }
   const deps = options(injected);
   let cache = caches.get(deps.spawn);
   if (!cache) { cache = new Map(); caches.set(deps.spawn, cache); }
-  const key = JSON.stringify([deps.home, deps.env.PATH || '', LOCAL_AGENT_IDS.map((id) => deps.commands?.[id] ?? null)]);
+  const profiles = await Promise.all(CATALOG.map(agent => readAgentProfile(agent.id, deps)));
+  const key = JSON.stringify([profiles.map(profile => profile.version), deps.home, deps.env.PATH || '', LOCAL_AGENT_IDS.map((id) => deps.commands?.[id] ?? null)]);
   const previous = cache.get(key);
-  if (previous?.pending) return structuredClone(await previous.pending);
+  if (!force && previous?.pending) return structuredClone(await previous.pending);
   if (!force && previous && previous.expires > deps.now()) return structuredClone(previous.value);
   const entry = {};
   cache.set(key, entry);
@@ -179,8 +210,11 @@ export async function discoverLocalAgents({ force = false, deps: injected = {} }
       while (cursor < CATALOG.length) {
         const index = cursor++, agent = CATALOG[index], command = await executableFor(agent, deps);
         const version = command ? await probe(command, ['--version'], deps) : null;
-        agents[index] = { ...agent, installed: Boolean(command), version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
-          auth: command ? await authentication(agent, command, deps) : { status: 'required' },
+        const auth = command ? await authentication(agent, command, deps) : { status: 'required' };
+        const profile = profiles[index];
+        if (agent.id === 'pi' && command) { profile.models = deps.piModels || []; profile.providers = [...new Set(profile.models.map(model => model.provider))]; }
+        agents[index] = { ...agent, profile, installed: Boolean(command), version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
+          auth,
           execution: { supported: supported(agent.id), ...(!supported(agent.id) ? { reason: MESSAGES.execution_unsupported } : {}) } };
       }
     }));
@@ -197,14 +231,28 @@ export async function discoverLocalAgents({ force = false, deps: injected = {} }
   }
 }
 
-function finalMarkdown(id, result) {
+function finalMarkdown(id, result, selection) {
   if (result.code !== 0) {
     if (/quota|usage.limit|insufficient|billing|credits|rate.limit|429/i.test(result.stderr + result.stdout)) throw new LocalAgentError('provider_limit');
     throw new LocalAgentError('execution_failed');
   }
+  if (id === 'pi') {
+    let message, settled = false;
+    for (const line of result.stdout.split('\n')) { let event; try { event = JSON.parse(line); } catch { continue; } if (event.type === 'message_end' && event.message?.role === 'assistant') message = event.message; if (event.type === 'agent_settled') settled = true; }
+    if (!settled || message?.stopReason !== 'stop') {
+      if (/401|403|invalid.?api.?key|invalid.?authentication|unauthori[sz]ed|authentication.failed/i.test(message?.errorMessage || '')) throw new LocalAgentError('provider_authentication_failed');
+      if (/quota|rate.limit|429|billing|credits/i.test(message?.errorMessage || '')) throw new LocalAgentError('provider_limit');
+      if (/model.*(?:not found|unsupported|unavailable)|404/i.test(message?.errorMessage || '')) throw new LocalAgentError('model_unavailable');
+      throw new LocalAgentError('execution_failed');
+    }
+    if (message.provider !== selection.provider || message.model !== selection.model) throw new LocalAgentError('model_mismatch');
+    const text = message.content?.filter(block => block.type === 'text').map(block => block.text || '').join('\n');
+    if (text?.trim()) return text;
+    throw new LocalAgentError('execution_failed');
+  }
   if (id === 'claude') {
     try {
-      const event = JSON.parse(result.stdout);
+      let event; try { event = JSON.parse(result.stdout); } catch { event = result.stdout.split('\n').flatMap(line => { try { const item = JSON.parse(line); return item.type === 'result' ? [item] : []; } catch { return []; } }).at(-1); }
       if (event?.type === 'result' && event.subtype === 'success' && event.is_error === false && typeof event.result === 'string' && event.result.trim()) return event.result;
     } catch { /* Only the successful result event is a document. */ }
   } else {
@@ -220,7 +268,7 @@ function finalMarkdown(id, result) {
   throw new LocalAgentError('execution_failed');
 }
 
-export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, deps: injected = {} } = {}) {
+export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, executionSnapshot, deps: injected = {} } = {}) {
   const agent = definition(id), deps = options(injected);
   if (signal?.aborted) throw new LocalAgentError('cancelled');
   if (!supported(id)) throw new LocalAgentError('execution_unsupported');
@@ -232,8 +280,15 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   const auth = await authentication(agent, command, deps, signal);
   if (auth.status !== 'configured') throw new LocalAgentError(auth.status === 'required' ? 'authentication_required' : 'authentication_unknown');
   const version = await probe(command, ['--version'], deps, signal);
+  const profile = await readAgentProfile(id, deps);
+  if (id === 'pi') { profile.models = deps.piModels || []; profile.providers = [...new Set(profile.models.map(model => model.provider))]; }
+  let selection = executionSnapshot;
+  if (id === 'pi') {
+    try { selection = resolveExecution(profile, selection ? { modelMode: 'fixed', provider: selection.provider, model: selection.model, thinking: selection.thinking || 'follow' } : {}); } catch { throw new LocalAgentError('model_unavailable'); }
+  }
   let args;
   if (id === 'codex') args = ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only', '-C', workspace, '-'];
+  else if (id === 'pi') args = ['--mode', 'json', '--print', '--no-session', '--no-tools', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', '--offline', ...PI_PROMPT_ARGS, '--provider', selection.provider, '--model', selection.model, '--thinking', selection.thinking];
   else {
     const help = await probe(command, ['--help'], { ...deps, maxProbeBytes: 65_536 }, signal);
     const flags = ['--safe-mode', '--print', '--input-format', '--output-format', '--tools', '--strict-mcp-config', '--mcp-config',
@@ -242,13 +297,47 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
     args = ['--safe-mode', '--print', '--input-format', 'text', '--output-format', 'json', '--tools', '',
       '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disallowedTools', 'mcp__*',
       '--permission-mode', 'plan', '--disable-slash-commands', '--no-session-persistence', '--settings', '{"disableAllHooks":true}'];
+    if (help.stdout.includes('--include-partial-messages') && help.stdout.includes('--verbose')) { args[args.indexOf('--output-format') + 1] = 'stream-json'; args.push('--verbose', '--include-partial-messages'); }
+    if (selection?.model) { if (!help.stdout.includes('--model')) throw new LocalAgentError('unsupported_cli_version'); args.push('--model', selection.model); }
+    if (selection?.thinking) { if (!help.stdout.includes('--effort')) throw new LocalAgentError('unsupported_cli_version'); args.push('--effort', selection.thinking); }
+  }
+  if (id === 'codex' && selection) {
+    if (selection.model) args.push('--model', selection.model);
+    if (selection.provider) args.push('-c', `model_provider=${JSON.stringify(selection.provider)}`);
+    if (selection.thinking) args.push('-c', `model_reasoning_effort=${JSON.stringify(selection.thinking)}`);
   }
   const identity = { id, name: agent.name, version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
-    authentication: 'configured', ...(auth.method ? { authMethod: auth.method } : {}) };
-  const emit = (type) => { try { onEvent?.({ type, agentId: id }); } catch { /* Observer failures do not change execution. */ } };
+    ...(selection ? { model: selection.model, provider: selection.provider, thinking: selection.thinking } : {}), authentication: 'configured', ...(auth.method ? { authMethod: auth.method } : {}) };
+  const emit = (type, data = {}) => { try { onEvent?.({ type, agentId: id, ...data }); } catch { /* Observer failures do not change execution. */ } };
   emit('started');
-  const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal });
-  const markdown = finalMarkdown(id, result);
+  const stream = liveEvents(id, emit);
+  const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream });
+  const markdown = finalMarkdown(id, result, selection);
   emit('completed');
   return { markdown, identity, verification: { scope: 'cli_document_output', externalEffectsVerified: false } };
+}
+
+// Only provider text and coarse phases cross this boundary. Thinking/tool payloads
+// remain private, and authoritative final output is checked separately above.
+function liveEvents(id, emit) {
+  const blocks = new Map();
+  const output = () => emit('progress', { phase: 'writing', text: [...blocks].sort((a, b) => a[0] - b[0]).map(([, text]) => text).join('') });
+  return line => {
+    let event; try { event = JSON.parse(line); } catch { return; }
+    if (id === 'pi') {
+      if (event.type === 'message_start' && event.message?.role === 'assistant') { blocks.clear(); emit('progress', { phase: 'preparing', text: '' }); }
+      const update = event.assistantMessageEvent;
+      if (event.type === 'message_update' && update?.type?.startsWith('thinking')) { emit('progress', { phase: 'thinking' }); return; }
+      if (event.type === 'message_update' && update?.type === 'text_delta' && typeof update.delta === 'string') { const at = update.contentIndex || 0; blocks.set(at, (blocks.get(at) || '') + update.delta); output(); }
+      if (event.type === 'message_end' && event.message?.role === 'assistant' && event.message.stopReason === 'stop') { blocks.clear(); blocks.set(0, event.message.content?.filter(item => item.type === 'text').map(item => item.text || '').join('\n') || ''); output(); }
+    } else if (id === 'codex' && ['item.updated', 'item.completed'].includes(event.type)) {
+      if (event.item?.type === 'agent_message' && typeof event.item.text === 'string') { blocks.set(0, event.item.text); output(); }
+      else if (event.item?.type === 'reasoning') emit('progress', { phase: 'thinking' });
+    } else if (id === 'claude' && event.type === 'stream_event') {
+      const update = event.event;
+      if (update?.type === 'message_start') blocks.clear();
+      if (update?.delta?.type === 'thinking_delta') emit('progress', { phase: 'thinking' });
+      if (update?.type === 'content_block_delta' && update.delta?.type === 'text_delta') { const at = update.index || 0; blocks.set(at, (blocks.get(at) || '') + update.delta.text); output(); }
+    }
+  };
 }

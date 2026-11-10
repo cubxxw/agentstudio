@@ -10,6 +10,13 @@ export type Status =
   | "unknown";
 export type Mode = "codex" | "local" | "connection";
 export type LocalAgentId = "codex" | "claude" | "pi" | "gemini" | "opencode";
+export type AgentConfiguration = { modelMode: "follow" | "fixed"; provider?: string; model?: string; thinking: string };
+export type AgentProfile = {
+  agentId: LocalAgentId; defaults: { provider: string | null; model: string | null; thinking: string | null };
+  models: { provider: string; id: string; name: string; reasoning: boolean; images?: boolean; thinkingLevels?: string[] }[];
+  providers: string[]; thinkingLevels: string[]; modelThinkingLevels: Record<string, string>; source: string; version: string; description: string;
+};
+export type ExecutionSnapshot = { agentId: LocalAgentId; provider: string | null; model: string | null; thinking: string | null; configurationVersion: string; modelPolicy: string; thinkingPolicy: string };
 export type LocalAgent = {
   id: LocalAgentId;
   name: string;
@@ -17,6 +24,7 @@ export type LocalAgent = {
   version: string | null;
   auth: { status: "configured" | "required" | "unknown" | "unsupported"; method?: string };
   execution: { supported: boolean; reason?: string };
+  profile?: AgentProfile;
   setupUrl: string;
   loginCommandId: string | null;
 };
@@ -67,6 +75,9 @@ export type Run = {
   stopUnconfirmed?: boolean;
   contactId?: string;
   contactSnapshot?: Contact;
+  messageId: string;
+  progress?: { phase: "preparing" | "thinking" | "writing"; text: string; updatedAt: string };
+  executionSnapshot?: ExecutionSnapshot;
 };
 export type Artifact = {
   id: string;
@@ -137,9 +148,10 @@ export type ResponsePolicy = "mention" | "always" | "manual";
 export type Contact = {
   id: string; kind: "agent" | "human"; name: string; handle: string;
   description: string; instructions: string; color: string; version: number;
+  icon?: string; avatarAgent?: LocalAgentId; configuration?: AgentConfiguration; profile?: AgentProfile | null; execution?: ExecutionSnapshot | null; configurationError?: string;
   discovered?: boolean; providerName?: string;
   binding: { type: "local"; localAgentId: LocalAgentId } | { type: "connection"; connectionId: string } | null;
-  availability: "self" | "ready" | "unsupported" | "not_installed" | "login_required" | "disconnected" | "local_only";
+  availability: "self" | "ready" | "unsupported" | "not_installed" | "login_required" | "disconnected" | "local_only" | "configuration_required";
   availabilityReason?: string;
 };
 export type Approval = Decision & { threadId: string; threadTitle: string; contact: Contact | null };

@@ -8,6 +8,7 @@ import { validateBearerToken } from './vault.mjs';
 import { discoverLocalAgents } from './local-agents.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 import { Messenger } from './messenger.mjs';
+import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoDir = resolve(appDir, '../..');
@@ -26,7 +27,7 @@ function validateInput(store, body) {
   const mode = body.mode || 'codex';
   if (!['codex', 'local', 'connection'].includes(mode)) invalid('mode 必须是 codex、local 或 connection');
   const localAgentId = body.localAgentId || store.get('setting', 'local-agent')?.agentId || 'codex';
-  if (!['codex', 'claude'].includes(localAgentId)) invalid('请选择已经支持执行的本机助手');
+  if (!['codex', 'claude', 'pi'].includes(localAgentId)) invalid('请选择已经支持执行的本机助手');
   if (mode === 'codex' && store.list('thread').some(thread => thread.runs.some(run => run.stopUnconfirmed && (run.localAgentId || 'codex') === localAgentId))) {
     throw new APIError(409, 'local_agent_stop_unconfirmed', '这个助手的停止状态尚未确认，请先核查原任务；新要求没有再次发送');
   }
@@ -96,7 +97,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -113,10 +114,23 @@ export async function createPersonalServer(options = {}) {
     options.onChange?.(event);
     for (const response of clients) response.write(`event: invalidation\ndata: ${JSON.stringify(event)}\n\n`);
   };
-  const worker = new PersonalWorker(store, options, notify);
+  const commands = Object.fromEntries(['codex', 'claude', 'pi', 'gemini', 'opencode'].map(agent => [agent, process.env[`AGENTSTUDIO_${agent.toUpperCase()}_BIN`] || agent]));
+  commands.codex = options.codexCommand || commands.codex;
+  const localAgentDeps = { ...(options.localAgentDeps || {}), commands: { ...commands, ...options.localAgentDeps?.commands } };
+  const worker = new PersonalWorker(store, { ...options, localAgentDeps }, notify);
   const codex = codexAvailable(options.codexCommand);
-  const localAgentOptions = { deps: { commands: { codex: options.codexCommand || 'codex' }, ...(options.localAgentDeps || {}) } };
+  const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
+  const acceptedLocalInput = (body, detected) => {
+    const input = validateInput(store, body);
+    const agent = detected?.agents.find(item => item.id === input.localAgentId);
+    // Historical missing-CLI runs retain their blocked/recovery behavior. A
+    // server-owned custom executor is used only by isolated test harnesses.
+    if (input.mode !== 'codex' || !agent?.installed || (input.localAgentId === 'codex' && options.codexArgs)) return input;
+    try { return { ...input, executionSnapshot: resolveExecution(agent.profile) }; }
+    catch (error) { throw new APIError(400, 'configuration_required', error.message); }
+  };
+  const stopProfileWatch = options.discoverLocalAgents ? () => {} : watchAgentProfiles(() => notify({ kind: 'agent_configuration' }), localAgentDeps);
   const presets = options.toolPresets || TOOL_PRESETS;
   const integrationRequests = new Map();
   let shuttingDown = false;
@@ -206,7 +220,7 @@ export async function createPersonalServer(options = {}) {
           presets: presets.map(({ id: presetId, name, description, account, url: endpoint }) => ({ id: presetId, name, description, account,
             connectionId: store.list('connection').find(item => item.type === 'mcp' && item.url === endpoint)?.id || null })) });
       }
-      if (method === 'POST' && (match = path.match(/^\/api\/integrations\/local\/(codex|claude)$/))) {
+      if (method === 'POST' && (match = path.match(/^\/api\/integrations\/local\/(codex|claude|pi)$/))) {
         await readJSON(request);
         const detected = await localAgents(true), agent = detected.agents.find(item => item.id === match[1]);
         if (!agent?.installed || !agent.execution.supported) throw new APIError(409, 'local_agent_unavailable', '尚未找到可执行的本机助手，请先安装后重新检查');
@@ -270,19 +284,26 @@ export async function createPersonalServer(options = {}) {
         request.on('close', () => { clearInterval(heartbeat); clients.delete(response); });
         return;
       }
+      if (method === 'POST' && path === '/api/integrations/local/pi/identity') {
+        await readJSON(request);
+        return json(response, 200, await readPiIdentity(localAgentDeps));
+      }
       if (method === 'POST' && path === '/api/threads') {
         const body = await readJSON(request);
-        const thread = store.idempotent('threads:create', body.clientId, body, () => store.createThread(validateInput(store, body)));
+        const detected = body.mode && body.mode !== 'codex' ? null : await localAgents();
+        const thread = store.idempotent('threads:create', body.clientId, body, () => store.createThread(acceptedLocalInput(body, detected)));
         notify({ threadId: thread.id }); worker.kick();
         return json(response, 201, thread);
       }
       if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, store.require('thread', match[1]));
       if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/messages$/))) {
         const threadId = match[1], body = await readJSON(request);
+        const detected = await localAgents();
+        if (store.require('thread', threadId).kind) messenger.sync(detected);
         const result = store.idempotent(`threads:${threadId}:messages`, body.clientId, body, () => {
           const thread = store.require('thread', threadId);
           if (thread.kind) return messenger.appendMessage(thread, body, input => validateInput(store, input));
-          const input = validateInput(store, body);
+          const input = acceptedLocalInput(body, detected);
           store.appendRun(thread, input); return store.put('thread', thread);
         });
         notify({ threadId }); worker.kick(); return json(response, 200, result);
@@ -324,7 +345,7 @@ export async function createPersonalServer(options = {}) {
               if (run.status === 'unknown' || ['sending', 'delivered', 'unknown'].includes(run.deliveryState)) throw new APIError(409, 'unknown_execution', '上次执行结果未知，不能重复提交；请先人工核查');
               const message = thread.messages.find((item) => item.id === run.messageId);
               store.appendRun(thread, { ...message, mode: run.mode, localAgentId: run.localAgentId || 'codex', connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id,
-                contactId: run.contactId, contactSnapshot: run.contactSnapshot, participantSnapshot: run.participantSnapshot, conversationSnapshot: run.conversationSnapshot,
+                executionSnapshot: run.executionSnapshot, contactId: run.contactId, contactSnapshot: run.contactSnapshot, participantSnapshot: run.participantSnapshot, conversationSnapshot: run.conversationSnapshot,
                 visibleAfterMessageId: run.visibleAfterMessageId, responsePolicy: run.responsePolicy });
             }
           }
@@ -428,7 +449,7 @@ export async function createPersonalServer(options = {}) {
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
-      await worker.close(); await stopped; store.close();
+      stopProfileWatch(); await worker.close(); await stopped; store.close();
     },
   };
 }

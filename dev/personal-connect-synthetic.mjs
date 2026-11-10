@@ -36,7 +36,7 @@ const env = {
   ...process.env,
   AGENTSTUDIO_USER_DATA_DIR: profile,
   AGENTSTUDIO_PERSONAL_EXPORT_DIR: join(evidence, 'exports'),
-  AGENTSTUDIO_MOCK_KEYCHAIN: '1',
+  AGENTSTUDIO_PI_BIN: '/agentstudio-synthetic-missing-pi', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude', AGENTSTUDIO_MOCK_KEYCHAIN: '1',
   AGENTSTUDIO_CODEX_BIN: join(evidence, 'missing-model-executor'),
   AGENTSTUDIO_CONNECTOR_PORT: '0',
   AGENTSTUDIO_CONNECTOR_OPEN_IN_WINDOW: '1',
