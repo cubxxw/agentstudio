@@ -97,11 +97,11 @@ export class PersonalServices {
   async publicProgress(flowId: string): Promise<PublicPersonalServicesProgress> {
     const progress = await this.progress(flowId);
     if (progress.state === "ready") return { state: "ready", instances: progress.instances.map(({ instanceId, name }) => ({ instanceId, name })) };
-    if (progress.state === "failed") return { state: "failed", message: "登录未完成，请检查原服务的登录页面或重新连接；已有连接仍保留。" };
+    if (progress.state === "failed") return { state: "failed", message: /^Sign-in page (could not load|load timed out)/.test(progress.message) ? "登录页面未能载入，请检查网络后重新连接；已有登录信息与连接保留。" : "登录未完成，请检查原服务的登录页面或重新连接；已有连接仍保留。" };
     if (progress.state === "input") return { state: "input", message: "请按原服务的说明完成连接。凭据仅保存在本机。", label: progress.label, secret: progress.secret,
       ...(progress.link ? { link: progress.link } : {}), ...(progress.error ? { error: "服务未接受此次输入，请核对后重试。" } : {}) };
     if (progress.state === "choose") return { state: "choose", message: "选择你要接入的个人助手", choices: progress.choices };
-    if (progress.state === "waiting") return { state: "waiting", message: /checking|connecting|creating/i.test(progress.message) ? "正在核对账号与可用助手…" : "请在原服务的登录页面完成验证，完成后会自动接入。", ...(progress.actions ? { actions: progress.actions.map(action => ({ ...action, label: action.id === "api-key" ? "改用访问密钥" : action.label })) } : {}) };
+    if (progress.state === "waiting") return { state: "waiting", message: /^Loading sign-in page/.test(progress.message) ? "正在载入登录页面，准备好后会打开窗口。首次加载可能较慢，可以随时取消。" : /checking|connecting|creating/i.test(progress.message) ? "正在核对账号与可用助手…" : "请在原服务的登录页面完成验证，完成后会自动接入。", ...(progress.actions ? { actions: progress.actions.map(action => ({ ...action, label: action.id === "api-key" ? "改用访问密钥" : action.label })) } : {}) };
     return { state: "cancelled" };
   }
   async choose(flowId: string, choiceId: string) { await this.initialize(); this.manager!.choose(flowId, choiceId); }

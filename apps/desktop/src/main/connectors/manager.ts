@@ -11,7 +11,7 @@ import { ConnectorHost, newToken } from "./host";
 import { ConnectorStore, type InstanceRecord } from "./store";
 import { GROK_DEFAULTS, GrokBotConnector, GrokClient, grokLogin, type GrokConfig, type GrokData, type GrokLoginResult } from "./grokbot";
 import { WebChatConnector, snapshotOf, type WebChatConfig, type WebChatData } from "./webchat";
-import { DOTS_DRIVER, MUSE_DRIVER } from "./drivers";
+import { DOTS_DRIVER, MUSE_DRIVER, MUSE_LOGIN_STATE } from "./drivers";
 import { grokAvatar } from "./grokavatar";
 import { cueWebSignIn, createCueApiKey, handleCueLink, type CueWebConfig } from "./cueweb";
 import { CUE_DEFAULTS, CueAuthError, CueClient, CueConnector, cueAccountKey, type CueConfig, type CueData } from "./cue";
@@ -510,10 +510,14 @@ export class ConnectorManager {
     const connector = new WebChatConnector(cfg, { connectedAt: new Date().toISOString() });
     login.progress = {
       state: "waiting",
-      message: `Sign in to ${cfg.name} in the AgentStudio window that opened. ${cfg.name} keeps your sign-in in the browser's cookies, which AgentStudio can't read, so it signs in here. If Google refuses to sign in inside an app, use another way to sign in there.`,
+      message: "Loading sign-in page…",
     };
     try {
-      await connector.session.signIn(async (wc) => (await snapshotOf(connector.session, cfg.driver, wc)).signedIn, signal);
+      await connector.session.signIn(async (wc) => service === "muse"
+        ? Boolean((await wc.mainFrame.executeJavaScript(MUSE_LOGIN_STATE) as { signedIn: boolean }).signedIn)
+        : (await snapshotOf(connector.session, cfg.driver, wc)).signedIn, signal, () => {
+        if (!signal.aborted) login.progress = { state: "waiting", message: `Sign in to ${cfg.name} in the AgentStudio window that opened. Your sign-in stays in this service's own session on this Mac.` };
+      }, service === "muse" ? async (wc) => Boolean((await wc.mainFrame.executeJavaScript(MUSE_LOGIN_STATE) as { ready: boolean }).ready) : undefined);
     } catch (err) {
       connector.session.close();
       throw err;
