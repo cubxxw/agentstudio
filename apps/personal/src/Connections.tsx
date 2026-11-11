@@ -7,6 +7,7 @@ import cueIcon from "@agentstudio/brand/assets/cue.png";
 import { api, key } from "./api";
 import { desktopBridge } from "./native";
 import { Avatar } from "./ContactAvatar";
+import { RemoteNodes } from "./RemoteNodes";
 import type { NativeIntegrationReply, NativeIntegrationRequest, PersonalServiceId } from "./desktop-contract";
 import type { Bootstrap, Integrations, LocalAgent } from "./types";
 
@@ -183,7 +184,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
       : <button className="integration-button" disabled={Boolean(busy)} onClick={() => void perform("refresh", () => reload(true), false)}>检查登录</button>} />;
   const nativeIds = new Set((catalog?.instances || []).map(item => item.connectionId).filter(Boolean));
   const presetIds = new Set((integrations?.presets || []).map(item => item.connectionId).filter(Boolean));
-  const custom = data.connections.filter(item => !nativeIds.has(item.id) && !presetIds.has(item.id));
+  const custom = data.connections.filter(item => !item.node && !nativeIds.has(item.id) && !presetIds.has(item.id));
   const current = flow?.progress;
 
   return <div className="connections" data-testid="personal-connections">
@@ -235,6 +236,8 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
         {!terminal(current.state) && <button className="text-button" data-testid="personal-integration-cancel" disabled={Boolean(busy)} onClick={() => void perform("cancel-login", async () => { await applyProgress(await native({ kind: flow.scope === "local" ? "local-login-cancel" : "cancel", flowId: flow.flowId }), flow); setInputValue(""); }, false)}>取消这次连接</button>}
       </div>}
     </section>
+
+    <RemoteNodes nodes={integrations?.nodes || []} onRefresh={() => refresh()} />
 
     <section className="integration-section" aria-labelledby="connections-tools-title">
       <div className="integration-section-heading"><h3 id="connections-tools-title">常用能力</h3></div>
