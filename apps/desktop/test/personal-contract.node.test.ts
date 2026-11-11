@@ -65,3 +65,11 @@ describe("trusted bundled document", () => {
     expect(personalCsp("http://127.0.0.1:5173")).toContain("connect-src http://127.0.0.1:5173 ws://127.0.0.1:5173");
   });
 });
+
+ describe("agent onboarding IPC", () => {
+  it("allows only fixed preparation, result, adoption and cancellation routes", () => {
+    for (const path of ["/api/agent-onboarding", "/api/agent-onboarding/context", "/api/agent-onboarding/onboard_owned"]) expect(readPersonalRequest({ path, method: "GET" }).path).toBe(path);
+    for (const path of ["/api/agent-onboarding", "/api/agent-onboarding/onboard_owned/adopt", "/api/agent-onboarding/onboard_owned/cancel"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
+    for (const path of ["/api/agent-onboarding/../../secrets", "/api/agent-onboarding/onboard_owned/run-command", "/api/agent-onboarding?path=/tmp"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
+  });
+ });

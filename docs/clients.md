@@ -260,3 +260,15 @@ Approval cards from connectors use the choice keys the connector sends:
 
 - **Grok Bot:** the widget's values.
 - **Page buttons:** `b<index>`.
+
+### Agent onboarding and autonomous group participation
+
+| Surface | `data-testid` |
+| --- | --- |
+| Contacts / new-chat entry | `im-onboarding-open`, `im-new-onboarding` |
+| Preparation dialog | `im-onboarding`, `im-onboarding-agent`, `im-onboarding-goal` |
+| Source controls | `im-onboarding-context`, `im-onboarding-recent`, `im-onboarding-memories` |
+| Start/progress/cancel | `im-onboarding-start`, `im-onboarding-status`, `im-onboarding-cancel`, `im-onboarding-result` |
+| Suggestions/adoption | `im-role-suggestion`, `im-adopt-role` |
+
+The default member policy is `auto`; completed silent runs create no chat bubble. Their reasons remain in execution details, and model failure is never displayed as a silence decision. Explicit member policies remain selectable through `im-policy-<contactId>`.

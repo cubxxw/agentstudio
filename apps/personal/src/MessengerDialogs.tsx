@@ -106,9 +106,9 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
       <label>选择联系人<input type="search" placeholder="搜索名称或用户名" value={search} onChange={e => setSearch(e.target.value)} data-testid="im-group-search" /></label>
       <div className="im-member-picker">{contacts.filter(c => c.id !== "self" && `${c.name} ${c.handle}`.toLowerCase().includes(search.toLowerCase())).map(c => <div className="im-member-choice" key={c.id}>
         <label><input type="checkbox" checked={members.includes(c.id)} data-testid={`im-member-${c.id}`} onChange={e => setMembers(current => e.target.checked ? [...current, c.id] : current.filter(x => x !== c.id))} /><Avatar contact={c} /><span>{c.name}<small>{c.kind === "agent" ? c.providerName : "本地联系人"}</small></span></label>
-        {thread && members.includes(c.id) && c.kind === "agent" && <select aria-label={`${c.name}的响应策略`} data-testid={`im-policy-${c.id}`} value={responsePolicies[c.id] || "mention"} onChange={e => setPolicies(p => ({ ...p, [c.id]: e.target.value as ResponsePolicy }))}><option value="mention">仅提及或回复时</option><option value="always">每条消息</option><option value="manual">暂停回应</option></select>}
+        {thread && members.includes(c.id) && c.kind === "agent" && <select aria-label={`${c.name}的响应策略`} data-testid={`im-policy-${c.id}`} value={responsePolicies[c.id] || "auto"} onChange={e => setPolicies(p => ({ ...p, [c.id]: e.target.value as ResponsePolicy }))}><option value="auto">按角色判断，可保持安静</option><option value="mention">仅提及或回复时</option><option value="always">每条消息</option><option value="manual">暂停回应</option></select>}
       </div>)}</div>
-      <p className="im-field-hint">默认 @提及 或回复某位 Agent 才回应。新成员只收到加入后的内容；已接受的运行保持原身份。人类成员当前仅保存在本机。</p>
+      <p className="im-field-hint">默认所有可用 Agent 收到消息后按角色判断是否回应，可保持安静；@ 表示明确找它。新成员只收到加入后的内容；已接受的运行保持原身份。人类成员当前仅保存在本机。</p>
       {error && <p role="alert" className="im-error">{error}</p>}
       <button className="im-primary" disabled={busy || !members.length} data-testid="im-group-save">{busy ? "正在保存…" : thread ? "保存群信息" : <><Plus size={17} />创建群聊</>}</button>
     </form>

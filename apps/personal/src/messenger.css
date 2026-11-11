@@ -454,3 +454,33 @@
   .im-app { --im-muted: var(--im-ink); --im-line: var(--im-muted); }
   .im-chat-row.selected, .im-nav-item.selected { outline: 1px solid var(--im-blue); outline-offset: -1px; }
 }
+
+.im-onboarding-entry { display: flex; align-items: center; gap: 10px; width: calc(100% - 24px); margin: 10px 12px; padding: 12px; border: 1px solid var(--im-line); border-radius: 12px; background: var(--im-paper); color: var(--im-ink); text-align: left; }
+.im-onboarding-entry span { flex: 1; }
+.im-onboarding-entry small { display: block; color: var(--im-muted); margin-top: 3px; font-size: 11px; }
+.im-onboarding-dialog { max-width: 650px; }
+.im-onboarding-intro { display: flex; gap: 14px; align-items: flex-start; }
+.im-onboarding-intro h2 { margin: 0 0 7px; font-size: 19px; line-height: 1.5; }
+.im-onboarding-intro p, .im-onboarding-context p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--im-muted); }
+.im-onboarding-mark { color: var(--im-blue); padding-top: 4px; }
+.im-onboarding-context { border-block: 1px solid var(--im-line); padding: 12px 0; }
+.im-onboarding-context summary { cursor: pointer; font-size: 13px; }
+.im-onboarding-context summary span { display: block; color: var(--im-muted); font-size: 12px; margin-top: 5px; }
+.im-onboarding-context[open] { display: grid; gap: 12px; }
+.im-onboarding-context label { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 13px; }
+.im-onboarding-context input[type=checkbox] { width: auto; accent-color: var(--im-blue); }
+.im-onboarding-context ul, .im-onboarding-sources { margin: 8px 0; padding-left: 20px; color: var(--im-muted); font-size: 12px; line-height: 1.8; }
+.im-onboarding-sources small { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.im-onboarding-result { display: grid; gap: 14px; }
+.im-onboarding-status, .im-role-heading { display: flex; align-items: center; gap: 10px; }
+.im-onboarding-status { font-size: 14px; }
+.im-role-suggestion { border: 1px solid var(--im-line); border-radius: 14px; padding: 18px; }
+.im-role-heading h3 { font-size: 16px; margin: 0 0 3px; }
+.im-role-heading span { font-size: 12px; color: var(--im-muted); }
+.im-role-suggestion p { font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.im-role-rationale { color: var(--im-muted); }
+.im-role-suggestion details { margin: 12px 0; font-size: 12px; }
+.im-role-suggestion summary { cursor: pointer; color: var(--im-muted); }
+.im-role-instructions { white-space: pre-wrap; }
+.im-role-suggestion button { width: 100%; justify-content: center; }
+@media (max-width: 560px) { .im-onboarding-intro h2 { font-size: 17px; } .im-role-suggestion { padding: 14px; } }

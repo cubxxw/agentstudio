@@ -76,6 +76,7 @@ export type Run = {
   contactId?: string;
   contactSnapshot?: Contact;
   messageId: string;
+  participation?: { action: "reply" | "silence"; reason?: string };
   progress?: { phase: "preparing" | "thinking" | "writing"; text: string; updatedAt: string };
   executionSnapshot?: ExecutionSnapshot;
 };
@@ -144,7 +145,7 @@ export type Connection = {
   };
 };
 export type Memory = { id: string; text: string; createdAt: string };
-export type ResponsePolicy = "mention" | "always" | "manual";
+export type ResponsePolicy = "auto" | "mention" | "always" | "manual";
 export type Contact = {
   id: string; kind: "agent" | "human"; name: string; handle: string;
   description: string; instructions: string; color: string; version: number;
@@ -162,3 +163,8 @@ export type Bootstrap = {
   settings: { defaultMode: Mode; codexAvailable: boolean; localAgentId?: LocalAgentId };
   runtime?: Record<string, unknown>;
 };
+
+export type OnboardingSource = { id: string; kind: "role" | "group" | "message" | "memory"; targetId: string; label: string; text?: string; description?: string; instructions?: string; handle?: string };
+export type OnboardingContext = { sources: OnboardingSource[]; counts: { roles: number; groups: number; memories: number }; scope: { includeRecentMessages: boolean; includeMemories: boolean; privateMessages: boolean }; truncation: { omitted: number; clipped: number; characterBudget: number } };
+export type RoleSuggestion = { id: string; name: string; handle: string; description: string; instructions: string; rationale: string; sourceIds: string[]; groupIds: string[]; color: string; contactId?: string };
+export type OnboardingJob = OnboardingContext & { id: string; threadId: string; agentId: LocalAgentId; status: "queued" | "probing" | "analyzing" | "completed" | "failed" | "interrupted" | "cancelled"; goal: string; cancelPending?: boolean; stopUnconfirmed?: boolean; createdAt: string; updatedAt: string; executionSnapshot: ExecutionSnapshot; probe: { status: "pending" | "passed"; testedAt?: string }; suggestions: RoleSuggestion[]; habits: { text: string; sourceIds: string[]; inferred: true }[]; error?: string };

@@ -1,0 +1,19 @@
+# Group participation and agent onboarding
+
+User request: adopt Raft-style group participation, including silence, and let a local agent prove it works before proposing roles from the current workspace's groups, roles and observed habits. The user explicitly authorizes autonomous implementation and delivery.
+
+## Behavior
+
+New and existing groups without an explicit member policy default to `auto`: every available local agent gets the owner's message and decides whether to reply. Preserve explicit `mention`, `always`, and `manual`. `auto` is distinct from `always`: a structured `{action:"silence",reason}` completes the run without creating an assistant message or artifact; `{action:"reply",text}` publishes text only. No protocol envelopes appear in streaming previews. Explicit addressing and replied-to authors are supplied as attention facts, while role instructions and relevant conversation guide participation. Preserve accepted identity/model/member snapshots, causal context, post-join visibility, cancellation and idempotency. Failures are never treated as silence. Remote contacts keep exact request approval before external submission. Agent messages remain visible context; automatically waking every agent from every reply is excluded to prevent unbounded loops. Directed bounded agent handoffs can be a separate extension; no fabricated reception receipts.
+
+## Onboarding
+
+Contacts expose an optional “让助手建议角色” entry. Select an available local backend and optionally describe the work you want help with. Start an asynchronous durable onboarding job, processed by the existing PersonalWorker queue, not a parallel execution pool. First execute a minimal random-challenge probe using the actual selected provider/model/thinking. Installation/login detection is not proof. Only after an exact successful probe, invoke the same backend/configuration to propose 1–6 roles.
+
+The proposal context is an immutable bounded projection of this personal workspace: existing role cards, group titles/member roles, optional recent group user messages (never DMs), and optional explicit saved memories. Display these data categories and toggles before starting. The user has authorized this workspace analysis; local configuration/secrets/transcripts outside it are excluded. All source material is untrusted. Keep source IDs and truncation facts. Habits are labeled inference, supported by supplied sources. No source means no claim of an established habit.
+
+Suggestions include name, unique handle, description, instructions, rationale, source IDs and existing group IDs they might help in. Validate bounds, shape, source/group membership and duplicate handles on the server. Do not create roles/groups, add members or overwrite personas during analysis. Explicit adoption creates one contact bound to the tested model; repeated adoption returns the same contact. User can edit it afterwards. Persist progress, failure, tested configuration, drafts and adoption references across reload. Interrupted jobs show interrupted; no automatic model retry or provider switch. Use one existing thread marked `purpose:agent_onboarding`, hidden from ordinary chat lists, to reuse execution/cancellation scheduling and recovery. Account-owned records stay in the selected data directory.
+
+## Approach and constraints
+
+Reuse the SQLite store, read-only local adapters, fixed Electron IPC and existing messenger. A separate onboarding process/agent fleet would duplicate recovery and increase resource use; fixed role templates alone cannot provide the requested personalized reasoning. Implementation is independently authored, without Raft code. Existing external approval boundaries remain. Resource checks before tests/builds, no new dependencies, reuse workspace dependencies. Independent review before PR/CI/merge; native acceptance and real Codex probe are separate evidence.

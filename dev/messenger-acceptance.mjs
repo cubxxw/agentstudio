@@ -104,10 +104,12 @@ try {
   await page.getByTestId('im-group-save').click();
   await expect(page.getByTestId('im-chat-info')).toContainText('想法讨论室');
   const groupId = new URL(page.url()).searchParams.get('thread');
+  const legacyGroup = await request(`/threads/${groupId}`);
+  await request(`/chats/${groupId}`, { clientId: crypto.randomUUID(), version: legacyGroup.version, responsePolicies: Object.fromEntries(legacyGroup.memberIds.filter(id => id !== 'self').map(id => [id, 'mention'])) });
   await page.getByTestId('im-message-input').fill('先记下一个想法。'); await page.getByTestId('im-send').click();
   await expect.poll(async () => (await request(`/threads/${groupId}`)).messages.length).toBe(1);
   expect((await request(`/threads/${groupId}`)).runs.length).toBe(0);
-  check('ambient group message is saved without waking agents');
+  check('explicit mention policy saves ambient messages without waking agents');
   await page.getByTestId('im-message-input').fill('@');
   await page.getByTestId(`im-mention-${researcher.id}`).click();
   await expect(page.getByTestId('im-message-input')).toHaveValue('@research ');
