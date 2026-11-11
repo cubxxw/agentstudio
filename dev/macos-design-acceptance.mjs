@@ -111,6 +111,9 @@ try {
   // operation before moving focus to the keyboard shortcut; otherwise it can
   // steal the key event on a busy CI renderer.
   await expect.poll(() => page.getByTestId(`im-pin-${direct.id}`).evaluate(node => new Promise(resolve => requestAnimationFrame(() => resolve(document.activeElement === node))))).toBe(true);
+  // A real click settles the preceding pin action's deferred focus restoration.
+  await page.getByTestId(`im-pinned-${direct.id}`).click();
+  await expect(page.getByTestId(`im-pinned-${direct.id}`)).toBeFocused();
   await page.getByTestId(`im-pinned-${direct.id}`).press('Alt+ArrowLeft');
   await expect.poll(pinnedOrder).toEqual([first, direct, group].map(chat => `im-pinned-${chat.id}`));
   await page.reload();
