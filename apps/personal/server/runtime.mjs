@@ -636,11 +636,16 @@ export class PersonalWorker {
       result = validatedA2ATask(await this.callRPC(connection, 'tasks/get', { id: run.externalTaskId }, signal), run.externalTaskId);
     } else {
       if (run.phase === 'reconcile' || run.deliveryState === 'unknown' || run.deliveryState === 'delivered') throw new APIError(409, 'unknown_execution', '没有远端 taskId，不能安全重复提交');
-      this.change(thread.id, run.id, (_item, selected) => { selected.deliveryState = 'sending'; selected.actionState = 'running'; selected.phase = 'dispatch'; });
+      this.change(thread.id, run.id, (_item, selected) => {
+        selected.deliveryState = 'sending'; selected.actionState = 'running'; selected.phase = 'dispatch';
+        // Enrolled nodes durably key tasks by this exact messageId. Save it
+        // before POST so a lost first receipt can be queried without resending.
+        if (connection.node?.taskIdScheme === 'messageId') selected.externalTaskId = run.id;
+      });
       result = await this.callRPC(connection, 'message/send', { message: { kind: 'message', role: 'user', messageId: run.id,
         parts: [{ kind: 'text', text: JSON.stringify(decision ? decision.payload : content) }] }, configuration: { blocking: false } }, signal, run.id);
       if (signal.aborted) return;
-      if (result?.kind === 'task') validatedA2ATask(result);
+      if (result?.kind === 'task') validatedA2ATask(result, connection.node?.taskIdScheme === 'messageId' ? run.id : undefined);
       else validatedA2AMessage(result);
       const taskId = result.kind === 'task' ? result.id : null;
       this.change(thread.id, run.id, (_item, selected) => {
