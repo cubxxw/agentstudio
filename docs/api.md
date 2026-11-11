@@ -117,6 +117,14 @@ Private agents respond directly. Groups default to `auto`: available members rec
 
 Human contacts and their messages currently stay on this Mac. `deliveryState:"local_only"` is not remote delivery. Existing task threads continue in the same IM shell through their original `/api/threads/:id/messages` endpoint. Old `?workspace=tasks&thread=:id` links open that same shell. Their old draft keys are retained as backups; the renderer reconstructs original unconfirmed requests without changing their clientId, fingerprint, memory snapshot or create/message route.
 
+### Local contact adoption
+
+`POST /api/contacts/local` accepts exactly `{agentIds,clientId}` and returns `{contacts}` (200). Select 1–5 entries from `codex|claude|pi`; duplicates coalesce. The server forces current local discovery, validates the entire selection as installed and supported, then atomically adopts the stable `agent_<id>` contacts. Login or model configuration can remain incomplete and is reported in availability. No model, login, installation, global-default change or message send occurs. Same request key/body replays its receipt; changed body returns 409. Unknown fields return 400; unavailable installation/support returns 409. The existing fixed contact POST IPC route allows this capability.
+
+`GET /api/contacts` remains the complete contact/backend inventory for editors and compatibility. Newly discovered local contacts have `added:false` until selected; ordinary address books and member pickers omit those candidates. Existing records without this flag retain visibility (`added:true` on sync), including unavailable contacts and prior chats. Explicitly opening a direct chat adopts its selected candidate. Roles keep separate IDs and can reuse an unadopted backend. Discovery never overwrites user names, instructions or model preferences.
+
+The shared Agent card shows next configured model/provider/thinking, local versus connected-service location, fixed local adapter capabilities, own-use scope and unavailable quota. Configuration is not execution proof. Remote models/capabilities remain unknown unless supported by actual adapter facts. No quota, price, reset time, intelligence ranking or account identity is inferred from installation or login configuration.
+
 ### Personal discovery and quick connections
 
 | Route | Request / response |

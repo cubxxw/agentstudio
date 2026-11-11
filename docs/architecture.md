@@ -40,6 +40,12 @@ SQLite owns identities, grants, queue and head pointers. Files under `artifacts/
 
 The renderer opens a specific version through an opaque expiring `agentroom-artifact:` capability in a sandboxed iframe. Main also runs a serialized hidden-window page/error and narrow-layout check, then reports the verdict over the private utility channel. A website remains `waiting_preview` until that check succeeds; private intermediate heads never replace the delivered Finder tree or group version. `deliveredRevisionId` is separate from head and user acceptance. Geometry is evaluated in an isolated world; each queued check owns its cancellation scope and window. No renderer route can submit its own passing verdict. Content integrity, native preview, explicit user acceptance and publication are separate states. See [workflow and tools](personal/artifact-coauthoring.md), [API contract](api.md) and [current evidence](personal/artifact-coauthoring-acceptance-2026-11-11.md).
 
+## Local Agent identity and staged sharing
+
+Local discovery retains backend inventory without adding every new system contact to the address book. An explicit local adoption updates the relationship on the stable contact, reusing existing chats and model configuration. Legacy records retain their visibility. The card and quick-add UI use the existing personal worker/SQLite/fixed IPC; they do not introduce another process, listener or model call. Model defaults describe configuration; current adapters provide no quota receipt.
+
+The confirmed longer-term direction is friends calling an Agent on its owner's computer. Same-owner multi-device identity/pairing/routing comes in phase two; real friend relationships and revocable grants with independent sessions/usage limits come in phase three. Those phases require actual authenticated transport and adapter-level delegated-use capability. The local personal workspace does not currently provide either. See the [phase-one design](superpowers/specs/2026-11-11-local-agent-cards-design.md).
+
 ## Retained Matrix architecture (v0.1)
 
 Set `AGENTSTUDIO_WORKSPACE=matrix` to select the original renderer, preload, sessions and connectors. The remaining sections describe that path and keep its contracts intact.

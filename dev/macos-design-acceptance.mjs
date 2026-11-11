@@ -1,3 +1,4 @@
+import { seedLegacyAgentContacts } from "./legacy-agent-fixture.mjs";
 import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Synthetic design acceptance. No real model, account or existing profile is used.
 import { createRequire } from 'node:module';
@@ -41,6 +42,7 @@ const request = async (path, body) => {
   return response.json();
 };
 
+seedLegacyAgentContacts(native ? join(output, "profile", "personal") : join(output, "data"));
 try {
   if (native) {
     const env = { ...process.env, CODEX_HOME: output, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: missing, AGENTSTUDIO_CLAUDE_BIN: missing, AGENTSTUDIO_PI_BIN: missing, AGENTSTUDIO_MOCK_KEYCHAIN: '1' };

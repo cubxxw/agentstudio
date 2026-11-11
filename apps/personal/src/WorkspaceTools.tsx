@@ -5,11 +5,11 @@ import { desktopBridge } from "./native";
 import { Avatar } from "./ContactAvatar";
 import type { Bootstrap, Contact } from "./types";
 
-export function WorkspaceWelcome({ data, contacts, onContinue, onStartContact }: { data: Bootstrap; contacts: Contact[]; onContinue: (next: "chat" | "agents" | "connect") => Promise<void>; onStartContact: (contact: Contact) => Promise<void> }) {
+export function WorkspaceWelcome({ data, contacts, onContinue, onStartContact }: { data: Bootstrap; contacts: Contact[]; onContinue: (next: "chat" | "agents" | "connect" | "local") => Promise<void>; onStartContact: (contact: Contact) => Promise<void> }) {
   const [name, setName] = useState(data.workspace?.displayName === "你" ? "" : data.workspace?.displayName || "");
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const pending = useRef<{ name: string; clientId: string } | null>(null);
-  const complete = async (next: "chat" | "agents" | "connect", contact?: Contact) => {
+  const complete = async (next: "chat" | "agents" | "connect" | "local", contact?: Contact) => {
     if (busy) return;
     setBusy(true); setError("");
     const displayName = name.trim() || "你";
@@ -25,7 +25,8 @@ export function WorkspaceWelcome({ data, contacts, onContinue, onStartContact }:
     <p>找一位 Agent 聊聊，或把几个伙伴拉进群里，一起把事情办好。</p>
     <form onSubmit={event => { event.preventDefault(); void complete("chat"); }}>
       <label htmlFor="workspace-owner-name">怎么称呼你？<input id="workspace-owner-name" data-testid="workspace-owner-name" value={name} maxLength={80} placeholder="你的名字（选填）" autoComplete="nickname" onChange={event => setName(event.target.value)} disabled={busy} /></label>
-      <button className="im-primary" data-testid="im-welcome-start" disabled={busy}>{busy ? "正在保存…" : <>开始聊天<ArrowRight size={17} /></>}</button>
+      <button type="button" className="im-primary" data-testid="workspace-welcome-local" disabled={busy} onClick={() => void complete("local")}>选择本机助手<ArrowRight size={17} /></button>
+      <button className="im-text-button" data-testid="im-welcome-start" disabled={busy}>{busy ? "正在保存…" : <>稍后添加，先进入<ArrowRight size={17} /></>}</button>
     </form>
     <div className="workspace-welcome-options">
       <button disabled={busy} data-testid="workspace-welcome-agents" onClick={() => void complete("agents")}><Sparkles size={17} />让助手建议角色</button>
