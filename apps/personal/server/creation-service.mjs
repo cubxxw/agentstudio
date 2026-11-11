@@ -105,7 +105,7 @@ export class CreationService {
       else if (name === 'creation_update') result = this.update(context, args);
       else if (name === 'permission_request') result = this.requestPermission(context, args);
       else if (name === 'artifact_read') result = this.read(context, args);
-      else if (name === 'collaboration_status' && context.mode === 'conversation') result = { proposals: this.forThread(context.threadId).proposals.map(proposal => ({ id: proposal.id, title: proposal.title, state: proposal.state })) };
+      else if (name === 'collaboration_status' && context.mode === 'conversation') result = { proposals: this.forThread(context.threadId).proposals.filter(proposal => proposal.messageId === context.messageId).map(proposal => ({ id: proposal.id, title: proposal.title, kind: proposal.kind, goal: proposal.goal, version: proposal.version, state: proposal.state, contributors: proposal.contributors })) };
       else result = this.runtime.tool(context, name, args);
       this.store.put('artifact_tool_operation', { ...this.store.require('artifact_tool_operation', operationId), state: 'completed', ok: true, result,
         ...(name === 'artifact_read' ? { artifactId: result.artifactId, revisionId: result.revisionId } : {}), finishedAt: now() });
@@ -288,7 +288,8 @@ export class CreationService {
   }
   forThread(threadId) {
     return { proposals: this.store.list('creation_proposal').filter(item => item.threadId === threadId), collaborations: this.store.list('collaboration').filter(item => item.threadId === threadId),
-      links: this.store.list('artifact_link').filter(item => item.threadId === threadId && item.state === 'active'), permissionRequests: this.store.list('capability_request').filter(item => item.threadId === threadId) };
+      links: this.store.list('artifact_link').filter(item => item.threadId === threadId && item.state === 'active'), permissionRequests: this.store.list('capability_request').filter(item => item.threadId === threadId),
+      toolActivity: this.store.list('artifact_tool_operation').filter(item => item.threadId === threadId).map(({ id, contactId, name, state, ok, createdAt }) => ({ id, contactId, name, state, ok, createdAt })) };
   }
   async close() { await this.runtime.close(); }
 }

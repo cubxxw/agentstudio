@@ -212,3 +212,13 @@ test('a crash after yield marks the unfinished executor attempt unknown', t => {
   assert.equal(f.store.require('collaboration', collaboration.id).status, 'unknown');
   assert.equal(f.service.runtime.enqueueNext(collaboration.id), null);
 });
+
+test('owner stop revokes a native session and retry cannot replay an unknown attempt', async t => {
+  const f = fixture(t), proposal = f.prepare(), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'control-stop-plan' });
+  const ctx = f.begin(collaboration.id), session = await f.service.runtime.session(ctx.threadId, ctx.runId);
+  f.service.runtime.control(collaboration.id, { action: 'stop', clientId: 'stop-this-work' });
+  assert.throws(() => f.call(ctx, 'artifact_write', { path: 'late.md', text: 'late', expectedHash: null }), errorCode('grant_revoked'));
+  const response = await fetch(session.endpoint, { headers: { authorization: `Bearer ${session.token}` } }); assert.equal(response.status, 401);
+  const work = f.store.require('collaboration', collaboration.id); work.status = 'unknown'; work.steps[0].status = 'unknown'; f.store.put('collaboration', work);
+  assert.throws(() => f.service.runtime.control(work.id, { action: 'retry', stepId: work.steps[0].id, clientId: 'unsafe-unknown-retry' }), errorCode('reconciliation_required'));
+});

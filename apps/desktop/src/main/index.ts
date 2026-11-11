@@ -38,9 +38,13 @@ import { LocalLoginHost, localExecutionEnv } from "./local-login";
 import { resolveWorkspaceProfile, testWorkspaceArgs, type TestWorkspaceAction } from "./workspace-profile";
 import type { NativeIntegrationReply } from "@agentstudio/personal/desktop-contract";
 import { PERSONAL_IPC, isTrustedDocument, personalCsp, readNativeIntegration, type PersonalCommand } from "../shared/personal-api";
+import { artifactFileAction, readArtifactFileAction } from "./artifact-files";
+import { artifactPreviewResponse } from "./artifact-preview";
 
 declare const __APP_VERSION__: string;
 declare const __APP_REVISION__: string;
+
+protocol.registerSchemesAsPrivileged([{ scheme: "agentroom-artifact", privileges: { standard: true, secure: true, supportFetchAPI: false, allowServiceWorkers: false } }]);
 
 // ---- profile isolation (must happen before "ready") ----------------------------
 
@@ -111,6 +115,10 @@ function documentCsp(): string { return personalMode ? personalCsp(devServerUrl)
 // ---- CSP ---------------------------------------------------------------------------
 
 function installCsp() {
+  protocol.handle("agentroom-artifact", request => {
+    if (!personalMode || !personalHost || switchingWorkspace || request.method !== "GET") return new Response("Preview unavailable", { status: 404 });
+    return artifactPreviewResponse(request.url, input => personalHost!.request(input));
+  });
   if (devServerUrl) {
     // Dev: the renderer comes from the Vite server over http; add the header there.
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -350,6 +358,17 @@ function registerPersonalIpc() {
   ipcMain.handle(PERSONAL_IPC.saveArtifact, (event, id: unknown) => {
     if (!fromPersonal(event) || !personalHost || typeof id !== "string") throw new Error("forbidden");
     return personalHost.saveArtifact(id);
+  });
+  ipcMain.handle(PERSONAL_IPC.artifactAction, async (event, input: unknown) => {
+    if (!fromPersonal(event) || !personalHost || switchingWorkspace) throw new Error("forbidden");
+    const action = readArtifactFileAction(input); nativeOperations++;
+    try {
+      return await artifactFileAction(action, { dataDir: workspaceProfile.personalData, request: input => personalHost!.request(input),
+        reveal: path => shell.showItemInFolder(path), chooseDirectory: async () => {
+          const result = await dialog.showOpenDialog(mainWindow!, { title: "导出所选作品版本", properties: ["openDirectory", "createDirectory"] });
+          return result.canceled ? null : result.filePaths[0] || null;
+        } });
+    } finally { nativeOperations--; }
   });
   ipcMain.handle(PERSONAL_IPC.restart, async (event) => {
     if (!fromPersonal(event) || !personalHost || switchingWorkspace) throw new Error("forbidden");

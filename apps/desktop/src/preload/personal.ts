@@ -11,6 +11,7 @@ const api: AgentStudioPersonal = {
   testWorkspace: (action) => ipcRenderer.invoke(PERSONAL_IPC.testWorkspace, action),
   request: (input) => ipcRenderer.invoke(PERSONAL_IPC.request, input),
   saveArtifact: (id) => ipcRenderer.invoke(PERSONAL_IPC.saveArtifact, id),
+  artifactAction: input => ipcRenderer.invoke(PERSONAL_IPC.artifactAction, input),
   restart: () => ipcRenderer.invoke(PERSONAL_IPC.restart),
   nativeIntegration: (request) => ipcRenderer.invoke(PERSONAL_IPC.integration, request),
   onChanged: (callback) => {

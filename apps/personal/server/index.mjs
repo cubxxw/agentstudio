@@ -9,6 +9,8 @@ import { discoverLocalAgents } from './local-agents.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 import { Messenger } from './messenger.mjs';
 import { AgentOnboarding } from './agent-onboarding.mjs';
+import { CreationService } from './creation-service.mjs';
+import { ArtifactAPI } from './artifact-api.mjs';
 import { AgentScheduler } from './agent-scheduler.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
 import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
@@ -100,7 +102,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -115,7 +117,8 @@ export async function createPersonalServer(options = {}) {
   if (!store.get('setting', 'workspace-onboarding') && (store.list('thread').length || store.list('connection').length || store.list('memory').length || store.list('contact').some(contact => contact.id !== 'self' && !contact.discovered))) {
     store.put('setting', { id: 'workspace-onboarding', completed: true, adoptedAt: now() });
   }
-  const messenger = new Messenger(store);
+  let creation;
+  const messenger = new Messenger(store, { onGroupChanged: threadId => creation?.reconcileMembership(threadId) });
   const clients = new Set();
   const notify = (event = {}) => {
     options.onChange?.(event);
@@ -127,6 +130,10 @@ export async function createPersonalServer(options = {}) {
   const onboarding = new AgentOnboarding(store, messenger, { execute: options.executeLocalAgent, deps: localAgentDeps, notify });
   onboarding.recover();
   const worker = new PersonalWorker(store, { ...options, localAgentDeps, executeOnboarding: (thread, run, signal) => onboarding.execute(thread, run, signal) }, notify);
+  creation = new CreationService(store, { ...options, localAgentDeps, notify, cancelRun: (threadId, runId) => worker.cancel(threadId, runId) });
+  worker.options.creationService = creation;
+  creation.artifacts.recover(); creation.runtime.recover();
+  const artifactAPI = new ArtifactAPI(creation, () => worker.kick());
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
@@ -196,7 +203,7 @@ export async function createPersonalServer(options = {}) {
 
   let switchPrepared = false, activeMutations = 0;
   const blockingRuns = () => store.list('thread').flatMap(thread => thread.runs || []).filter(run =>
-    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length;
+    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers();
   const cancelWorkspaceSwitch = () => {
     if (!switchPrepared || shuttingDown) return;
     switchPrepared = false; scheduler.closed = false; scheduler.start(options.schedulerTickMs ?? 30_000);
@@ -222,6 +229,8 @@ export async function createPersonalServer(options = {}) {
       const path = url.pathname;
       const method = request.method;
       let match;
+      const artifactResult = await artifactAPI.route(method, path, () => readJSON(request));
+      if (artifactResult !== undefined) return json(response, 200, artifactResult);
       if (method === 'GET' && path === '/api/workspace/status') {
         return json(response, 200, { blockingRuns: blockingRuns() });
       }
@@ -366,7 +375,7 @@ export async function createPersonalServer(options = {}) {
         notify({ threadId: thread.id }); worker.kick();
         return json(response, 201, thread);
       }
-      if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, store.require('thread', match[1]));
+      if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, { ...store.require('thread', match[1]), creation: creation.forThread(match[1]) });
       if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/messages$/))) {
         const threadId = match[1], body = await readJSON(request);
         if (store.require('thread', threadId).purpose === 'agent_onboarding') throw new APIError(409, 'onboarding_thread', '角色准备请使用专用进度和取消入口');
@@ -389,6 +398,7 @@ export async function createPersonalServer(options = {}) {
             ? thread.runs.find((item) => ['running', 'verifying'].includes(item.status)) || thread.runs.find((item) => item.status === 'needs_input') || thread.runs.find((item) => item.status === 'queued') || thread.runs.find((item) => store.unresolved(item)) || thread.runs.at(-1)
             : thread.runs.find((item) => store.unresolved(item)) || thread.runs.at(-1);
           if (!run) invalid('没有可以处理的运行记录');
+          if (run.collaboration) throw new APIError(409, 'collaboration_control_required', '共创步骤请从作品卡片处理，不能作为普通聊天重复派工');
           if (action === 'cancel') {
             if (run.mode === 'codex' && (run.status === 'unknown' || run.stopUnconfirmed)) {
               run.status = 'unknown'; run.requiresReconciliation = true;
@@ -513,7 +523,7 @@ export async function createPersonalServer(options = {}) {
   worker.start();
   scheduler.start(options.schedulerTickMs ?? 30_000);
   return {
-    server, store, worker, scheduler,
+    server, store, worker, scheduler, creation,
     cancelWorkspaceSwitch,
     async prepareWorkspaceSwitch() {
       if (switchPrepared || shuttingDown) throw new Error('Workspace is already switching');
@@ -541,7 +551,7 @@ export async function createPersonalServer(options = {}) {
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
-      stopProfileWatch(); await scheduler.close(); await worker.close(); await stopped; store.close();
+      stopProfileWatch(); await scheduler.close(); await worker.close(); await creation.close(); artifactAPI.close(); await stopped; store.close();
     },
   };
 }

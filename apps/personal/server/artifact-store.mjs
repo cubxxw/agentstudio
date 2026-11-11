@@ -14,10 +14,14 @@ function directory(path) {
   const stat = lstatSync(path);
   if (stat.isSymbolicLink() || !stat.isDirectory() || realpathSync(path) !== path) fail(400, 'invalid_path', '作品目录不能指向链接或普通文件');
 }
-function safePath(root, relative, createParents = false) {
+export function validateArtifactPath(relative) {
   if (typeof relative !== 'string' || !relative || relative.length > 240 || relative.includes('\\') || relative.includes('\0') || relative.startsWith('/') || relative.includes(':')) fail(400, 'invalid_path', '需要作品内的相对路径');
   const parts = relative.split('/');
-  if (parts.some(part => !part || ['.', '..', '.git', 'node_modules'].includes(part))) fail(400, 'invalid_path', '路径不能离开作品目录');
+  if (parts.some(part => !part || ['.', '..', '.git', 'node_modules', '__proto__', 'constructor', 'prototype'].includes(part))) fail(400, 'invalid_path', '路径包含不支持的目录或保留名称');
+  return parts;
+}
+function safePath(root, relative, createParents = false) {
+  const parts = validateArtifactPath(relative);
   directory(root);
   let path = root;
   for (const part of parts.slice(0, -1)) {
@@ -107,8 +111,9 @@ export class ArtifactStore {
     const revision = this.revision(artifactId, revisionId), names = paths || Object.keys(revision.files);
     if (!Array.isArray(names) || names.length > 256) fail(400, 'invalid_request', '读取文件范围无效');
     const files = names.map(path => {
+      validateArtifactPath(path);
       this.authorize(context, 'read', artifactId, path, revisionId);
-      const file = revision.files[path]; if (!file) fail(404, 'not_found', '这个版本没有所选文件');
+      const file = Object.hasOwn(revision.files, path) && revision.files[path]; if (!file) fail(404, 'not_found', '这个版本没有所选文件');
       return { path, ...file, text: this.bytes(artifactId, file).toString('utf8') };
     });
     if (context.stageId) {
@@ -257,7 +262,11 @@ export class ArtifactStore {
     for (const [path, file] of Object.entries(revision.files)) atomic(safePath(next, path, true), this.bytes(artifactId, file));
     const backupRoot = join(root, 'local-backups'); directory(backupRoot); const backupPath = join(backupRoot, operationId);
     this.store.put('artifact_materialization', { id: operationId, artifactId, revisionId: revision.id, previousRevisionId: artifact.currentRevisionId, backupPath, next, state: 'prepared' });
-    renameSync(current, backupPath); renameSync(next, current);
+    const blocked = () => { artifact.materializationState = 'blocked_by_local_changes'; this.store.put('workspace_artifact', artifact); this.store.put('artifact_materialization', { id: operationId, artifactId, revisionId: revision.id, backupPath, next, state: 'blocked' }); this.project(artifact); return artifact; };
+    if (!same(scan(current), actual)) return blocked();
+    renameSync(current, backupPath);
+    if (!same(scan(backupPath), actual)) { renameSync(backupPath, current); return blocked(); }
+    renameSync(next, current);
     // Keep the old tree even when initially clean: open file handles may modify it.
     artifact.currentRevisionId = revision.id; artifact.materializationState = 'clean';
     this.store.put('workspace_artifact', artifact); this.store.put('artifact_materialization', { id: operationId, artifactId, revisionId: revision.id, backupPath, state: 'completed' });
@@ -267,6 +276,32 @@ export class ArtifactStore {
     this.authorize(context, 'merge', artifactId);
     if (action !== 'preserve-and-update') fail(400, 'invalid_action', '请选择保留本地副本后采用新版本');
     return this.materialize(artifactId, { preserve: true });
+  }
+  ownerChange(artifactId, input, context) {
+    if (!context.owner) fail(403, 'permission_required', '这项动作需要作品所有者');
+    const artifact = this.store.require('workspace_artifact', artifactId);
+    if (artifact.version !== input.expectedVersion) fail(409, 'version_conflict', '作品已经更新，请重新查看后操作');
+    if (['accept', 'archive', 'unarchive'].includes(input.action)) {
+      if (input.action === 'accept') { const revision = this.revision(artifactId, input.revisionId); if (revision.state !== 'committed') fail(409, 'invalid_revision', '只能接受已整合版本'); artifact.acceptedRevisionId = revision.id; }
+      else artifact.status = input.action === 'archive' ? 'archived' : 'active';
+      artifact.version++; artifact.updatedAt = now(); this.store.put('workspace_artifact', artifact); this.project(artifact); return artifact;
+    }
+    if (!['edit', 'restore', 'import-local'].includes(input.action)) fail(400, 'invalid_action', '请选择编辑、接受、恢复或归档');
+    const baseId = input.action === 'import-local' ? artifact.currentRevisionId : artifact.headRevisionId;
+    const stage = this.stage(artifactId, context.runId, baseId, context), base = this.revision(artifactId, baseId);
+    if (input.action === 'edit') this.write(stage.id, { path: input.path, text: input.text, expectedHash: input.expectedHash }, context);
+    else {
+      const local = input.action === 'import-local', target = local ? scan(join(this.root(artifactId), 'current')) : this.revision(artifactId, input.revisionId).files;
+      for (const path of new Set([...Object.keys(base.files), ...Object.keys(target)])) {
+        if (base.files[path]?.sha256 === target[path]?.sha256) continue;
+        const text = target[path] ? local ? readFileSync(safePath(join(this.root(artifactId), 'current'), path), 'utf8') : this.bytes(artifactId, target[path]).toString('utf8') : null;
+        if (text !== null && digest(text) !== target[path].sha256) fail(409, 'local_changes', '读取期间本地文件又改变了，请保留后重试');
+        this.write(stage.id, { path, text, expectedHash: base.files[path]?.sha256 || null }, context);
+      }
+    }
+    const contribution = this.submit(stage.id, context); contribution.summary = input.action === 'import-local' ? '导入人的本地修改' : input.action === 'restore' ? `恢复版本 ${input.revisionId}` : '人编辑文件'; this.store.put('artifact_contribution', contribution);
+    const result = this.integrate(contribution.id, context);
+    return input.action === 'import-local' ? this.materialize(artifactId, { preserve: true }) : result.artifact;
   }
   recover() {
     for (const operation of this.store.list('artifact_materialization').filter(item => item.state === 'prepared')) {

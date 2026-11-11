@@ -192,3 +192,38 @@ test('a newly added brief invalidates work that started before the brief existed
   f.artifacts.integrate(f.artifacts.submit(brief.id, actor).id, actor);
   assert.throws(() => f.artifacts.candidate(contribution.id, actor), code('stale_revision'));
 });
+
+test('owner edits, accepts and restores through new attributed versions without rewriting history', t => {
+  const f = fixture(t), base = seed(f, { 'brief.md': 'Original' }, 'document'), owner = { ...actor, owner: true, contactId: 'self', runId: 'human-file-edit' };
+  const changed = f.artifacts.ownerChange(base.artifact.id, { action: 'edit', expectedVersion: base.artifact.version, path: 'brief.md', text: 'Human change', expectedHash: digest('Original') }, owner);
+  const accepted = f.artifacts.ownerChange(base.artifact.id, { action: 'accept', expectedVersion: changed.version, revisionId: changed.headRevisionId }, owner);
+  assert.equal(accepted.acceptedRevisionId, changed.headRevisionId);
+  const restored = f.artifacts.ownerChange(base.artifact.id, { action: 'restore', expectedVersion: accepted.version, revisionId: base.revision.id }, { ...owner, runId: 'human-restore' });
+  assert.notEqual(restored.headRevisionId, base.revision.id); assert.equal(restored.acceptedRevisionId, changed.headRevisionId);
+  assert.equal(f.artifacts.read(base.artifact.id, restored.headRevisionId, actor).files[0].text, 'Original');
+  assert.equal(f.artifacts.read(base.artifact.id, changed.headRevisionId, actor).files[0].text, 'Human change');
+});
+
+test('importing Finder changes records a human contribution and preserves concurrent new-head files', t => {
+  const f = fixture(t), base = seed(f, { 'brief.md': 'Original' }, 'document');
+  writeFileSync(join(f.directory, 'artifacts', base.artifact.id, 'current', 'brief.md'), 'From Finder');
+  const stage = f.artifacts.stage(base.artifact.id, 'new-head', base.revision.id, actor);
+  f.artifacts.write(stage.id, { path: 'new.md', text: 'New head file', expectedHash: null }, actor);
+  const head = f.artifacts.integrate(f.artifacts.submit(stage.id, actor).id, actor);
+  const imported = f.artifacts.ownerChange(base.artifact.id, { action: 'import-local', expectedVersion: head.artifact.version }, { ...actor, owner: true, contactId: 'self', runId: 'import-finder' });
+  const files = f.artifacts.read(base.artifact.id, imported.headRevisionId, actor).files;
+  assert.equal(files.find(file => file.path === 'brief.md').text, 'From Finder');
+  assert.equal(files.find(file => file.path === 'new.md').text, 'New head file');
+  assert.equal(imported.materializationState, 'clean');
+});
+
+test('a human edit during materialization preparation keeps current in place and blocks delivery', t => {
+  const f = fixture(t), base = seed(f, { 'brief.md': 'Original' }, 'document'), current = join(f.directory, 'artifacts', base.artifact.id, 'current', 'brief.md');
+  const put = f.store.put.bind(f.store); let injected = false;
+  f.store.put = (kind, value) => { const result = put(kind, value); if (kind === 'artifact_materialization' && value.state === 'prepared' && !injected) { injected = true; writeFileSync(current, 'Concurrent human edit'); } return result; };
+  const stage = f.artifacts.stage(base.artifact.id, 'materialize-race', base.revision.id, actor);
+  f.artifacts.write(stage.id, { path: 'new.md', text: 'New content', expectedHash: null }, actor);
+  const result = f.artifacts.integrate(f.artifacts.submit(stage.id, actor).id, actor);
+  assert.equal(result.artifact.materializationState, 'blocked_by_local_changes');
+  assert.equal(readFileSync(current, 'utf8'), 'Concurrent human edit');
+});

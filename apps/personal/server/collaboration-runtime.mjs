@@ -199,5 +199,35 @@ export class CollaborationRuntime {
       this.store.put('collaboration', work);
     }
   }
+  control(workId, body) {
+    const result = this.store.idempotent(`collaboration-control:${workId}`, body.clientId, body, () => {
+      const work = this.store.require('collaboration', workId), thread = this.store.require('thread', work.threadId);
+      if (body.action === 'stop') {
+        if (work.status === 'completed') return work;
+        const grant = this.store.require('capability_grant', work.grantId); grant.state = 'revoked'; this.store.put('capability_grant', grant);
+        for (const step of work.steps.filter(item => item.status !== 'completed')) {
+          step.status = step.status === 'unknown' ? 'unknown' : 'cancelled';
+          for (const runId of step.runIds) {
+            this.activeSessions.get(runId)?.close();
+            const run = thread.runs.find(item => item.id === runId);
+            if (['running', 'verifying'].includes(run?.status)) { run.cancelPending = true; this.options.cancelRun?.(thread.id, runId); }
+            else if (run?.status === 'queued') { run.status = 'cancelled'; run.finishedAt = now(); delete step.activeRunId; }
+          }
+        }
+        work.status = work.steps.some(step => step.status === 'unknown') ? 'unknown' : 'cancelled';
+        for (const request of this.store.list('capability_request').filter(item => item.workId === workId && item.state === 'pending')) this.store.put('capability_request', { ...request, state: 'cancelled', version: request.version + 1 });
+        this.store.put('thread', thread);
+      } else if (body.action === 'retry') {
+        const step = work.steps.find(item => item.id === body.stepId);
+        if (!step || step.status !== 'blocked' || work.status === 'unknown' || work.steps.some(item => item.activeRunId) || thread.runs.some(run => run.collaboration?.workId === workId && (run.status === 'unknown' || run.stopUnconfirmed || run.requiresReconciliation))) fail('reconciliation_required', '原执行或停止状态尚未核查，不能重复执行');
+        this.service.grant({ grantId: work.grantId, contactId: step.contactId });
+        if (step.submittedRevisionId) fail('contribution_already_saved', '这次贡献已经保存，请通过新的讨论计划继续；不会重复提交');
+        step.status = 'queued'; work.status = 'queued'; delete step.error;
+      } else fail('invalid_control', '请选择停止或重试一个已核查失败的步骤');
+      this.store.put('collaboration', work); return work;
+    });
+    if (body.action === 'retry') this.enqueueNext(workId);
+    this.service.notify({ threadId: result.threadId }); return result;
+  }
   async close() { for (const session of this.activeSessions.values()) session.close(); this.activeSessions.clear(); await this.broker.close(); }
 }

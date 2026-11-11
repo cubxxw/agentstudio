@@ -72,11 +72,11 @@
 
 **Interfaces:** `/api/library/artifacts`, `/api/creation-proposals`, `/api/collaborations` expose only opaque IDs; native artifact protocol reads checked revision files with a host CSP and no preload. Profile status includes collaboration blockers.
 
-- [ ] Write tests for strict IPC routes, content authorization, candidate previews, canceled tokens, restart/exit and profile-switch blocking.
-- [ ] Run the relevant personal/desktop tests; expect RED.
-- [ ] Implement the routes, opaque preview protocol, change notifications, owned shutdown and copied backend module registration.
-- [ ] Run those tests and the native registration test; expect PASS.
-- [ ] Commit desktop integration.
+- [x] Write tests for strict IPC routes, content authorization, candidate previews, canceled tokens, restart/exit and profile-switch blocking.
+- [x] Run the relevant personal/desktop tests; expect RED.
+- [x] Implement the routes, opaque preview protocol, change notifications, owned shutdown and copied backend module registration.
+- [x] Run those tests and the native registration test; expect PASS.
+- [x] Commit desktop integration.
 
 ### Task 5: Cards, independent library and revision workspace
 
