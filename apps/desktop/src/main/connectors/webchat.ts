@@ -63,7 +63,7 @@ export class WebChatConnector implements Connector {
   private approvals = new Map<string, { messageId: string; labels: Map<string, string> }>();
   private pendingAsk: string | null = null;
   /** Personal mode: local single-turn association, armed only after our user echo. */
-  private personalReply: { messageId: string; text: string; echoed: boolean } | null = null;
+  private personalReply: { messageId: string; text: string; echoed: boolean; boundaryId: string | null; echoId: string | null } | null = null;
   private workingSince = 0;
   private baselined = false;
   private avatarImg: AvatarImage | null = null;
@@ -134,7 +134,8 @@ export class WebChatConnector implements Connector {
     for (const m of snap.messages) if (!this.pending.has(m.id)) this.seen.add(m.id);
     const text = msg.ask ? askPrompt(msg.ask) : msg.text;
     this.ownTexts.add(text.trim());
-    if (personal) this.personalReply = { messageId: msg.message_id, text: text.trim(), echoed: false };
+    if (personal) this.personalReply = { messageId: msg.message_id, text: text.trim(), echoed: false,
+      boundaryId: snap.messages.at(-1)?.id ?? null, echoId: null };
     try {
     const res = await this.session.eval<{ ok: boolean; error?: string; pressEnter?: boolean }>(
       `globalThis.__agentstudio.submit(${JSON.stringify(text)})`,
@@ -294,14 +295,41 @@ export class WebChatConnector implements Connector {
 
   private process(snap: Snapshot) {
     const emit = (e: Parameters<Emitter["emit"]>[0]) => this.emitter?.emit(e);
+    const reply = this.personalReply;
+    let ownEchoId: string | null = null;
+    let emptyUser = false;
+    if (reply) {
+      const boundary = reply.boundaryId === null ? -1 : snap.messages.findIndex(m => m.id === reply.boundaryId);
+      if (reply.boundaryId === null || boundary >= 0) {
+        // History before the send boundary can change its DOM IDs too. It is
+        // still history, never a new manual turn in this active conversation.
+        for (const m of snap.messages.slice(0, boundary + 1)) this.seen.add(m.id);
+        const turns = snap.messages.slice(boundary + 1);
+        emptyUser = turns.some(m => m.role === "user" && !m.text.trim() && !this.seen.has(m.id));
+        const users = turns.filter(m => m.role === "user");
+        const first = turns[0];
+        const sameSlot = users.length === 1 && first?.role === "user" && first.text.trim() === reply.text;
+        const replacement = !snap.messages.some(m => m.id === reply.echoId);
+        if (sameSlot && (!reply.echoId || first.id === reply.echoId || replacement)) ownEchoId = first.id;
+      }
+      // Inspect the whole snapshot before emitting a stable assistant bubble:
+      // a manual turn may follow that bubble in this very same snapshot.
+      if (!ownEchoId && snap.messages.some(m => m.role === "user" && m.text.trim() && !this.seen.has(m.id))) this.personalReply = null;
+    }
     let processedAssistant = false;
     for (const m of snap.messages) {
       if (this.seen.has(m.id)) continue;
       if (m.role === "user") {
+        // The service can mount an empty optimistic node before filling it.
+        // Do not consume its ID or lose the active send's association yet.
+        if (!m.text.trim()) continue;
         this.seen.add(m.id);
         // Typed in the service itself (AgentRoom's own sends are skipped).
-        const ours = this.ownTexts.delete(m.text.trim());
-        if (ours && this.personalReply?.text === m.text.trim()) this.personalReply.echoed = true;
+        // Muse replaces its optimistic user ID with a canonical one. Only an
+        // exact echo in the same anchored turn may acquire that second ID.
+        const ours = reply ? ownEchoId === m.id : this.ownTexts.delete(m.text.trim());
+        if (ours) this.ownTexts.delete(m.text.trim());
+        if (ours && this.personalReply?.text === m.text.trim()) { this.personalReply.echoed = true; this.personalReply.echoId = m.id; }
         if (m.text && !ours) { this.personalReply = null; emit({ type: "message", text: truncate(m.text, MAX_TEXT), from_user: true, via: this.cfg.name }); }
         continue;
       }
@@ -315,6 +343,10 @@ export class WebChatConnector implements Connector {
       this.pending.delete(m.id);
       this.seen.add(m.id);
       processedAssistant = true;
+      if (emptyUser && this.personalReply) {
+        this.emitter?.uncertain?.(this.personalReply.messageId);
+        this.personalReply = null;
+      }
       this.cfg.trace?.("webchat.reply", { agent: this.cfg.name, chars: m.text.length, actions: m.actions, widget: !!m.widget });
       if (m.text) {
         if (this.pendingAsk) {

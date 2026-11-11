@@ -99,6 +99,23 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
     mounted.current = true; void reload();
     return () => { mounted.current = false; loadVersion.current++; };
   }, [reload]);
+  useEffect(() => {
+    if (!nativeAvailable) return;
+    let stopped = false; let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (stopped) return;
+      if (!busyRef.current) {
+        const version = loadVersion.current;
+        try {
+          const latest = await native({ kind: "services" });
+          if (!stopped && mounted.current && !busyRef.current && version === loadVersion.current) setCatalog(latest);
+        } catch { /* Keep the last known catalog; explicit refresh reports failures. */ }
+      }
+      if (!stopped) timer = setTimeout(poll, 2000);
+    };
+    timer = setTimeout(poll, 2000);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [native, nativeAvailable]);
   const refresh = useCallback(async (force = false) => { await onRefresh(); await reload(force); }, [onRefresh, reload]);
   const applyProgress = useCallback(async (reply: NativeIntegrationReply, context: Pick<Flow, "scope" | "title"> & { flowId?: string }) => {
     if (reply.state === "catalog") { if (mounted.current) setCatalog(reply); return; }

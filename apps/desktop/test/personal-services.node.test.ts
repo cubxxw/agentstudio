@@ -500,6 +500,60 @@ describe("real connector personal-turn association with synthetic providers", ()
     harness.process(late); harness.process(late);
     expect(events).toContainEqual({ type: "message", text: "late page reply" });
   });
+
+  it.each([
+    ["replaced ID", false, "replacement", true],
+    ["empty conversation", true, "replacement", true],
+    ["canonical ID on first observation", false, "canonical-only", true],
+    ["empty echo fills before the reply", false, "placeholder", true],
+    ["reply streaming before ID replacement", false, "streaming", true],
+    ["same text appended manually", false, "append", false],
+    ["different replacement text", false, "different", false],
+    ["replacement after an assistant", false, "after-assistant", false],
+    ["missing history anchor", false, "missing-anchor", false],
+    ["older history ID replaced", false, "older-history", true],
+  ] as const)("web echo correlation: %s", async (_label, empty, scenario, correlated) => {
+    const { events, emitter } = sink();
+    const oldUser = { id: "old_user", role: "user", text: "Earlier input", actions: [] };
+    const anchor = { id: "anchor", role: "assistant", text: "Earlier result", actions: [] };
+    const before = empty ? [] : [oldUser, anchor];
+    const snap = (messages: unknown[]) => ({ signedIn: true, ready: true, busy: false, messages });
+    const session = { eval: async (script: string) => script.startsWith("typeof ") ? true : script.includes("snapshot()") ? snap(before) : { ok: true } } as unknown as WebSession;
+    const connector = new WebChatConnector({ name: "Muse", description: "Synthetic", partition: "persist:synthetic", url: "https://synthetic.invalid", driver: "", pollMs: 100, openLabel: "Open", fallbackAvatar: async () => null }, { connectedAt: message.sent_at }, session);
+    const harness = connector as unknown as { emitter: Emitter; baselined: boolean; process(snapshot: unknown): void };
+    harness.emitter = emitter; harness.baselined = true;
+    await connector.send(message);
+    const optimistic = { id: "optimistic", role: "user", text: message.text, actions: [] };
+    const canonical = { ...optimistic, id: "canonical", ...(scenario === "different" ? { text: "Manual input" } : {}) };
+    const answer = { id: "answer", role: "assistant", text: "Actual synthetic answer", actions: [] };
+    harness.process(snap([...before, scenario === "canonical-only" ? canonical : scenario === "placeholder" ? { ...canonical, text: "" } : optimistic]));
+    if (scenario === "after-assistant" || scenario === "streaming") harness.process({ ...snap([...before, optimistic, answer]), busy: true });
+    const history = scenario === "missing-anchor" ? [] : scenario === "older-history" ? [{ ...oldUser, id: "old_user_canonical" }, anchor] : before;
+    const turns = scenario === "append" ? [optimistic, canonical, answer] : scenario === "after-assistant" ? [answer, canonical] : [canonical, answer];
+    harness.process(snap([...history, ...turns])); harness.process(snap([...history, ...turns]));
+    expect(events.some(event => event.type === "message" && !event.from_user && event.reply_to === message.message_id)).toBe(correlated);
+    expect(events.some(event => event.type === "message" && event.from_user && !event.history)).toBe(!correlated);
+  });
+
+  it.each([false, true])("web service task reaches a terminal state with an empty echo: %s", async emptyEcho => {
+    const f = await fixture(); await f.services.list();
+    f.manager().onSend = async (_instance, outbound) => {
+      const anchor = { id: "anchor", role: "assistant", text: "History", actions: [] };
+      const snapshot = (messages: unknown[]) => ({ signedIn: true, ready: true, busy: false, messages });
+      const session = { eval: async (script: string) => script.startsWith("typeof ") ? true : script.includes("snapshot()") ? snapshot([anchor]) : { ok: true } } as unknown as WebSession;
+      const connector = new WebChatConnector({ name: "Muse", description: "Synthetic", partition: "persist:synthetic", url: "https://synthetic.invalid", driver: "", pollMs: 100, openLabel: "Open", fallbackAvatar: async () => null }, { connectedAt: outbound.sent_at }, session);
+      const harness = connector as unknown as { emitter: Emitter; baselined: boolean; process(snapshot: unknown): void };
+      harness.emitter = f.manager().emitters.get("fake_grok")!; harness.baselined = true;
+      await connector.send(outbound);
+      const optimistic = { id: "optimistic", role: "user", text: emptyEcho ? "" : outbound.text, actions: [] };
+      harness.process(snapshot([anchor, optimistic]));
+      const final = snapshot([anchor, { ...optimistic, id: emptyEcho ? "optimistic" : "canonical" }, { id: "answer", role: "assistant", text: "Synthetic actual result", actions: [] }]);
+      harness.process(final); harness.process(final);
+    };
+    const response = await f.send();
+    await expect.poll(async () => (await f.get(response.result.id)).result.status.state).toBe(emptyEcho ? "unknown" : "completed");
+    expect(f.manager().sends).toHaveLength(1);
+  });
 });
 
 
