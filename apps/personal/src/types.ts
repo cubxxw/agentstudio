@@ -151,7 +151,7 @@ export type Contact = {
   connectionType?: "a2a" | "mcp" | null;
   id: string; kind: "agent" | "human"; name: string; handle: string;
   description: string; instructions: string; color: string; version: number;
-  icon?: string; avatarAgent?: LocalAgentId; avatarService?: import("./desktop-contract").PersonalServiceId; configuration?: AgentConfiguration; profile?: AgentProfile | null; execution?: ExecutionSnapshot | null; configurationError?: string;
+  icon?: string; avatarAgent?: LocalAgentId; avatarService?: import("./desktop-contract").PersonalServiceId; avatarDataUrl?: string; configuration?: AgentConfiguration; profile?: AgentProfile | null; execution?: ExecutionSnapshot | null; configurationError?: string;
   discovered?: boolean; added?: boolean; providerName?: string;
   binding: { type: "local"; localAgentId: LocalAgentId } | { type: "connection"; connectionId: string } | null;
   availability: "self" | "ready" | "unsupported" | "not_installed" | "login_required" | "disconnected" | "local_only" | "configuration_required";

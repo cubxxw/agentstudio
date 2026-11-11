@@ -113,6 +113,8 @@ AgentRoom's own messages appear in each service's transcript too; connectors ski
 
 ## Avatars
 
+In the personal desktop, the service catalog also returns each Bot's raster avatar through fixed IPC. The main process converts it to a bounded PNG; no provider URL or credential is exposed. Automatic contact avatars use that image before the service logo, while explicit persona icons retain precedence. Grok Bot 0.79.4's still-image renderer is discovered independently of its minified export names. See [the avatar investigation and acceptance](personal/grok-bot-avatars.md).
+
 Each connector gives its agent a real picture. The host serves it at `GET /c/{instance}/agentstudio/v0/avatar`. This route needs no token (instance ids are random and the host listens on loopback only). `info` and `profile` events point the bridge there, with a version query that changes with the image. The bridge stores the picture as the agent's Matrix avatar, so every client shows it.
 
 | Service | Picture |

@@ -84,6 +84,20 @@
 .im-pending-bar { display: flex; align-items: center; padding: 11px 32px; color: #9e702a; background: #fffaef; gap: 10px; font-size: 12px; flex-shrink: 0; border-bottom: 1px solid #f0e7d5; }
 .im-pending-bar span { flex: 1; text-align: left; }
 .im-timeline { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 15px clamp(18px, 4vw, 64px) 22px; }
+.im-timeline { --im-scrollbar: color-mix(in srgb, var(--im-muted) 28%, transparent); scrollbar-width: thin; scrollbar-color: var(--im-scrollbar) transparent; }
+@media (hover: hover) and (prefers-contrast: no-preference) and (forced-colors: none) {
+  .im-timeline:hover, .im-timeline:focus-within { --im-scrollbar: color-mix(in srgb, var(--im-muted) 48%, transparent); }
+}
+@supports selector(::-webkit-scrollbar) {
+  .im-timeline { scrollbar-width: auto; scrollbar-color: auto; }
+  .im-timeline::-webkit-scrollbar { width: 6px; height: 6px; }
+  .im-timeline::-webkit-scrollbar-track, .im-timeline::-webkit-scrollbar-corner { background: transparent; }
+  .im-timeline::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--im-scrollbar); }
+  .im-timeline::-webkit-scrollbar-thumb:hover { background: var(--im-muted); }
+  .im-timeline::-webkit-scrollbar-button { display: none; }
+}
+@media (prefers-contrast: more) { .im-timeline { --im-scrollbar: var(--im-ink); } }
+@media (forced-colors: active) { .im-timeline { --im-scrollbar: CanvasText; } }
 .im-date { display: flex; justify-content: center; margin: 14px 0 23px; }
 .im-date span { font-size: 11px; font-weight: 500; color: var(--im-muted); }
 .im-message { display: flex; align-items: flex-end; gap: 10px; margin: 0 0 15px; position: relative; }
@@ -331,6 +345,7 @@
 .im-avatar.im-avatar-group { background: #d8e0ed; color: #5b7095; }
 .im-avatar-gemini > img, .im-avatar-opencode > img { width: 100%; height: 100%; border-radius: inherit; }
 .im-avatar-pi > img { width: 100%; height: 100%; }
+.im-avatar-bot > img { width: 100%; height: 100%; border-radius: inherit; }
 .im-avatar-claude { background: #fbf1ec !important; }
 .im-avatar.small { width: 31px; height: 31px; }
 .im-avatar.small > svg { width: 18px; height: 18px; }

@@ -312,7 +312,7 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
 
 - 办 Apple 开发者账号（每年 99 美元），给 App 正式签名并做公证。
 - 在 GitHub Releases 发布 .dmg 安装包，双击就能打开。
-- 自动更新（electron-updater，正式签名后才能用）。
+- 自动更新：个人 macOS 工作间的入口与生命周期方案见 [GET-495 设计](superpowers/specs/2026-11-11-macos-auto-update-design.md)及[交互预览](personal/macos-update-preview.html)。拟沿用 Electron 原生 updater，正式签名分发与真实升级验收完成后才启用；当前仍未实现。
 - 正式签名后，重新构建不会再弹钥匙串提示。
 
 ---

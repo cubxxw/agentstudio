@@ -6,7 +6,7 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { BrowserWindow, shell } from "electron";
+import { BrowserWindow, nativeImage, shell } from "electron";
 import { ConnectorHost, newToken } from "./host";
 import { ConnectorStore, type InstanceRecord } from "./store";
 import { GROK_DEFAULTS, GrokBotConnector, GrokClient, grokLogin, type GrokConfig, type GrokData, type GrokLoginResult } from "./grokbot";
@@ -17,6 +17,7 @@ import { cueWebSignIn, createCueApiKey, handleCueLink, type CueWebConfig } from 
 import { CUE_DEFAULTS, CueAuthError, CueClient, CueConnector, cueAccountKey, type CueConfig, type CueData } from "./cue";
 import { SERVICES, type AvatarImage, type Connector, type ConnectorSummary, type DirectConnectorEvent, type LoginProgress, type ServiceId, type Trace } from "./types";
 import type { InboundMessage } from "./protocol";
+const personalAvatars = new WeakMap<Buffer, AvatarImage>();
 // Official images (packages/brand), used until the service shows the agent's own avatar.
 import chatgptIcon from "@agentstudio/brand/assets/chatgpt.png?asset";
 import cueIcon from "@agentstudio/brand/assets/cue.png?asset";
@@ -197,6 +198,21 @@ export class ConnectorManager {
   }
 
   sendDirect(id: string, message: InboundMessage) { return this.host.sendDirect(id, message); }
+  /** Raster bytes only: no provider URL or credential reaches personal IPC. */
+  async avatarDirect(id: string): Promise<AvatarImage | null> {
+    const avatar = await this.running.get(id)?.connector.avatar?.();
+    if (!avatar || avatar.data.length > 2_000_000) return null;
+    const cached = personalAvatars.get(avatar.data);
+    if (cached) return cached;
+    const image = nativeImage.createFromBuffer(avatar.data);
+    if (image.isEmpty()) return null;
+    const { width, height } = image.getSize();
+    const scale = Math.min(1, 256 / Math.max(width, height));
+    const raster = scale < 1 ? image.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }) : image;
+    const result = { mime: "image/png", data: raster.toPNG() };
+    personalAvatars.set(avatar.data, result);
+    return result;
+  }
   decideDirect(id: string, externalId: string, choice: string) { return this.host.decideDirect(id, externalId, choice); }
 
   list(): ConnectorSummary[] {
