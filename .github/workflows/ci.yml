@@ -68,6 +68,7 @@ jobs:
           node dev/personal-browser.mjs
           node dev/personal-browser.mjs edges
           node dev/messenger-acceptance.mjs
+          node dev/agentroom-acceptance.mjs
           node dev/agent-onboarding-acceptance.mjs
           node dev/agent-profile-ui-acceptance.mjs
           node dev/conversation-acceptance.mjs
@@ -80,6 +81,7 @@ jobs:
           path: |
             output/playwright/personal/
             output/playwright/messenger/
+            output/playwright/agentroom/
             output/playwright/agent-onboarding/
             output/playwright/agent-profile-ui/
             output/playwright/conversations/

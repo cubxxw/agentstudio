@@ -14,6 +14,12 @@ async function close() {
 }
 
 process.parentPort.on('message', async ({ data }) => {
+  if (data?.type === 'cancel-switch') { application?.cancelWorkspaceSwitch(); return; }
+  if (data?.type === 'prepare-switch' && application && !closing) {
+    try { send({ type: 'switch-ready', requestId: data.requestId, ...await application.prepareWorkspaceSwitch() }); }
+    catch { send({ type: 'switch-ready', requestId: data.requestId, error: true }); }
+    return;
+  }
   if (data?.type === 'stop') { await close(); return; }
   if (data?.type !== 'start' || starting || application || closing) return;
   starting = true; ownerId = data.ownerId;

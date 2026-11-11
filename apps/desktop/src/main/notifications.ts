@@ -78,7 +78,7 @@ export class DesktopNotifier {
       kind: "hello",
       priority: "normal",
       title: "Notifications are on",
-      body: "AgentStudio will let you know when an agent needs you.",
+      body: "AgentRoom will let you know when an agent needs you.",
       open: { view: "inbox" },
     });
   }

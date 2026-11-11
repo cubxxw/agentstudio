@@ -57,6 +57,7 @@ export class PersonalServices {
   private storageFault = false;
   private readonly secrets = new Set<string>();
   private readonly sends = new Map<string, { accepted: boolean; completionReady: boolean; buffered: DirectConnectorEvent[] }>();
+  private readonly loginFlows = new Set<string>();
   constructor(private readonly options: PersonalServicesOptions) {
     this.directory = join(options.userData, "personal-services");
     this.manifestPath = join(this.directory, "manifest.json");
@@ -64,6 +65,14 @@ export class PersonalServices {
 
   services() {
     return SERVICES.map((service) => ({ ...service, notice: "使用服务自身已有对话；不会导入历史。需要在原服务处理的决定不会自动批准。" }));
+  }
+  hasUnresolvedTasks() { return this.storageFault || this.manifest.tasks.some(task => unresolved(task)); }
+  hasPendingLogin() {
+    for (const flowId of this.loginFlows) {
+      const state = this.manager?.progress(flowId).state;
+      if (state && ['ready', 'failed', 'cancelled'].includes(state)) this.loginFlows.delete(flowId);
+    }
+    return this.loginFlows.size > 0;
   }
   async restore(): Promise<boolean> {
     if (!existsSync(this.manifestPath)) return false;
@@ -75,7 +84,7 @@ export class PersonalServices {
   }
   async begin(service: ServiceId): Promise<string> {
     if (!SERVICES.some((entry) => entry.id === service)) throw new Error("Unknown personal service");
-    await this.initialize(); return this.manager!.begin(service);
+    await this.initialize(); const flowId = this.manager!.begin(service); this.loginFlows.add(flowId); return flowId;
   }
   /** PRIVATE: only main may register these tokens with its owned personal backend. */
   async registrations(): Promise<PersonalServiceInstance[]> {
@@ -109,7 +118,7 @@ export class PersonalServices {
     if (typeof value !== "string" || value.length > 8000 || /[\r\n\x00]/.test(value)) throw new Error("Invalid sign-in value");
     await this.initialize(); if (value) this.secrets.add(value); this.manager!.submit(flowId, value);
   }
-  async cancel(flowId: string) { await this.initialize(); this.manager!.cancel(flowId); }
+  async cancel(flowId: string) { await this.initialize(); this.manager!.cancel(flowId); this.loginFlows.delete(flowId); }
   async open(instanceId: string) { await this.initialize(); this.manager!.open(instanceId); }
   async remove(instanceId: string) {
     await this.initialize();

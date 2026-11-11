@@ -2,7 +2,7 @@
 // on 127.0.0.1:19179. Never start/reset that server or use real service accounts.
 // Run after building: AGENTSTUDIO_DESKTOP_EVIDENCE_DIR=<registered artifact> \
 //   node dev/personal-connect-synthetic.mjs --synthetic
-// Optional: AGENTSTUDIO_PACKAGED_APP=/absolute/AgentStudio.app
+// Optional: AGENTSTUDIO_PACKAGED_APP=/absolute/AgentRoom.app
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -25,7 +25,7 @@ const packagedApp = process.env.AGENTSTUDIO_PACKAGED_APP ? resolve(process.env.A
 let executablePath;
 if (packagedApp) {
   if (!packagedApp.endsWith('.app')) throw new Error('AGENTSTUDIO_PACKAGED_APP must name an explicit .app bundle.');
-  executablePath = join(packagedApp, 'Contents/MacOS/AgentStudio');
+  executablePath = join(packagedApp, 'Contents/MacOS/AgentRoom');
 } else {
   const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8' }).trim();
   const mainRequire = createRequire(join(dirname(common), 'apps/desktop/package.json'));

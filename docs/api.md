@@ -1,4 +1,13 @@
-# AgentStudio API contracts
+# AgentRoom API contracts
+
+## Workspace onboarding and native test profiles
+
+- `GET /api/bootstrap` includes `workspace: {onboardingCompleted, displayName}`. Existing populated workspaces are adopted without forced first-use UI.
+- `POST /api/workspace/onboarding`: `{action:"complete", name, clientId}` saves a trimmed 1–80 character owner name and completion marker atomically; `{action:"restart", clientId}` reopens onboarding without clearing other data. Unknown fields/actions are rejected.
+- `GET /api/workspace/status`: `{blockingRuns}` counts queued, active, approval-pending, unknown and unresolved runs.
+- `agentstudio:personal:test-workspace` is a trusted personal-document-only native IPC action, with exactly `enter|reset|leave`. Preload exposes readonly `testMode` and `testWorkspace(action)`. No paths or commands are accepted. No HTTP profile-reset capability is exposed. The private utility message freezes writes/scheduling and checks existing work before confirmed shutdown and relaunch.
+
+See [test-mode boundaries](personal/testing.md).
 
 ## Default personal desktop IPC
 
@@ -185,7 +194,7 @@ type Connection = {
   state_message?: string
   created_at: string; updated_at: string
 }
-type LoginStep = {                // mirrors bridgev2 LoginStep, plus AgentStudio's connection_id
+type LoginStep = {                // mirrors bridgev2 LoginStep, plus AgentRoom's connection_id
   type: "user_input" | "display_and_wait" | "cookies" | "complete"
   step_id: string
   instructions?: string

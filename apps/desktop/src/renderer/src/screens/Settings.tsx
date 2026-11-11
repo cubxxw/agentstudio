@@ -100,7 +100,7 @@ export function SettingsScreen() {
               <p className="settings-note muted small">
                 Nothing showing up?{" "}
                 <button className="btn quiet small" onClick={() => void desktop.notifications.openSystemSettings()}>
-                  Allow AgentStudio in System Settings
+                  Allow AgentRoom in System Settings
                 </button>
               </p>
             )}

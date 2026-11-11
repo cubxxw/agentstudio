@@ -1,6 +1,6 @@
 # @agentstudio/mobile
 
-The AgentStudio mobile app: Expo SDK 58, React Native 0.88, React Navigation 7, on top of `@agentstudio/core`.
+The AgentRoom mobile app: Expo SDK 58, React Native 0.88, React Navigation 7, on top of `@agentstudio/core`.
 In v0.1 it is developed and tested on the **web target** (react-native-web), because the dev machine has no Xcode or Android SDK. The code stays native-capable: no web-only APIs in shared paths, and `Platform.OS` checks where platforms differ.
 
 ## Commands

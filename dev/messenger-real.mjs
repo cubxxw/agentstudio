@@ -21,7 +21,7 @@ const request = (path, body) => page.evaluate(async ({ path, body }) => {
 }, { path, body });
 try {
   const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
-  app = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentStudio') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+  app = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
   page = await app.firstWindow();
   await expect(page.getByTestId('im-app')).toBeVisible();
   const discovery = await request('/contacts');

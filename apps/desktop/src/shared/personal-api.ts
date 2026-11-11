@@ -15,11 +15,13 @@ export const PERSONAL_IPC = {
   saveArtifact: "agentstudio:personal:save-artifact",
   restart: "agentstudio:personal:restart",
   integration: "agentstudio:personal:integration",
+  testWorkspace: "agentstudio:personal:test-workspace",
 } as const;
 
 const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
+    /^\/api\/workspace\/status$/,
     /^\/api\/(health|bootstrap|connections|memories)$/,
     /^\/api\/integrations$/,
     /^\/api\/agent-onboarding(?:\/context)?$/,
@@ -32,6 +34,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
+    /^\/api\/workspace\/onboarding$/,
     /^\/api\/(threads|connections|memories)$/,
     /^\/api\/agent-onboarding$/,
     new RegExp(`^/api/agent-onboarding/${opaqueId}/(adopt|cancel)$`),

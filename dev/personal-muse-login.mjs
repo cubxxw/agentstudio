@@ -13,7 +13,7 @@ await mkdir(parent,{recursive:true});const evidence=await mkdtemp(join(parent,'m
 const env={...process.env,AGENTSTUDIO_USER_DATA_DIR:join(evidence,'profile'),AGENTSTUDIO_MOCK_KEYCHAIN:'1',AGENTSTUDIO_CODEX_BIN:join(evidence,'no-model-cli')};
 for(const key of ['ELECTRON_RUN_AS_NODE','AGENTSTUDIO_WORKSPACE','AGENTSTUDIO_PERSONAL_DATA_DIR','AGENTSTUDIO_MUSE_URL','AGENTSTUDIO_CONNECTOR_TRACE','AGENTSTUDIO_CONNECTOR_TRACE_NETWORK'])delete env[key];
 const packaged=process.env.AGENTSTUDIO_PACKAGED_APP;
-const executablePath=packaged?join(packaged,'Contents/MacOS/AgentStudio'):process.env.AGENTSTUDIO_ELECTRON_BINARY||require('electron');
+const executablePath=packaged?join(packaged,'Contents/MacOS/AgentRoom'):process.env.AGENTSTUDIO_ELECTRON_BINARY||require('electron');
 const checks=[],errors=[];let app,page,flowId;
 const verify=(ok,name)=>{if(!ok)throw Error(name);checks.push(name);console.log('PASS '+name)};
 try{

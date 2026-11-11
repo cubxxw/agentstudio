@@ -1,17 +1,19 @@
 <p align="center"><img src="apps/desktop/resources/icon.png" alt="" width="128"></p>
 
-<h1 align="center">AgentStudio</h1>
+**AgentRoom** 是本项目的新名称。可在「设置 → 测试与引导」进入独立测试模式，一键重新体验首次引导，随后返回原工作区；源码命令为 `pnpm dev:desktop:test`。详见[测试说明](docs/personal/testing.md)。
+
+<h1 align="center">AgentRoom</h1>
 
 **Mac 应用默认打开个人 IM。** 创建 Agent 联系人、私聊、拉群讨论，在同一个审批入口查看具体动作；继续使用仓库原有的 macOS 窗口。Electron 自己管理本机 SQLite 后台，默认模式不需要启动 Matrix 服务。安装、运行与边界见[Mac 使用说明](docs/personal/README.md)。独立 Web 入口保留为开发和 QA 辅助。
 
 [English](README.md) · **简体中文**
 
 <p align="center">
-  <img src="docs/media/hero.jpg" alt="AgentStudio：把你的联系人和 agent 放进同一个收件箱。图为 Mac 版，Muse 订好的晚餐正等你批准。" width="900">
+  <img src="docs/media/agentroom-welcome.png" alt="AgentRoom：把你的联系人和 agent 放进同一个收件箱。图为 Mac 版，Muse 订好的晚餐正等你批准。" width="900">
 </p>
 
 > [!WARNING]
-> **仅供个人学习和研究使用。** AgentStudio 是一个个人工具：请在你自己的 Mac 上、用你自己的账号，连接你自己的 agent。**请勿用于商业用途**，也不要用来为他人提供服务。使用风险自负，使用前请先阅读[免责声明](#免责声明)。
+> **仅供个人学习和研究使用。** AgentRoom 是一个个人工具：请在你自己的 Mac 上、用你自己的账号，连接你自己的 agent。**请勿用于商业用途**，也不要用来为他人提供服务。使用风险自负，使用前请先阅读[免责声明](#免责声明)。
 
 > **Alpha 阶段。** 目前从 macOS 源码构建。已提供本机 ad-hoc 打包命令；打包产物运行、Developer ID 签名和公证需要分别验收，不能视为已发布安装包。
 
@@ -43,7 +45,7 @@
 - **审批。** agent 提出请求，你在聊天里或审批页点一下就能决定。
 - **交给 agent。** 把一段聊天连同上下文交给 agent，它会返回几条回复草稿，可以修改后直接发送。
 - **接入你已经在用的 agent**，用你自己的账号在 Mac 上登录：Grok Bot（账号下的每个 bot 都会接入，名字和头像各自保留）、Muse、ChatGPT Dots 和 Cue（用 Manus 账号登录，或者使用 Manus API key）。这部分是实验性功能，仅供个人使用，请看[下文](#免责声明)。
-- **接入支持开放协议的 agent**：[AgentStudio Agent Protocol](docs/agent-protocol.md)、A2A 和 ACP。Hermes Agent 和 OpenClaw 会被自动识别，显示它们自己的图标。
+- **接入支持开放协议的 agent**：[AgentRoom Agent Protocol](docs/agent-protocol.md)、A2A 和 ACP。Hermes Agent 和 OpenClaw 会被自动识别，显示它们自己的图标。
 
 <p align="center">
   <img src="docs/media/approvals.jpg" alt="agent 先问再做：一个 Grok bot 询问是否发送周报，下面有 Send it 和 Don't send 两个按钮" width="820">
@@ -63,7 +65,7 @@
 | 个人工作间 | `apps/personal` | 共享对话/阅读界面与 Node/SQLite 引擎，也提供辅助 Web 入口。 |
 | 手机端 | `apps/mobile` | Expo / React Native。原生版本完成之前，先在网页版上测试。 |
 | 客户端核心 | `packages/core` | Matrix 客户端、收件箱、审批、任务，由 Matrix 桌面和手机端共用。 |
-| 品牌素材 | `packages/brand` | AgentStudio 所连接服务的官方图片，附来源。 |
+| 品牌素材 | `packages/brand` | AgentRoom 所连接服务的官方图片，附来源。 |
 | 服务端 | `server`（Go） | `agentstudio-api`、`agentstudio-agents` 和 `demo` 两个桥接（mautrix bridgev2）、协议适配器、示例 agent。 |
 | 消息服务器 | Synapse | 保留的 Matrix 路线使用，联邦功能关闭。 |
 | 开发环境 | `dev/stack.mjs` | 在本机用原生进程启动全部服务，不需要 Docker。 |
@@ -134,10 +136,10 @@ AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e    # 保留的 Matrix Electron 和手
 | agent | 方式 |
 |---|---|
 | Concierge（内置示例 agent） | Connect → Agents on your server → Concierge |
-| 任何实现了 AgentStudio Agent Protocol 的服务 | Connect → AgentStudio agent endpoint，填入它的地址和 token |
+| 任何实现了 AgentRoom Agent Protocol 的服务 | Connect → AgentRoom agent endpoint，填入它的地址和 token |
 | A2A agent（例如 Hermes Agent） | Connect → A2A agent，填入 agent 的地址 |
 | 服务端允许的 ACP agent（`AGENTSTUDIO_ACP_AGENTS`） | Connect → ACP agent |
-| Grok Bot、Muse、ChatGPT Dots、Cue（仅 Mac 版，实验性） | Connect → Agents you already use。你的登录凭据（或 Cue 的 API key）只保存在这台 Mac 上；AgentStudio 开着时这些 agent 才会回复。 |
+| Grok Bot、Muse、ChatGPT Dots、Cue（仅 Mac 版，实验性） | Connect → Agents you already use。你的登录凭据（或 Cue 的 API key）只保存在这台 Mac 上；AgentRoom 开着时这些 agent 才会回复。 |
 
 连接 Grok Bot、Muse、Dots 或 Cue 之前，请先阅读[关于第三方连接器的说明](#免责声明)。
 
@@ -145,10 +147,10 @@ AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e    # 保留的 Matrix Electron 和手
 
 ## 免责声明
 
-**⚖️ 本项目仅供个人学习和研究使用。** 使用 AgentStudio 之前，尤其是使用 Grok Bot、Muse、ChatGPT Dots 和 Cue 的连接器之前，请先阅读以下内容。
+**⚖️ 本项目仅供个人学习和研究使用。** 使用 AgentRoom 之前，尤其是使用 Grok Bot、Muse、ChatGPT Dots 和 Cue 的连接器之前，请先阅读以下内容。
 
 - **仅限个人使用：** 请在你自己的 Mac 上、用你自己的账号连接你自己的 agent。请勿用于商业用途，不要用来为他人提供服务、批量自动化，或使用不属于你的账号。
-- **本机应用与存储：** 没有托管的 AgentStudio 服务器。选定上下文会发送给本人配置的模型提供商或已批准的远端服务；旧登录凭据使用 Electron safeStorage，个人 Bearer 使用明确说明的文件 vault，而不是 Keychain。
+- **本机应用与存储：** 没有托管的 AgentRoom 服务器。选定上下文会发送给本人配置的模型提供商或已批准的远端服务；旧登录凭据使用 Electron safeStorage，个人 Bearer 使用明确说明的文件 vault，而不是 Keychain。
 - **与相关服务无关联：** 本项目与 xAI / SpaceX AI、Cursor（Anysphere）、Meta、OpenAI、Manus、Nous Research、OpenClaw 均无关联，也未获得其认可。相关名称和图标归各自所有者，仅用于标明连接的是哪个服务。
 - **非官方接入：** 除 Cue 的收发消息使用 Manus 公开的官方 API 外，其余连接器都模仿对方 App 或网页的工作方式，可能违反对方的服务条款，也可能随时失效。
 - **责任自负：** 你需要自行遵守各服务的条款和所在地的法律法规。如不确定，请不要连接。

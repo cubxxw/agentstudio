@@ -9,7 +9,7 @@ import { formatTime } from "../lib/logic";
 import { agentBadge, agentMark, useLocalConnectors } from "../lib/marks";
 import { useWorkspace } from "../lib/workspace";
 
-// No "People" filter on the Mac for now: AgentStudio is about your agents, and
+// No "People" filter on the Mac for now: AgentRoom is about your agents, and
 // people only show up through a chat network (the demo one, for now). They're under All.
 const FILTERS: { id: InboxFilter; label: string }[] = [
   { id: "all", label: "All" },

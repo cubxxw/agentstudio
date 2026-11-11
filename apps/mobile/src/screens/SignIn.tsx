@@ -52,7 +52,7 @@ export function SignInScreen({ notice }: { notice: string | null }) {
         <View style={s.mark}>
           <Text style={s.markText}>P</Text>
         </View>
-        <Text style={s.title}>AgentStudio</Text>
+        <Text style={s.title}>AgentRoom</Text>
         <Text style={s.lead}>Your chats and your AI agents, in one inbox.</Text>
 
         <View style={s.form}>

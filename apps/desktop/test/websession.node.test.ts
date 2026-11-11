@@ -5,7 +5,7 @@ import { WebSession } from "../src/main/connectors/websession";
 
 const fake = vi.hoisted(() => ({ windows: [] as FakeWindow[], loads: [] as Deferred<void>[] }));
 vi.mock("electron", () => ({
-  app: { userAgentFallback: "Synthetic Chrome/145.0 Electron/45.2.1 AgentStudio/0.1" },
+  app: { userAgentFallback: "Synthetic Chrome/145.0 Electron/45.2.1 AgentRoom/0.1" },
   BrowserWindow: class { constructor(options: WindowOptions) { return new FakeWindow(options); } },
   session: { fromPartition: () => ({ setUserAgent() {}, setPermissionRequestHandler() {} }) },
   shell: { openExternal: vi.fn() },

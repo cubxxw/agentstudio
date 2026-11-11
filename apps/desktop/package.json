@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "AgentStudio desktop app (Electron, macOS)",
+  "description": "AgentRoom desktop app (Electron, macOS)",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

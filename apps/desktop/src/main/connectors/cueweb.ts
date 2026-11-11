@@ -1,9 +1,9 @@
 // Signing in to Cue with the user's Manus account, the way the Cue desktop app
 // does: manus.im/login runs in the user's browser (Google and Apple refuse
 // sign-in inside embedded windows), and the page hands a session token back on
-// a cuedev:// link, which a small helper app catches for AgentStudio (see
-// ensureLinkCatcher). The Cue app doesn't need to be installed. With the session AgentStudio creates a Manus
-// API key named "AgentStudio", which the connector then uses with the documented
+// a cuedev:// link, which a small helper app catches for AgentRoom (see
+// ensureLinkCatcher). The Cue app doesn't need to be installed. With the session AgentRoom creates a Manus
+// API key named "AgentRoom", which the connector then uses with the documented
 // API. Only that one call uses Manus's internal API.
 
 import { randomBytes } from "node:crypto";
@@ -43,12 +43,12 @@ const CATCHER_VERSION = "3"; // 3: bundle id org.agentstudio.link-catcher
 
 /**
  * A tiny AppleScript app that claims cuedev:// and writes each link it gets to
- * a file AgentStudio reads. AgentStudio can't claim the scheme itself: unpackaged
+ * a file AgentRoom reads. AgentRoom can't claim the scheme itself: unpackaged
  * Electron shares one bundle id between every copy on the Mac, so macOS may
  * hand the link to another one. Built once (osacompile) into userData.
  */
 export async function ensureLinkCatcher(dir: string): Promise<{ inbox: string }> {
-  const appPath = join(dir, "AgentStudio Link Catcher.app");
+  const appPath = join(dir, "AgentRoom Link Catcher.app");
   const inbox = join(dir, "inbox.txt");
   const stamp = join(dir, "version");
   const current = existsSync(stamp) ? readFileSync(stamp, "utf8") : "";
@@ -75,7 +75,7 @@ export async function ensureLinkCatcher(dir: string): Promise<{ inbox: string }>
       "Add :LSUIElement bool true",
       "Add :CFBundleURLTypes array",
       "Add :CFBundleURLTypes:0 dict",
-      "Add :CFBundleURLTypes:0:CFBundleURLName string AgentStudio sign-in",
+      "Add :CFBundleURLTypes:0:CFBundleURLName string AgentRoom sign-in",
       "Add :CFBundleURLTypes:0:CFBundleURLSchemes array",
       `Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string ${SCHEME}`,
     );
@@ -132,7 +132,7 @@ export async function cueWebSignIn(
   cfg: CueWebConfig,
   openExternal: (url: string) => Promise<void>,
   signal: AbortSignal,
-  /** Where to keep the link catcher; null when sign-in runs in an AgentStudio window (tests). */
+  /** Where to keep the link catcher; null when sign-in runs in an AgentRoom window (tests). */
   catcherDir: string | null,
 ): Promise<string> {
   const nonce = randomBytes(32).toString("hex");
@@ -147,7 +147,7 @@ export async function cueWebSignIn(
         else reject(new Error("Signing in to Manus wasn't completed."));
       });
       openExternal(signInUrl(cfg, nonce)).catch(reject);
-      // The browser may ask "Open AgentStudio?"; the user has the whole sign-in window to answer.
+      // The browser may ask "Open AgentRoom?"; the user has the whole sign-in window to answer.
       setTimeout(() => reject(new Error("Signing in timed out.")), 15 * 60_000);
     });
   } finally {
@@ -166,7 +166,7 @@ export async function createCueApiKey(cfg: CueWebConfig, sessionToken: string): 
       authorization: `Bearer ${sessionToken}`,
       "x-client-type": "web",
     },
-    body: JSON.stringify({ name: `AgentStudio (${new Date().toISOString().slice(0, 10)})` }),
+    body: JSON.stringify({ name: `AgentRoom (${new Date().toISOString().slice(0, 10)})` }),
     signal: AbortSignal.timeout(20_000),
   });
   const body = (await res.json().catch(() => ({}))) as { apiKeyData?: { apiKey?: string }; message?: string };

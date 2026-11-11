@@ -1,6 +1,8 @@
 **GET-485：连续聊天与联系人配置。** Pi 受控执行、可见正文进度、逐问题回复位置、发送时模型快照、保存默认值刷新、独立模型/思考配置与头像。实现和验收范围见 [IM 说明](personal/messenger.md)；真实 CLI 与隔离合成证据分开记录。
 
-# AgentStudio 路线图（P0–P2）
+**GET-493：AgentRoom 与独立测试模式。** 用户确定新名称为 AgentRoom；显示品牌统一，旧存储/协议身份兼容保留。新工作区欢迎引导与设置中的测试入口支持反复首次体验和原工作区恢复。实现与验收边界见[测试说明](personal/testing.md)。
+
+# AgentRoom 路线图（P0–P2）
 
 **GET-483：个人 IM。** 默认主页改为聊天、联系人、审批；系统发现的本机助手/已有连接成为联系人，可创建不同身份、私聊、拉群，逐位配置群响应策略。先支持本人和自己的 Agent；人类通讯录及本地草稿已建模，跨设备多人投递尚未实现，不显示虚假送达。验收范围见 [IM 说明](personal/messenger.md)。
 
@@ -21,7 +23,7 @@
 
 每项任务后面写明"完成标准"，做到了才算完成。
 
-**接入的个人 agent：** Grok Bot、Muse、ChatGPT Dots、**Cue（新增）**。都不需要用户装对方的 App：在网页上登录一次，就能在 AgentStudio 里使用。头像、名字都和原平台一致。
+**接入的个人 agent：** Grok Bot、Muse、ChatGPT Dots、**Cue（新增）**。都不需要用户装对方的 App：在网页上登录一次，就能在 AgentRoom 里使用。头像、名字都和原平台一致。
 
 ---
 
@@ -34,13 +36,13 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
 - [x] **拆解接口**
   - 结果：用官方 API v2：`agent.list`、`agent.detail`、`task.listMessages`、`task.sendMessage`、`task.confirmAction`、`user.me`。已写进 `docs/connectors.md` 的 Cue 一节。
 - [x] **连接（两种方式）**
-  - 网页登录（默认）：在系统浏览器里登录 Manus（Google、Apple 不允许在 App 内嵌窗口登录），登录结果通过 `cuedev://` 链接交回 AgentStudio，AgentStudio 自动为自己创建一个 API key，用户不用复制粘贴。只有"创建 key"这一步用到 Manus 内部接口。
+  - 网页登录（默认）：在系统浏览器里登录 Manus（Google、Apple 不允许在 App 内嵌窗口登录），登录结果通过 `cuedev://` 链接交回 AgentRoom，AgentRoom 自动为自己创建一个 API key，用户不用复制粘贴。只有"创建 key"这一步用到 Manus 内部接口。
   - API key：点"Use an API key instead"，去 Manus 设置创建后粘贴；网页登录失败时也会退回这一步。
   - 两种方式都不需要装 Cue App，key 加密存在本机。
 - [x] **一次连接，接入全部 agent**
   - 结果：默认 agent（"Cue"）加上在 Cue 里建的所有 agent，各成一个联系人。同一个 key 下的 agent 共享请求额度（每分钟 80 次，低于 Manus 的 100 次上限）。
 - [x] **收发消息和卡片**
-  - 结果：收发文字；带选项的提问变成卡片，选完把答案发回去；需要确认的操作（发邮件、改日历等）变成审批卡片，用 `confirmAction` 回复；附件以链接显示；在 Cue App 里回答后，AgentStudio 里的卡片自动作废。
+  - 结果：收发文字；带选项的提问变成卡片，选完把答案发回去；需要确认的操作（发邮件、改日历等）变成审批卡片，用 `confirmAction` 回复；附件以链接显示；在 Cue App 里回答后，AgentRoom 里的卡片自动作废。
   - 已有单元测试和 e2e（模拟服务）。
 - [ ] **用你的真实账号跑通一遍**
   - 完成标准：真实的提问卡片和确认卡片都能正常回答。
@@ -72,7 +74,7 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
   - 内容：转成 Matrix 媒体消息。
   - 完成标准：每个连接器都有一张图片能在聊天里显示出来。
 - [x] **在原 App 里发的消息也同步过来**
-  - 结果：显示在用户一侧，下方标"In Grok Bot"/"In Cue"；AgentStudio 自己发的不会重复（Grok 用 clientNonce，其余按文字）。
+  - 结果：显示在用户一侧，下方标"In Grok Bot"/"In Cue"；AgentRoom 自己发的不会重复（Grok 用 clientNonce，其余按文字）。
   - 内容：标明"在 Grok 里发送"。
   - 完成标准：两边的对话顺序一致，没有重复。
 - [x] **连接时导入最近的历史**
@@ -85,7 +87,7 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
 - [x] ~~Muse、Dots 改成直接调接口~~（调研结论：不做，见 `docs/spikes/muse-dots-direct-api.md`）
   - 结论：Muse 的聊天走端到端加密的 Noise WebSocket，连到经过硬件证明的虚拟机；ChatGPT 网页接口在 Cloudflare 和 sentinel 校验之后。两者都继续用后台网页。
 - [x] **Muse、Dots 后台网页更稳**
-  - 结果：后台窗口永不弹出，"View in Muse / ChatGPT"和处理不了的卡片改为在浏览器打开；页面断线、崩溃、卡死或加载失败时自动刷新重连（退避 15 秒到 5 分钟），期间显示"Reconnecting…"，发出的消息最多等 45 秒，断线期间的回复照样转过来；登录说明写清楚为什么要在 AgentStudio 窗口里登录。
+  - 结果：后台窗口永不弹出，"View in Muse / ChatGPT"和处理不了的卡片改为在浏览器打开；页面断线、崩溃、卡死或加载失败时自动刷新重连（退避 15 秒到 5 分钟），期间显示"Reconnecting…"，发出的消息最多等 45 秒，断线期间的回复照样转过来；登录说明写清楚为什么要在 AgentRoom 窗口里登录。
 - [ ] **校准 Dots**
   - 内容：用真实 Dots 账号校准消息和头像的识别规则（目前是推测的）。
   - 完成标准：Dots 的聊天、审批、头像都和原网页一致。
@@ -111,14 +113,14 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
 
 - [x] **每个 agent 显示连接状态**
   - 结果：收件箱的行显示"Sign in again"/"Not connected"，Connect 页的卡片和面板也显示。
-  - 内容：在线 / 需要重新登录 / AgentStudio 没开 / 服务出错，收件箱头像和 Connect 页都显示。
+  - 内容：在线 / 需要重新登录 / AgentRoom 没开 / 服务出错，收件箱头像和 Connect 页都显示。
   - 完成标准：断网、让登录过期、退出 App 三种情况都显示正确。
 - [x] **收件箱顶部提示条**
   - 内容：有 agent 异常时提示"2 个 agent 需要重新登录"，点一下进入处理。
   - 完成标准：处理完，提示条自动消失。
 - [x] **说明本机模式的限制**
   - 结果：第一次连接后在 Connect 页显示一次；"设置里再查看"还没做。
-  - 内容：首次连接时告知"Mac 合盖、关机或退出 AgentStudio 后，这些 agent 不会回复"。
+  - 内容：首次连接时告知"Mac 合盖、关机或退出 AgentRoom 后，这些 agent 不会回复"。
   - 完成标准：只出现一次，设置里可以再查看。
 - [x] **一键导出诊断信息**
   - 结果：设置 → Diagnostics → Export，导出前去掉 token、key、签名 URL 参数、JWT。
@@ -182,7 +184,7 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
   - 内容：`pnpm start` 构建内嵌后端和 App 并启动，不需要用户分开跑 `dev:up` 和 `dev:desktop`。开发用的 `pnpm dev:*` 命令保留给贡献者。
   - 完成标准：从 `git clone` 到看见收件箱不超过 10 分钟（不含下载时间），全程只敲两条命令。
 - [ ] **一条命令打包成 .app**
-  - 内容：`pnpm build:mac` 生成本机签名的 `AgentStudio.app`（electron-builder 自动做 ad-hoc 签名，不需要证书），拖进"应用程序"文件夹，就能像普通 App 一样从启动台打开。
+  - 内容：`pnpm build:mac` 生成本机签名的 `AgentRoom.app`（electron-builder 自动做 ad-hoc 签名，不需要证书），拖进"应用程序"文件夹，就能像普通 App 一样从启动台打开。
   - 完成标准：打包出的 App 不依赖仓库目录，删掉仓库后仍能运行；数据放在 `~/Library/Application Support/AgentStudio/`。
 - [ ] **更新方式**
   - 内容：`git pull` 后再跑一次 `pnpm build:mac`（或 `pnpm start`），数据迁移见 P1-1 "升级不丢数据"。README 里写清楚更新步骤。
@@ -326,7 +328,7 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
 
 | 指标 | 含义 | 目标 |
 |---|---|---|
-| 消息到达率 | 原 App 里的消息在 AgentStudio 出现的比例 | 大于 99% |
+| 消息到达率 | 原 App 里的消息在 AgentRoom 出现的比例 | 大于 99% |
 | 上手耗时 | 从 `git clone` 到完成第一次批准 | 小于 15 分钟（不含下载） |
 | 审批响应时间 | 从 agent 发出到用户处理完 | 有提醒后明显缩短 |
 | 7 日留存 | 装了一周后还在用的用户比例 | P1 发布后开始跟踪 |

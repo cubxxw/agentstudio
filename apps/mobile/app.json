@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AgentStudio",
+    "name": "AgentRoom",
     "slug": "agentstudio",
     "version": "0.1.0",
     "scheme": "agentstudio",
@@ -16,8 +16,8 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "name": "AgentStudio",
-      "shortName": "AgentStudio",
+      "name": "AgentRoom",
+      "shortName": "AgentRoom",
       "themeColor": "#3247a8",
       "favicon": "./assets/favicon.png"
     },

@@ -2,7 +2,7 @@
 // wallet and computer. Cue has no web app, but Manus publishes an API that
 // covers Cue's agents (https://open.manus.ai/docs/v2/agents-overview), so this
 // connector uses it with an API key the user creates in Manus settings. Each
-// agent has a main task, its conversation; AgentStudio reads it with
+// agent has a main task, its conversation; AgentRoom reads it with
 // task.listMessages and talks with task.sendMessage / task.confirmAction.
 
 import { createHash } from "node:crypto";
@@ -34,7 +34,7 @@ export class CueAuthError extends Error {}
 
 /**
  * Manus sign-in hands its session back on a cue:// or cuedev:// link. cue://
- * belongs to the Cue app; cuedev:// (Cue's dev builds) is free, so AgentStudio
+ * belongs to the Cue app; cuedev:// (Cue's dev builds) is free, so AgentRoom
  * takes that one while a sign-in runs.
  */
 export const CUE_SCHEME = "cuedev";
@@ -172,7 +172,7 @@ function agentRef(a: Record<string, unknown>): CueAgentRef {
   return { id: String(a.id ?? ""), taskId: String(a.task_id ?? ""), name: String(a.nickname ?? ""), about: String(a.about ?? "") };
 }
 
-// ---- turning events into AgentStudio events (pure, unit-tested) -------------------------------
+// ---- turning events into AgentRoom events (pure, unit-tested) -------------------------------
 
 const DENY_WORDS = /^(no|don'?t|do not|cancel|skip|reject|deny|decline|not now|stop)\b/i;
 /** Choice key meaning "leave the question for the Cue app". */
@@ -185,7 +185,7 @@ export function questionChoices(options: string[]): Choice[] {
   return choices;
 }
 
-/** What to send for an action confirmation, keyed by choice; null when AgentStudio can't answer it. */
+/** What to send for an action confirmation, keyed by choice; null when AgentRoom can't answer it. */
 export function confirmationChoices(
   detail: NonNullable<NonNullable<CueEvent["status_update"]>["status_detail"]>,
 ): { choices: Choice[]; inputs: Record<string, Record<string, unknown>> } | null {
@@ -414,7 +414,7 @@ export class CueConnector implements Connector {
             break;
           }
           this.personalReply = null;
-          // Said in the Cue app: show it, and whatever AgentStudio was asking is moot.
+          // Said in the Cue app: show it, and whatever AgentRoom was asking is moot.
           const m = messageOf(e);
           if (m) emit(m);
           for (const id of this.pending.keys()) emit({ type: "approval_cancel", external_id: id });

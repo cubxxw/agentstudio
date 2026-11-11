@@ -1,17 +1,17 @@
-# AgentStudio Agent Protocol (v0)
+# AgentRoom Agent Protocol (v0)
 
-This protocol lets any AI agent become a contact in AgentStudio. It is plain HTTP + JSON with bearer tokens in both directions.
+This protocol lets any AI agent become a contact in AgentRoom. It is plain HTTP + JSON with bearer tokens in both directions.
 
 There are two sides:
 
 - The **agent**, the server you write.
-- The **bridge**, `agentstudio-bridge-agents`, which runs inside an AgentStudio deployment.
+- The **bridge**, `agentstudio-bridge-agents`, which runs inside an AgentRoom deployment.
 
-Each AgentStudio connection to an agent is a **session**: one user talking to one agent in one conversation.
+Each AgentRoom connection to an agent is a **session**: one user talking to one agent in one conversation.
 
 ## Connecting
 
-A user adds an agent in AgentStudio under *Connect, Agents*. The flows are:
+A user adds an agent in AgentRoom under *Connect, Agents*. The flows are:
 
 - `endpoint`: the user enters the agent's base URL and an optional access token.
 - `concierge`: the built-in reference agent, from `AGENTSTUDIO_CONCIERGE_URL`. There are no fields.
@@ -145,11 +145,11 @@ The flows exist only when the bridge has `AGENT_ADAPTERS_URL` set. The `acp` flo
 
 ### A2A (Agent2Agent, JSON-RPC binding v0.3)
 
-- **Sessions and context.** One AgentStudio session is one A2A context. The adapter keeps the `contextId` the agent returns.
+- **Sessions and context.** One AgentRoom session is one A2A context. The adapter keeps the `contextId` the agent returns.
 - **Sending.** User messages and asks go out as `message/send` (blocking). An ask becomes a prompt that asks for numbered drafts; the answer is parsed back into drafts.
 - **Replies.** An agent `Message` becomes a chat message. A `Task` is followed with `tasks/get` until it is done or needs the user. While the task works, the agent shows the status `working`. Text artifacts and status messages become chat messages, and `failed` / `rejected` show as a warning.
 - **`input-required`.**
-  - If the status message carries a data part `{"agentstudio/approval": {title, summary?, details?, choices?, expires_in_seconds?}}`, AgentStudio shows an approval card. The user's choice goes back on that task as a data part `{"agentstudio/decision": {"choice": "<key>"}}` plus the choice label as text.
+  - If the status message carries a data part `{"agentstudio/approval": {title, summary?, details?, choices?, expires_in_seconds?}}`, AgentRoom shows an approval card. The user's choice goes back on that task as a data part `{"agentstudio/decision": {"choice": "<key>"}}` plus the choice label as text.
   - Without that data part, the question is shown in chat, and the user's next message continues the task.
 - **Auth.** The user's token, if any, is sent as `Authorization: Bearer`.
 
@@ -157,7 +157,7 @@ The flows exist only when the bridge has `AGENT_ADAPTERS_URL` set. The `acp` flo
 
 The server operator allows ACP agents in `AGENTSTUDIO_ACP_AGENTS`, a JSON array of `{id, name, description?, command, args?, env?}`. Users pick an agent by id and never supply a command.
 
-- **Process.** Each AgentStudio session runs its own agent process, started on the first message, in `AGENTSTUDIO_ACP_WORKDIR/<session>`. The adapter calls `initialize` without fs or terminal capabilities, then `session/new`.
+- **Process.** Each AgentRoom session runs its own agent process, started on the first message, in `AGENTSTUDIO_ACP_WORKDIR/<session>`. The adapter calls `initialize` without fs or terminal capabilities, then `session/new`.
 - **Sending.** Messages and asks become `session/prompt`. The `agent_message_chunk` updates are joined into one reply, and `tool_call` titles update the agent's status.
 - **Permissions.** `session/request_permission` becomes an approval card whose choices are the agent's options: `allow_*` maps to approve, `reject_*` to deny. The card expires after 30 minutes, and the agent then gets `cancelled`.
 

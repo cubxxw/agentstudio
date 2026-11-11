@@ -1,6 +1,6 @@
 # Local stack
 
-`dev/stack.mjs` runs the whole AgentStudio backend as native macOS processes (no Docker). It is a
+`dev/stack.mjs` runs the whole AgentRoom backend as native macOS processes (no Docker). It is a
 dependency-free Node script; the root `package.json` wraps it.
 
 | Command | What |

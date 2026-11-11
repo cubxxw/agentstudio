@@ -13,20 +13,20 @@ import { Mark } from "./Mark";
 const AGENTS_NETWORK = "agentstudio-agents";
 
 // Muse and Dots keep their sign-in in browser cookies, which apps can't read, so
-// they sign in in an AgentStudio window instead of the browser.
+// they sign in in an AgentRoom window instead of the browser.
 const SERVICES: { id: LocalServiceId; name: string; blurb: string; site?: string }[] = [
   { id: "grokbot", name: "Grok Bot", blurb: "Sign in with your Cursor account in the browser." },
   {
     id: "muse",
     name: "Muse",
     site: "Muse",
-    blurb: "Sign in to muse.ai in an AgentStudio window. Your browser's sign-in can't be shared with apps, so it happens here once.",
+    blurb: "Sign in to muse.ai in an AgentRoom window. Your browser's sign-in can't be shared with apps, so it happens here once.",
   },
   {
     id: "dots",
     name: "ChatGPT Dots",
     site: "ChatGPT",
-    blurb: "Sign in to ChatGPT in an AgentStudio window. Your browser's sign-in can't be shared with apps, so it happens here once.",
+    blurb: "Sign in to ChatGPT in an AgentRoom window. Your browser's sign-in can't be shared with apps, so it happens here once.",
   },
   { id: "cue", name: "Cue", blurb: "Sign in with your Manus account (or use an API key). Every agent of your account comes along." },
 ];
@@ -151,19 +151,19 @@ export function LocalAgents({ onConnected }: { onConnected: () => void }) {
       <div className="section-head">
         <h2 className="display">Agents you already use</h2>
         <p className="muted">
-          AgentStudio signs in with your own account, on this Mac. Your sign-in stays here, and these agents answer while
-          AgentStudio is open.
+          AgentRoom signs in with your own account, on this Mac. Your sign-in stays here, and these agents answer while
+          AgentRoom is open.
         </p>
         <p className="muted small-print" data-testid="local-agents-notice">
-          For personal use with your own accounts. AgentStudio isn't affiliated with these services, works the way their own
+          For personal use with your own accounts. AgentRoom isn't affiliated with these services, works the way their own
           apps do, and may stop working when they change. You're responsible for following each service's terms.
         </p>
       </div>
       {local.length > 0 && !noteSeen && (
         <div className="local-note" role="note" data-testid="local-mode-note">
           <p>
-            These agents run in AgentStudio on this Mac. When you quit AgentStudio or the Mac sleeps, they pause until
-            AgentStudio is open again.
+            These agents run in AgentRoom on this Mac. When you quit AgentRoom or the Mac sleeps, they pause until
+            AgentRoom is open again.
           </p>
           <button
             className="btn quiet small"

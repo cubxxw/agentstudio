@@ -39,7 +39,7 @@ const capture = name => page.screenshot({ path: join(output, `${name}.png`) });
 try {
   if (native) {
     const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
-    application = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentStudio') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+    application = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
     await expect.poll(() => application.windows().filter(w => w.url().startsWith('file:')).length).toBe(1);
     page = application.windows().find(w => w.url().startsWith('file:'));
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().startsWith('file:')).setBounds({ width: 1200, height: 800 }));

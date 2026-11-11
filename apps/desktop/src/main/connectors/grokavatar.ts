@@ -1,6 +1,6 @@
 // Grok Bot's own avatars. A bot's avatar is a shape and a color (or a photo,
-// avatar_url). Grok Bot draws the shapes with its own code, so AgentStudio doesn't
-// ship them: when the Grok Bot app is installed on this Mac, AgentStudio runs that
+// avatar_url). Grok Bot draws the shapes with its own code, so AgentRoom doesn't
+// ship them: when the Grok Bot app is installed on this Mac, AgentRoom runs that
 // app's shape code once (in a hidden window) and keeps the result in
 // userData/grokbot-shapes, one mask per shape (body black, eyes white), plus
 // the app's colors. It redoes this when the app's version changes. Avatars are

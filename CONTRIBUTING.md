@@ -1,6 +1,6 @@
-# Contributing to AgentStudio
+# Contributing to AgentRoom
 
-Thanks for helping. AgentStudio is alpha, so the code moves fast; small, focused changes are the easiest to review.
+Thanks for helping. AgentRoom is alpha, so the code moves fast; small, focused changes are the easiest to review.
 
 ## Before you start
 

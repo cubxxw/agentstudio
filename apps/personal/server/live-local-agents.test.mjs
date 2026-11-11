@@ -41,7 +41,7 @@ test('Pi emits actual UTF-8 progress before completion and pins model/thinking w
   assert.equal(args[args.indexOf('--provider') + 1], 'fixture');
   assert.equal(args[args.indexOf('--model') + 1], 'model-a');
   assert.equal(args[args.indexOf('--thinking') + 1], 'high');
-  assert.ok(args[args.indexOf('--system-prompt') + 1].startsWith('You are an AgentStudio'));
+  assert.ok(args[args.indexOf('--system-prompt') + 1].startsWith('You are an AgentRoom'));
   assert.equal(args[args.indexOf('--append-system-prompt') + 1], '');
 });
 

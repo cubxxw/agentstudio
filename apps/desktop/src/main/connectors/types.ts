@@ -7,8 +7,8 @@ export type ServiceId = "grokbot" | "muse" | "dots" | "cue";
 
 export const SERVICES: { id: ServiceId; name: string; description: string }[] = [
   { id: "grokbot", name: "Grok Bot", description: "Your Grok Bot (SpaceX AI). Sign in with your Cursor account in the browser." },
-  { id: "muse", name: "Muse", description: "Meta's Muse agent. Sign in to muse.ai in an AgentStudio window." },
-  { id: "dots", name: "ChatGPT Dots", description: "OpenAI's Dots agent in ChatGPT. Sign in to chatgpt.com in an AgentStudio window." },
+  { id: "muse", name: "Muse", description: "Meta's Muse agent. Sign in to muse.ai in an AgentRoom window." },
+  { id: "dots", name: "ChatGPT Dots", description: "OpenAI's Dots agent in ChatGPT. Sign in to chatgpt.com in an AgentRoom window." },
   { id: "cue", name: "Cue", description: "Your Cue agents (by Manus), through a Manus API key." },
 ];
 

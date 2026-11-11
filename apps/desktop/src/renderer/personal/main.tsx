@@ -14,7 +14,7 @@ root.render(
     ) : (
       <div className="native-startup-error" role="alert">
         <h1>工作间没有启动</h1>
-        <p>请退出后重新打开 AgentStudio。已保存的事情不会删除。</p>
+        <p>请退出后重新打开 AgentRoom。已保存的事情不会删除。</p>
       </div>
     )}
   </StrictMode>,

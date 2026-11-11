@@ -1,6 +1,6 @@
-# AgentStudio: working agreement for humans and coding agents
+# AgentRoom: working agreement for humans and coding agents
 
-AgentStudio is an open-source inbox for your chats and your AI agents (Apache-2.0). Read these first; they are the contracts:
+AgentRoom is an open-source inbox for your chats and your AI agents (Apache-2.0). Read these first; they are the contracts:
 
 - `docs/architecture.md`: scope, processes, ports, layout
 - `docs/api.md`: personal desktop IPC and REST APIs

@@ -43,7 +43,7 @@ GET-483 · 2026-11-10。当前默认 Mac 入口是个人 IM，先连接本人和
 
 Raft 的公开 HEAD 在本轮读回为 [`db5e399f017d584e49597e3a28757645d6807893`](https://github.com/botiverse/raft-source/tree/db5e399f017d584e49597e3a28757645d6807893)。本轮重新读取固定版本 DM、profile、mention 手册及 `peerCard.ts`，并沿用[此前针对同一快照的源码观察](research/raft-observation.md)。未启动 Raft，也未将其源码或私人会话复制进产品；下面是行为分析与独立设计。
 
-| 产品 / 一手来源 | 观察 | 在 AgentStudio 的取舍 |
+| 产品 / 一手来源 | 观察 | 在 AgentRoom 的取舍 |
 | --- | --- | --- |
 | [Raft DM](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/manual/agent-knowledge/dm.md) | 私聊按参与者复用，身份卡帮助恢复交谈对象；手册还注明已有 DM 加人 UI 的限制 | 按稳定联系人 ID 复用私聊；显式建群/加人，新群不默默复制私聊历史 |
 | [Raft peerCard.ts](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/packages/cli/src/ax/peerCard.ts#L53) | 按当前上下文记录是否实际展示对方身份，输出失败不把卡片记作已看见；机制受配置开关影响 | 每次接受消息直接快照身份，不依赖模型记住某个 UI 卡片；当前版本无跨运行时的 seen-card 协议 |

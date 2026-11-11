@@ -1,5 +1,9 @@
 # @agentstudio/desktop
 
+## AgentRoom name and repeatable first-use testing
+
+The visible app and packaged bundle are now AgentRoom. Storage, safeStorage identity, IPC and package names remain compatible. Preferences → 测试与引导 can reopen onboarding, enter an isolated test profile, reset it to a fresh identity, or return to the original profile. `pnpm dev:desktop:test` opens test mode directly. See [scope, recovery and verification](../../docs/personal/testing.md).
+
 The macOS Electron app opens the personal messenger by default: contacts, direct/group chats, and unified approvals. It preserves the existing `hiddenInset` window, traffic lights, draggable regions and Mac menus. Conversations own their progress, versioned decisions and Markdown results. Existing task threads continue directly in the same Messenger shell, preserving their original drafts, execution mode, connection and exact pending request identity. Old `?workspace=tasks` links remain compatible; they no longer select a different renderer. The original Matrix inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`.
 
 ## Build and run the Mac app

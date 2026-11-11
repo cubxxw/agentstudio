@@ -47,9 +47,9 @@ function browserFallback(): AgentStudioDesktop {
       services: async () => [],
       list: async () => [],
       begin: async () => {
-        throw new Error("Connectors need the AgentStudio Mac app");
+        throw new Error("Connectors need the AgentRoom Mac app");
       },
-      progress: async () => ({ state: "failed", message: "Connectors need the AgentStudio Mac app" }),
+      progress: async () => ({ state: "failed", message: "Connectors need the AgentRoom Mac app" }),
       choose: async () => {},
       submit: async () => {},
       cancel: async () => {},

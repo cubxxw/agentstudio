@@ -1,4 +1,4 @@
-// Electron main process for AgentStudio Desktop (macOS first).
+// Electron main process for AgentRoom Desktop (macOS first).
 //
 // Security: the renderer runs with contextIsolation, sandbox and no Node
 // integration; it reaches the OS only through the preload's narrow API. The
@@ -7,7 +7,7 @@
 
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   BrowserWindow,
@@ -35,6 +35,7 @@ import appIcon from "../../resources/icon.png?asset";
 import { PersonalHost } from "./personal-host";
 import { PersonalServices } from "./personal-services";
 import { LocalLoginHost, localExecutionEnv } from "./local-login";
+import { resolveWorkspaceProfile, testWorkspaceArgs, type TestWorkspaceAction } from "./workspace-profile";
 import type { NativeIntegrationReply } from "@agentstudio/personal/desktop-contract";
 import { PERSONAL_IPC, isTrustedDocument, personalCsp, readNativeIntegration, type PersonalCommand } from "../shared/personal-api";
 
@@ -43,19 +44,18 @@ declare const __APP_REVISION__: string;
 
 // ---- profile isolation (must happen before "ready") ----------------------------
 
-const userDataDir = process.env.AGENTSTUDIO_USER_DATA_DIR;
-if (userDataDir) {
-  mkdirSync(userDataDir, { recursive: true });
-  app.setPath("userData", userDataDir);
-}
+const workspaceProfile = resolveWorkspaceProfile(app.getPath("appData"), process.env, process.argv.slice(1));
+const userDataDir = process.env.AGENTROOM_USER_DATA_DIR || process.env.AGENTSTUDIO_USER_DATA_DIR;
+mkdirSync(workspaceProfile.userData, { recursive: true, mode: 0o700 });
+app.setPath("userData", workspaceProfile.userData);
+app.setPath("sessionData", workspaceProfile.userData);
 // Tests can avoid touching the real login keychain (safeStorage then uses a mock key).
 if (process.env.AGENTSTUDIO_MOCK_KEYCHAIN === "1") app.commandLine.appendSwitch("use-mock-keychain");
 
-// The app's name picks its data folder and its keychain item ("AgentStudio Safe Storage").
+// Keep the existing keychain identity; all visible product names are AgentRoom.
 app.setName("AgentStudio");
-if (!userDataDir) app.setPath("userData", join(app.getPath("appData"), "AgentStudio"));
 
-const personalMode = process.env.AGENTSTUDIO_WORKSPACE !== "matrix";
+const personalMode = workspaceProfile.testMode || process.env.AGENTSTUDIO_WORKSPACE !== "matrix";
 const devServerUrl = !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined;
 const rendererHtml = join(__dirname, personalMode ? "../renderer/personal/index.html" : "../renderer/index.html");
 const rendererFileUrl = pathToFileURL(rendererHtml).href;
@@ -81,6 +81,8 @@ const nativeRegistrationInputs = new Map<string, { instanceId: string; name: str
 const nativeRemovals = new Set<string>();
 let shutdownPromise: Promise<void> | undefined;
 let shutdownComplete = false;
+let switchingWorkspace = false;
+let nativeOperations = 0;
 
 function serverUrl(): string {
   return resolveServerUrl(process.env.AGENTSTUDIO_SERVER_URL, storage.readSettings().serverUrl);
@@ -146,7 +148,7 @@ function createWindow() {
     minWidth: 760,
     minHeight: 520,
     show: false,
-    title: "AgentStudio",
+    title: workspaceProfile.testMode ? "AgentRoom · 测试模式" : "AgentRoom",
     icon: appIcon, // Windows and Linux; macOS uses the Dock icon below
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 18 },
@@ -336,10 +338,10 @@ function registerIpc() {
 
 function registerPersonalIpc() {
   ipcMain.on(PERSONAL_IPC.info, (event) => {
-    event.returnValue = fromPersonal(event) ? { platform: process.platform, version: __APP_VERSION__ } : null;
+    event.returnValue = fromPersonal(event) ? { platform: process.platform, version: __APP_VERSION__, testMode: workspaceProfile.testMode } : null;
   });
   ipcMain.handle(PERSONAL_IPC.request, async (event, input: unknown) => {
-    if (!fromPersonal(event) || !personalHost) throw new Error("forbidden");
+    if (!fromPersonal(event) || !personalHost || switchingWorkspace) throw new Error("forbidden");
     await personalStartup;
     if (personalStartupFailed) return { status: 503, body: { error: { code: "native_restore_failed", message: "已保存的个人服务尚未恢复，任务已保留且没有再次发送。请重新启动后台重试。" } } };
     return personalHost.request(input as Parameters<PersonalHost["request"]>[0]);
@@ -349,19 +351,24 @@ function registerPersonalIpc() {
     return personalHost.saveArtifact(id);
   });
   ipcMain.handle(PERSONAL_IPC.restart, async (event) => {
-    if (!fromPersonal(event) || !personalHost) throw new Error("forbidden");
+    if (!fromPersonal(event) || !personalHost || switchingWorkspace) throw new Error("forbidden");
     if (personalStartupFailed) {
       await personalServices?.restore();
       personalStartupFailed = false;
     }
     await personalHost.restart();
   });
+  ipcMain.handle(PERSONAL_IPC.testWorkspace, async (event, action: unknown) => {
+    if (!fromPersonal(event)) throw new Error("forbidden");
+    return switchTestWorkspace(action);
+  });
   ipcMain.handle(PERSONAL_IPC.integration, async (event, input: unknown): Promise<NativeIntegrationReply> => {
-    if (!fromPersonal(event) || !personalServices || !personalHost || !localLogin) throw new Error("forbidden");
+    if (!fromPersonal(event) || !personalServices || !personalHost || !localLogin || switchingWorkspace) throw new Error("forbidden");
     const action = readNativeIntegration(input);
+    nativeOperations++;
     try {
       await personalStartup;
-      if (quitting || !fromPersonal(event)) return { state: "failed", message: "应用正在退出，没有开始新的连接。" };
+      if (quitting || switchingWorkspace || !fromPersonal(event)) return { state: "failed", message: "应用正在退出或切换，没有开始新的连接。" };
       if (action.kind === "local-login") return localLogin.begin(action.agentId);
       if (action.kind === "local-login-status") return localLogin.status(action.flowId);
       if (action.kind === "local-login-cancel") return localLogin.cancel(action.flowId);
@@ -426,7 +433,7 @@ function registerPersonalIpc() {
       return { state: "waiting", ...("flowId" in action ? { flowId: action.flowId } : {}) };
     } catch {
       return { state: "failed", ...("flowId" in action ? { flowId: action.flowId } : {}), message: "连接暂时未完成。已有任务与登录信息保留，请重试或到原服务检查账号。" };
-    }
+    } finally { nativeOperations--; }
   });
 }
 
@@ -462,13 +469,43 @@ function sendPersonalCommand(command: PersonalCommand) {
   mainWindow?.webContents.send(PERSONAL_IPC.command, command);
 }
 
+async function switchTestWorkspace(action: unknown) {
+  if (!personalMode || !personalHost || !personalServices || !localLogin || switchingWorkspace || quitting) throw new Error("工作区尚未就绪，请稍后重试");
+  if (action !== "enter" && action !== "reset" && action !== "leave") throw new Error("未知测试模式操作");
+  if (action === "enter" ? workspaceProfile.testMode : !workspaceProfile.testMode) throw new Error("当前工作区不支持这项操作");
+  // Reserve before showing a dialog, so repeated requests cannot schedule two relaunches.
+  switchingWorkspace = true;
+  try {
+    await personalStartup;
+    if (personalStartupFailed) throw new Error("个人服务尚未恢复，请先重新启动后台核查");
+    if (nativeOperations || localLogin.hasPendingLogin() || personalServices.hasPendingLogin() || personalServices.hasUnresolvedTasks()) throw new Error("仍有登录、执行或待核查结果，请先处理后再切换");
+    const options: Electron.MessageBoxOptions = {
+      type: "question", title: "AgentRoom",
+      message: action === "enter" ? "进入独立测试模式？" : action === "reset" ? "清空本轮测试并重新引导？" : "返回你的工作区？",
+      detail: action === "leave" ? "会重新打开原工作区，当前测试资料保留。本机助手的 CLI 登录不会改变。" : "应用会重新打开一个空白测试工作区。原工作区不受影响；旧测试资料保留用于恢复。本机助手的 CLI 登录仍然沿用。",
+      buttons: [action === "leave" ? "返回我的工作区" : action === "reset" ? "清空并重新引导" : "进入测试模式", "取消"], defaultId: 0, cancelId: 1, noLink: true,
+    };
+    const answer = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+    if (answer.response !== 0) { switchingWorkspace = false; return { restarting: false }; }
+    await personalHost.prepareWorkspaceSwitch();
+    if (nativeOperations || localLogin.hasPendingLogin() || personalServices.hasPendingLogin() || personalServices.hasUnresolvedTasks()) {
+      personalHost.cancelWorkspaceSwitch(); throw new Error("确认期间出现新的执行或登录，请先处理后再切换");
+    }
+    await personalHost.stop(true);
+    await personalServices.stop();
+    app.relaunch({ args: testWorkspaceArgs(process.argv.slice(1), action as TestWorkspaceAction, randomUUID()) });
+    app.quit();
+    return { restarting: true };
+  } catch (error) { switchingWorkspace = false; throw error; }
+}
+
 function installMenu() {
   const personalItems: Electron.MenuItemConstructorOptions[] = personalMode ? [
     { label: "新聊天", accelerator: "CmdOrCtrl+N", click: () => sendPersonalCommand("new") },
     { label: "搜索", accelerator: "CmdOrCtrl+K", click: () => sendPersonalCommand("search") },
   ] : [];
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: app.name, submenu: [
+    { label: "AgentRoom", submenu: [
       { role: "about" },
       ...(personalMode ? [{ label: "设置…", accelerator: "CmdOrCtrl+,", click: () => sendPersonalCommand("settings") }, { type: "separator" as const }] : []),
       { role: "services" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" },
@@ -493,7 +530,8 @@ if (!gotLock) {
     if (connectors?.handleLink(url) || personalServices?.handleLink(url)) focusWindow();
   });
   app.whenReady().then(() => {
-    // Run from source, the app is Electron's own bundle: give it AgentStudio's icon in the Dock.
+    app.setAboutPanelOptions({ applicationName: "AgentRoom", applicationVersion: __APP_VERSION__ });
+    // Run from source, the app is Electron's own bundle: give it AgentRoom's icon in the Dock.
     if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(appIcon);
     const dir = app.getPath("userData");
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -507,14 +545,14 @@ if (!gotLock) {
       personalServices = new PersonalServices({ userData: dir, env: connectorsEnvFromProcess() });
       localLogin = new LocalLoginHost({ onChanged: () => { mainWindow?.webContents.send(PERSONAL_IPC.changed, {}); } });
       personalHost = new PersonalHost({
-        dataDir: resolve(process.env.AGENTSTUDIO_PERSONAL_DATA_DIR || join(dir, "personal")),
+        dataDir: workspaceProfile.personalData,
         workerPath: join(__dirname, "personal/worker.mjs"), staticDir: join(__dirname, "../renderer/personal"),
         // Finder launches have a minimal PATH. Add ordinary installation paths
         // without sourcing shell startup files or changing the selected account.
         env: localExecutionEnv(),
         fork: (path, args, options) => utilityProcess.fork(path, args, options),
         processIdentity: (pid) => {
-          const metric = app.getAppMetrics().find((entry) => entry.pid === pid && entry.type === "Utility" && entry.name === "AgentStudio Personal Runtime");
+          const metric = app.getAppMetrics().find((entry) => entry.pid === pid && entry.type === "Utility" && entry.name === "AgentRoom Personal Runtime");
           return metric ? { pid: metric.pid, creationTime: metric.creationTime, type: metric.type, name: metric.name || "" } : null;
         },
         buildRef: process.env.PERSONAL_BUILD_REF || __APP_REVISION__, codexCommand: process.env.AGENTSTUDIO_CODEX_BIN,

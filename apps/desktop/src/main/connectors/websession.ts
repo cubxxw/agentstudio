@@ -23,7 +23,7 @@ export type WebSessionOptions = {
 
 /** A Chrome user agent without the Electron and app tokens, so sites treat us like a browser. */
 export function browserUserAgent(): string {
-  return app.userAgentFallback.replace(/\s(Electron|AgentStudio|agentstudio)\/\S+/gi, "");
+  return app.userAgentFallback.replace(/\s(Electron|AgentRoom|AgentStudio|agentstudio)\/\S+/gi, "");
 }
 
 export class WebSession {
@@ -49,7 +49,7 @@ export class WebSession {
       width: 1200,
       height: 900,
       // Not the service's own app: say so, whatever the page calls itself.
-      title: `${this.opts.title} · AgentStudio connector`,
+      title: `${this.opts.title} · AgentRoom connector`,
       webPreferences: {
         partition: this.opts.partition,
         contextIsolation: true,
@@ -164,7 +164,7 @@ export class WebSession {
       webPreferences: { partition: this.opts.partition, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
     });
     this.loginWin = win;
-    // Keep our title, so the user can tell this is AgentStudio's sign-in window.
+    // Keep our title, so the user can tell this is AgentRoom's sign-in window.
     win.on("page-title-updated", (e) => e.preventDefault());
     // Sign-in pages may open provider popups (Apple, Google, Meta); keep them in the same partition.
     win.webContents.setWindowOpenHandler(({ url }) =>

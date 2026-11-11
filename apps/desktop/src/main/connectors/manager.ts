@@ -82,7 +82,7 @@ export type ConnectorsEnv = {
   museUrl: string;
   dotsUrl: string;
   show: boolean;
-  /** Open sign-in pages in an AgentStudio window instead of the browser (tests). */
+  /** Open sign-in pages in an AgentRoom window instead of the browser (tests). */
   openExternalInWindow: boolean;
 };
 
@@ -254,7 +254,7 @@ export class ConnectorManager {
     this.logins.get(loginId)?.choose?.(choiceId);
   }
 
-  /** A link the OS opened AgentStudio with (open-url). True when a connector took it. */
+  /** A link the OS opened AgentRoom with (open-url). True when a connector took it. */
   handleLink(url: string): boolean {
     return handleCueLink(url);
   }
@@ -363,7 +363,7 @@ export class ConnectorManager {
   }
 
   /**
-   * Cue: sign in with the Manus account in an AgentStudio window (AgentStudio then
+   * Cue: sign in with the Manus account in an AgentRoom window (AgentRoom then
    * creates an API key for itself), or paste an API key.
    */
   private async cueLogin(login: Login) {
@@ -373,7 +373,7 @@ export class ConnectorManager {
     signal.addEventListener("abort", () => web.abort(), { once: true });
     login.progress = {
       state: "waiting",
-      message: "Sign in to Manus (your Cue account) in your browser. AgentStudio picks it up when you're done…",
+      message: "Sign in to Manus (your Cue account) in your browser. AgentRoom picks it up when you're done…",
       actions: [{ id: "api-key", label: "Use an API key instead" }],
     };
     const switched = new Promise<"api-key">((resolve) => {
@@ -384,7 +384,7 @@ export class ConnectorManager {
     try {
       const r = await Promise.race([signIn, switched]);
       if (r !== "api-key") {
-        login.progress = { state: "waiting", message: "Creating an API key for AgentStudio…" };
+        login.progress = { state: "waiting", message: "Creating an API key for AgentRoom…" };
         const apiKey = await createCueApiKey(this.env.cue, r.token);
         await this.cueConnect(login, apiKey);
         return;
@@ -516,7 +516,7 @@ export class ConnectorManager {
       await connector.session.signIn(async (wc) => service === "muse"
         ? Boolean((await wc.mainFrame.executeJavaScript(MUSE_LOGIN_STATE) as { signedIn: boolean }).signedIn)
         : (await snapshotOf(connector.session, cfg.driver, wc)).signedIn, signal, () => {
-        if (!signal.aborted) login.progress = { state: "waiting", message: `Sign in to ${cfg.name} in the AgentStudio window that opened. Your sign-in stays in this service's own session on this Mac.` };
+        if (!signal.aborted) login.progress = { state: "waiting", message: `Sign in to ${cfg.name} in the AgentRoom window that opened. Your sign-in stays in this service's own session on this Mac.` };
       }, service === "muse" ? async (wc) => Boolean((await wc.mainFrame.executeJavaScript(MUSE_LOGIN_STATE) as { ready: boolean }).ready) : undefined);
     } catch (err) {
       connector.session.close();
