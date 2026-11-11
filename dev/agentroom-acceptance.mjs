@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // First-use and profile-reset acceptance, always with isolated synthetic identities.
 import {createRequire} from 'node:module';
 import {mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
@@ -11,6 +12,7 @@ const parent=process.env.AGENTROOM_EVIDENCE_DIR || resolve('output/playwright/ag
 const output=await mkdtemp(join(parent,native?'native-':'browser-'));
 const checks=[],errors=[];let app,browser,server,page;
 const env={...process.env,AGENTSTUDIO_USER_DATA_DIR:join(output,'normal-profile'),AGENTSTUDIO_MOCK_KEYCHAIN:'1',AGENTSTUDIO_WORKSPACE:'personal'};
+cleanDesktopTestEnv(env);
 for(const field of ['ELECTRON_RUN_AS_NODE','ELECTRON_RENDERER_URL','AGENTROOM_TEST_MODE','AGENTROOM_USER_DATA_DIR','AGENTROOM_PERSONAL_DATA_DIR','AGENTSTUDIO_PERSONAL_DATA_DIR'])delete env[field];
 for(const agent of ['CODEX','CLAUDE','PI','GEMINI','OPENCODE'])env[`AGENTSTUDIO_${agent}_BIN`]='/missing-agentroom-synthetic-'+agent.toLowerCase();
 const check=text=>{checks.push(text);console.log('PASS '+text);};
@@ -57,7 +59,10 @@ try{
   expect(await page.evaluate(()=>window.agentStudioPersonal.testMode)).toBe(false);
   expect(await page.evaluate(()=>window.agentStudioPersonal.testWorkspace('unsupported').then(()=>false,()=>true))).toBe(true);
   await preferences();await bounce('workspace-enter-test');
-  await expect(page.getByTestId('workspace-mode')).toHaveAttribute('data-test-mode','true');await expect(page.getByTestId('workspace-welcome')).toBeVisible();
+  await expect(page.getByTestId('workspace-mode')).toHaveAttribute('data-test-mode','true');
+  await page.getByTestId('im-focus-toggle').click();await expect(page.getByTestId('im-list-panel')).toBeHidden();await expect(page.getByTestId('workspace-mode')).toBeVisible();await page.getByTestId('im-focus-toggle').click();
+  await page.evaluate(()=>window.dispatchEvent(new Event('offline')));await expect(page.getByTestId('workspace-mode')).toBeVisible();await page.evaluate(()=>window.dispatchEvent(new Event('online')));
+  await expect(page.getByTestId('workspace-welcome')).toBeVisible();
   expect((await request('/bootstrap')).memories).toHaveLength(0);expect(await page.evaluate(()=>localStorage.getItem('agentroom-acceptance-marker'))).toBeNull();
   expect(await app.evaluate(async({session})=>(await session.defaultSession.cookies.get({name:'synthetic-profile'})).length)).toBe(0);check('entering test mode separates data, localStorage and cookies from the original profile');
   await request('/memories',{text:'本轮测试独有的合成记忆',clientId:crypto.randomUUID()});

@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Owned synthetic Pi only. No model SDK, personal profile or third-party call.
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
@@ -23,6 +24,7 @@ const env = { ...process.env, PI_CODING_AGENT_DIR: directory, AGENTSTUDIO_SYNTHE
   AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_PI_BIN: cli,
   AGENTSTUDIO_CODEX_BIN: '/agentstudio-synthetic-missing-codex', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude',
   AGENTSTUDIO_GEMINI_BIN: '/agentstudio-synthetic-missing-gemini', AGENTSTUDIO_OPENCODE_BIN: '/agentstudio-synthetic-missing-opencode', PERSONAL_BUILD_REF: 'synthetic-live-conversations' };
+  cleanDesktopTestEnv(env);
 for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
 let server, browser, application, page; const checks = [], errors = [];
 const check = name => { checks.push(name); console.log(`PASS ${name}`); };

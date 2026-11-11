@@ -42,7 +42,7 @@ function fixture(outcomes = ['success']) {
   const context = vm.createContext({
     ipcMain: { on() {}, handle: (name, callback) => handlers.set(name, callback) },
     fromPersonal: () => !context.quitting,
-    personalStartup: Promise.resolve(), personalStartupFailed: false, quitting: false,
+    personalStartup: Promise.resolve(), personalStartupFailed: false, quitting: false, switchingWorkspace: false, nativeOperations: 0,
     createHash, localLogin: {}, mainWindow: { webContents: { send() {} } },
     personalServices: {
       list: async () => present ? [{ id: instance.instanceId, service: 'cue', name: instance.name, status: 'ready', canOpen: false }] : [],
@@ -201,4 +201,12 @@ test('native quit during startup rejects a late local login', async () => {
   startup.resolve();
   assert.equal((await pending).state, 'failed');
   assert.equal(begins, 0);
+});
+
+
+test('native connection requests cannot start while a workspace switch is reserved', async () => {
+  const f = fixture(); f.context.switchingWorkspace = true;
+  await assert.rejects(() => f.invoke({kind: 'connect', serviceId: 'cue'}), /forbidden/);
+  assert.equal(f.providerLogins(), 0);
+  assert.equal(f.postBodies.length, 0);
 });

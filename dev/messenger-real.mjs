@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Explicit real CLI acceptance, with synthetic text only and an isolated profile.
 // No provider switch, private data, tool mutations or real third-party accounts.
 import { createRequire } from 'node:module';
@@ -11,6 +12,7 @@ const parent = resolve(process.env.AGENTSTUDIO_MESSENGER_EVIDENCE_DIR || 'output
 await mkdir(parent, { recursive: true });
 const output = await mkdtemp(join(parent, 'real-'));
 const env = { ...process.env, AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_WORKSPACE: 'personal' };
+cleanDesktopTestEnv(env);
 for (const key of ['ELECTRON_RUN_AS_NODE', 'AGENTSTUDIO_CODEX_BIN', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
 let app, page;
 const checks = [], outcomes = [];

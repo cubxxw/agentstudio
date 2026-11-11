@@ -20,7 +20,7 @@ let page: Page;
 async function launch(): Promise<void> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
-  delete env.ELECTRON_RUN_AS_NODE;
+  for (const key of ["ELECTRON_RUN_AS_NODE", "AGENTROOM_USER_DATA_DIR", "AGENTROOM_PERSONAL_DATA_DIR", "AGENTSTUDIO_PERSONAL_DATA_DIR", "AGENTROOM_TEST_MODE"]) delete env[key];
   app = await electron.launch({
     args: [APP_DIR],
     env: { ...env, AGENTSTUDIO_WORKSPACE: "matrix", AGENTSTUDIO_USER_DATA_DIR: profileDir, AGENTSTUDIO_SERVER_URL: SERVER, AGENTSTUDIO_MOCK_KEYCHAIN: "1" },

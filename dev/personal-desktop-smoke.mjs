@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // macOS native acceptance; synthetic local organization only, never a model call.
 // Build the desktop app first, then: node dev/personal-desktop-smoke.mjs
 // AGENTSTUDIO_DESKTOP_EVIDENCE_DIR sets the evidence parent (each run is unique).
@@ -38,6 +39,7 @@ const env = {
   AGENTSTUDIO_MOCK_KEYCHAIN: "1",
   PERSONAL_BUILD_REF: "personal-desktop-synthetic-smoke",
 };
+cleanDesktopTestEnv(env);
 for (const key of ["ELECTRON_RUN_AS_NODE", "ELECTRON_RENDERER_URL", "AGENTSTUDIO_PERSONAL_DATA_DIR", "PERSONAL_DATA_DIR"]) delete env[key];
 
 const metadata = {

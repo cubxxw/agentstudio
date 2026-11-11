@@ -521,3 +521,5 @@
 .workspace-quick { margin: 0 auto 22px; color: var(--im-muted); font-size: 11px; }
 .workspace-quick > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 10px; }
 .workspace-quick button { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--im-ink); }
+.workspace-mode-indicator { position: fixed; z-index: 20; top: 9px; right: 18px; padding: 3px 10px; border: 1px solid var(--im-line); border-radius: 7px; background: var(--im-paper); color: var(--im-blue); font-size: 11px; font-weight: 600; pointer-events: none; }
+.workspace-mode-indicator[hidden] { display: none; }

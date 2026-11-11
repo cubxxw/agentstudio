@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Synthetic design acceptance. No real model, account or existing profile is used.
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
@@ -43,6 +44,7 @@ const request = async (path, body) => {
 try {
   if (native) {
     const env = { ...process.env, CODEX_HOME: output, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: missing, AGENTSTUDIO_CLAUDE_BIN: missing, AGENTSTUDIO_PI_BIN: missing, AGENTSTUDIO_MOCK_KEYCHAIN: '1' };
+    cleanDesktopTestEnv(env);
     for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
     application = await _electron.launch({ executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
     page = await application.firstWindow();

@@ -168,6 +168,7 @@ function createWindow() {
     },
   });
   mainWindow = win;
+  if (workspaceProfile.testMode) win.on("page-title-updated", event => { event.preventDefault(); win.setTitle("AgentRoom · 测试模式"); });
 
   windowShown = false;
   win.once("ready-to-show", () => {

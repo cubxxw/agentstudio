@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Native synthetic acceptance only: reuse the already-running e2e/fakes/agents.ts
 // on 127.0.0.1:19179. Never start/reset that server or use real service accounts.
 // Run after building: AGENTSTUDIO_DESKTOP_EVIDENCE_DIR=<registered artifact> \
@@ -52,6 +53,7 @@ const env = {
   AGENTSTUDIO_DOTS_URL: `${fakeOrigin}/dots/`,
   NO_PROXY: [process.env.NO_PROXY, '127.0.0.1', 'localhost', '::1'].filter(Boolean).join(','),
 };
+cleanDesktopTestEnv(env);
 for (const name of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_WORKSPACE', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'AGENTSTUDIO_CONNECTOR_TRACE', 'AGENTSTUDIO_CONNECTOR_TRACE_NETWORK', 'AGENTSTUDIO_CONNECTOR_TRACE_BODIES', 'AGENTSTUDIO_CONNECTOR_SHOW']) delete env[name];
 const checks = [], errors = [], captures = [], publicSamples = [], connectedServices = [];
 let application, page, phase = 'preflight';

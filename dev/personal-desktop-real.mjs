@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Opt-in acceptance against the real configured CLI and public DeepWiki MCP.
 // Only synthetic attachments and public repository data leave the test profile.
 import { createRequire } from "node:module";
@@ -18,6 +19,7 @@ const { expect } = requireDesktop("@playwright/test");
 const executable = process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop("electron");
 const env = { ...process.env, AGENTSTUDIO_USER_DATA_DIR: profile,
   AGENTSTUDIO_PERSONAL_EXPORT_DIR: join(evidence, "exports"), AGENTSTUDIO_TEST_NOTIFICATIONS: "1" };
+  cleanDesktopTestEnv(env);
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.AGENTSTUDIO_PERSONAL_DATA_DIR;
 delete env.AGENTSTUDIO_WORKSPACE;

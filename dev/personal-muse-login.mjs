@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Real public Muse login page acceptance. Does not submit an email/code, import
 // browser cookies, send a chat message, or claim successful private-account auth.
 import { createRequire } from 'node:module';
@@ -11,6 +12,7 @@ const {_electron,expect}=require('@playwright/test');
 const parent=process.env.AGENTSTUDIO_DESKTOP_EVIDENCE_DIR||join(root,'output/playwright/muse-login');
 await mkdir(parent,{recursive:true});const evidence=await mkdtemp(join(parent,'muse-real-'));
 const env={...process.env,AGENTSTUDIO_USER_DATA_DIR:join(evidence,'profile'),AGENTSTUDIO_MOCK_KEYCHAIN:'1',AGENTSTUDIO_CODEX_BIN:join(evidence,'no-model-cli')};
+cleanDesktopTestEnv(env);
 for(const key of ['ELECTRON_RUN_AS_NODE','AGENTSTUDIO_WORKSPACE','AGENTSTUDIO_PERSONAL_DATA_DIR','AGENTSTUDIO_MUSE_URL','AGENTSTUDIO_CONNECTOR_TRACE','AGENTSTUDIO_CONNECTOR_TRACE_NETWORK'])delete env[key];
 const packaged=process.env.AGENTSTUDIO_PACKAGED_APP;
 const executablePath=packaged?join(packaged,'Contents/MacOS/AgentRoom'):process.env.AGENTSTUDIO_ELECTRON_BINARY||require('electron');
