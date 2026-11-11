@@ -4,7 +4,7 @@ export type { PersonalDesktopBridge as AgentStudioPersonal, DesktopMethod } from
 export type PersonalCommand = DesktopCommand;
 export type PersonalRequest = Parameters<PersonalDesktopBridge["request"]>[0];
 export type PersonalResponse = Awaited<ReturnType<PersonalDesktopBridge["request"]>>;
-export type PersonalChange = { threadId?: string };
+export type PersonalChange = { threadId?: string; previewCheck?: { workId: string; artifactId: string; revisionId: string } };
 export type PersonalSaveResult = Awaited<ReturnType<PersonalDesktopBridge["saveArtifact"]>>;
 
 export const PERSONAL_IPC = {

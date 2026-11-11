@@ -244,3 +244,21 @@ test('permission approval resumes a paused step with its unsubmitted files intac
   f.contribute(resumed, 'extra.md', 'Additional design note');
   assert.equal(f.store.require('collaboration', collaboration.id).steps.find(step => step.id === ctx.stepId).status, 'completed');
 });
+
+test('denying extra scope resumes within the original grant and rejoining does not regain old shares', t => {
+  const f = fixture(t), proposal = f.prepare({ piPaths: ['design.md'] }), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'deny-and-rejoin' });
+  const ctx = f.begin(collaboration.id), request = f.call(ctx, 'permission_request', { capability: 'artifact_write', paths: ['extra.md'], reason: 'Additional design note' }); f.finish(ctx);
+  f.service.decidePermission(request.requestId, { choice: 'reject', version: 1, clientId: 'deny-extra-scope' });
+  const resumed = f.begin(collaboration.id); assert.ok(resumed);
+  assert.throws(() => f.call(resumed, 'artifact_write', { path: 'extra.md', text: 'Denied', expectedHash: null }), errorCode('permission_required'));
+  f.contribute(resumed, 'design.md', 'Within original scope'); f.contribute(f.begin(collaboration.id), 'implementation.md', 'Implementation');
+  let thread = f.store.require('thread', f.group.id); f.messenger.updateChat(thread.id, { version: thread.version, memberIds: ['agent_codex'] }); f.service.reconcileMembership(thread.id);
+  thread = f.store.require('thread', f.group.id); f.messenger.updateChat(thread.id, { version: thread.version, memberIds: ['agent_codex', 'agent_pi'] }); f.service.reconcileMembership(thread.id);
+  f.send(); assert.equal(f.call(f.context('agent_codex'), 'artifact_list').artifacts.length, 0);
+});
+
+test('an agent joins an existing website plan without reclassifying its Markdown contribution', t => {
+  const f = fixture(t), first = f.call(f.context('agent_codex'), 'creation_propose', { title: 'Website', kind: 'website', goal: 'A website with design notes', task: 'Build index.html', writePaths: ['index.html'] });
+  const joined = f.call(f.context('agent_pi'), 'creation_update', { proposalId: first.proposalId, version: first.version, task: 'Write decisions.md for the same website', writePaths: ['decisions.md'] });
+  assert.equal(joined.contributors.length, 2); assert.equal(f.store.require('creation_proposal', first.proposalId).kind, 'website');
+});

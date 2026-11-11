@@ -23,12 +23,22 @@ flowchart LR
 | --- | --- |
 | Renderer | `out/renderer/personal/index.html`, separate `out/preload/personal.js`, `window.agentStudioPersonal`; production CSP has `connect-src 'none'`, so API HTTP stays outside the renderer. |
 | Main | Accepts fixed JSON routes only from its trusted top-level personal document; native save dialog writes artifact bytes and verifies their hash. It rejects legacy session/connector IPC in personal mode. |
-| Utility | `out/main/personal/worker.mjs` plus eleven copied backend ESM files; Electron-bundled Node/SQLite, one workspace, port 0, owner/workspace handshake. It never attaches to an existing port 18740 service. |
+| Utility | `out/main/personal/worker.mjs` plus nineteen copied backend ESM files; Electron-bundled Node/SQLite, one workspace, port 0, owner/workspace handshake. It never attaches to an existing port 18740 service. |
 | Data | `app.getPath('userData')/personal`, normally `~/Library/Application Support/AgentStudio/personal`; `AGENTSTUDIO_PERSONAL_DATA_DIR` selects an explicit directory. A separate SQLite lock rejects a second worker. No automatic import from Matrix, `.local/personal` or browser accounts. |
 
 Closing the Mac window hides it while the utility continues. Quitting closes only the owned utility; recovery resumes queued work but preserves uncertain remote effects for reconciliation. One unexpected crash restart is bounded; requests are not automatically resubmitted. Concurrent explicit restarts coalesce, and a later shutdown supersedes an older restart. Forced PID termination requires the same captured and current utility identity. Source provenance records Git HEAD with `-dirty` when applicable.
 
 The shared `apps/personal` UI and backend can also run as an auxiliary web service on 18740 (Vite development UI 18741), with separate `.local/personal` data. This is not the native default. Personal Bearer credentials use an AES-256-GCM file vault, not Keychain; prompts and CLI read-only shell policy do not enforce all configured plugin permissions. Account and packaging acceptance remain separately scoped in the [macOS ledger](personal/macos-acceptance.md).
+
+## Independent coauthored artifacts
+
+The personal utility owns `CreationService`, `CollaborationRuntime` and `ArtifactStore`. Discussion tools create one version-bound shared proposal per owner message; an owner decision creates a frozen capability grant and a bounded step DAG. Codex receives a private stdio MCP server and Pi an explicit trusted extension. Both call the same per-run authenticated loopback broker, whose handler recovers identity from accepted run records. Agent roles never supply their own authority.
+
+`PersonalWorker` remains the only model execution lane. Delegation queues without waiting; yielding saves a checkpoint and frees the lane. Permission waits preserve draft stages. Group membership/binding changes revoke effective capabilities; cached tool results and outgoing group replies are checked again. Work-only output is never broadcast as a normal group reply.
+
+SQLite owns identities, grants, queue and head pointers. Files under `artifacts/aw_…/objects/sha256` and immutable revision manifests own content; `current/` is a protected Finder projection. Human edits, brief changes, conflicting writes and incomplete swaps preserve data instead of silently replacing it. Owner edit effects run outside their durable operation-reservation transaction, allowing the content store to commit its own head transaction before materialization.
+
+The renderer opens a specific version through an opaque expiring `agentroom-artifact:` capability in a sandboxed iframe. Main also runs a serialized hidden-window page/error and narrow-layout check, then reports the verdict over the private utility channel. A website remains `waiting_preview` until that check succeeds. No renderer route can submit its own passing verdict. Content integrity, native preview, explicit user acceptance and publication are separate states. See [workflow and tools](personal/artifact-coauthoring.md), [API contract](api.md) and [current evidence](personal/artifact-coauthoring-acceptance-2026-11-11.md).
 
 ## Retained Matrix architecture (v0.1)
 

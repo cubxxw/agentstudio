@@ -105,7 +105,9 @@ export class PersonalHost {
         } else if (data.type === "startup_error") fail(typeof data.message === "string" ? data.message.slice(0, 600) : "本机后台无法启动");
         else if (data.type === "changed" && this.state === "ready") {
           const event = data.event && typeof data.event === "object" ? data.event as PersonalChange : {};
-          this.options.onChanged(typeof event.threadId === "string" ? { threadId: event.threadId } : {});
+          const preview = event.previewCheck;
+          const valid = preview && [preview.workId, preview.artifactId, preview.revisionId].every(value => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value));
+          this.options.onChanged({ ...(typeof event.threadId === "string" ? { threadId: event.threadId } : {}), ...(valid ? { previewCheck: preview } : {}) });
         }
       });
       child.once("exit", () => {
@@ -128,6 +130,10 @@ export class PersonalHost {
     const tracked = pending.finally(() => { if (this.startPromise === tracked) this.startPromise = null; });
     this.startPromise = tracked;
     return tracked;
+  }
+
+  reportArtifactPreview(workId: string, revisionId: string, checks: unknown) {
+    if (this.state === "ready" && this.child) this.child.postMessage({ type: "artifact-preview-result", workId, revisionId, checks });
   }
 
   async request(input: PersonalRequest): Promise<PersonalResponse> {

@@ -40,7 +40,8 @@ test('owner routes approve one plan, expose checked immutable preview and preser
   const proposal = state.body.proposals[0]; assert.equal(proposal.state, 'ready');
   assert.ok((await f.api('/workspace/status')).body.blockingRuns > 0, 'pending plan blocks profile switching');
   const approved = await f.api(`/creation-proposals/${proposal.id}/decision`, { choice: 'approve', version: proposal.version, clientId: 'api-owner-approval' }); assert.equal(approved.status, 200);
-  await f.wait(() => f.app.store.list('collaboration')[0]?.status === 'completed');
+  await f.wait(() => f.app.store.list('collaboration')[0]?.status === 'waiting_preview');
+  const waiting = f.app.store.list('collaboration')[0]; f.app.creation.runtime.recordPreviewCheck(waiting.id, waiting.finalRevisionId, { passed: true, errors: [], viewports: [{ width: 390 }] });
   const library = await f.api('/library/artifacts'); assert.equal(library.body.artifacts.length, 1);
   const artifact = library.body.artifacts[0], detail = await f.api(`/library/artifacts/${artifact.id}`); assert.equal(detail.body.revisions.length, 2);
   const preview = await f.api(`/library/artifacts/${artifact.id}/preview`, { revisionId: artifact.headRevisionId }); assert.equal(preview.status, 200);
@@ -55,7 +56,21 @@ test('owner routes approve one plan, expose checked immutable preview and preser
 test('generic thread retry cannot bypass the collaboration state machine', async t => {
   const f = await fixture(t), proposal = f.app.store.list('creation_proposal')[0];
   await f.api(`/creation-proposals/${proposal.id}/decision`, { choice: 'approve', version: proposal.version, clientId: 'api-approve-control' });
-  await f.wait(() => f.app.store.list('collaboration')[0]?.status === 'completed');
+  await f.wait(() => f.app.store.list('collaboration')[0]?.status === 'waiting_preview');
+  const waiting = f.app.store.list('collaboration')[0]; f.app.creation.runtime.recordPreviewCheck(waiting.id, waiting.finalRevisionId, { passed: true, errors: [], viewports: [{ width: 390 }] });
   const run = f.app.store.require('thread', f.chat.id).runs.find(item => item.collaboration);
   assert.equal((await f.api(`/threads/${f.chat.id}/retry`, { runId: run.id, clientId: 'unsafe-generic-retry' })).status, 409);
+});
+
+test('owner file edits and acceptance are durable through their real fixed API routes', async t => {
+  const f = await fixture(t), proposal = f.app.store.list('creation_proposal')[0];
+  await f.api(`/creation-proposals/${proposal.id}/decision`, { choice: 'approve', version: proposal.version, clientId: 'approve-human-edit-api' });
+  await f.wait(() => f.app.store.list('collaboration')[0]?.status === 'waiting_preview');
+  const work = f.app.store.list('collaboration')[0]; f.app.creation.runtime.recordPreviewCheck(work.id, work.finalRevisionId, { passed: true, errors: [], viewports: [{ width: 390 }] });
+  const artifact = f.app.store.require('workspace_artifact', work.artifactId), source = (await f.api(`/library/artifacts/${artifact.id}/files`, { revisionId: artifact.headRevisionId, path: 'index.html' })).body.files[0];
+  const body = { action: 'edit', expectedVersion: artifact.version, path: 'index.html', expectedHash: source.sha256, text: '<!doctype html><h1>Human contribution</h1>', clientId: 'human-file-edit-via-api' };
+  const edited = await f.api(`/library/artifacts/${artifact.id}/change`, body); assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  const replay = await f.api(`/library/artifacts/${artifact.id}/change`, body); assert.equal(replay.body.headRevisionId, edited.body.headRevisionId);
+  const accepted = await f.api(`/library/artifacts/${artifact.id}/change`, { action: 'accept', expectedVersion: edited.body.version, revisionId: edited.body.headRevisionId, clientId: 'accept-human-file-edit' });
+  assert.equal(accepted.body.acceptedRevisionId, edited.body.headRevisionId);
 });

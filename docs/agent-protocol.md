@@ -170,3 +170,7 @@ These agents have no API for third parties. The Mac app connects them through th
 - The renderer registers an instance with the bridge through the `endpoint` flow.
 
 See `docs/connectors.md`.
+
+## Personal desktop artifact tools
+
+Local Codex and Pi coauthor through per-run native tool sessions, separately from the retained Matrix agent protocol. The shared kernel owns proposal decisions, capability scope, step scheduling and immutable contributions. The agent cannot forge its actor, grant, version head or approval in tool arguments. Joining a shared plan uses `creation_update` with its proposal ID and version; an individual Markdown file does not change a website's global kind. Work-only messages do not recursively invoke the group. See [tool contract](api.md#coauthored-artifact-capabilities) and [workflow](personal/artifact-coauthoring.md).

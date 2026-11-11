@@ -2,7 +2,7 @@
 
 **GET-493：AgentRoom 与独立测试模式。** 用户确定新名称为 AgentRoom；显示品牌统一，旧存储/协议身份兼容保留。新工作区欢迎引导与设置中的测试入口支持反复首次体验和原工作区恢复。实现与验收边界见[测试说明](personal/testing.md)。
 
-**设计中：群聊发起的多 Agent 作品共创。** 已选择统一 tools 与版本化贡献的方向；完整用户流程、目录、授权卡、跨群修改及真实 Codex + Pi 验收定义见[共创设计提案](superpowers/specs/2026-11-11-artifact-coauthoring-design.md)。目前只有设计与 Muse 客户端观察，没有实现或共创验收结论。
+**本地实现：群聊发起的多 Agent 作品共创。** 统一工具内核、原生 Codex/Pi 工具适配、共同方案与权限卡、独立作品库、不可变版本、隔离网页预览和固定版本跨群共享已经实现。原生合成流程已通过；真实模型、当前提交与交付门禁的证据分别记录在[共创验收记录](personal/artifact-coauthoring-acceptance-2026-11-11.md)。[使用和边界](personal/artifact-coauthoring.md)。
 
 # AgentRoom 路线图（P0–P2）
 

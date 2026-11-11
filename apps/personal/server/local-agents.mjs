@@ -59,7 +59,7 @@ const limit = (value, fallback, maximum) => Number.isFinite(value) && value > 0 
 function options(deps) {
   return { ...deps, spawn: deps.spawn || nativeSpawn, env: deps.env || process.env, home: deps.home ?? homedir(),
     now: deps.now || Date.now,
-    probeTimeoutMs: limit(deps.probeTimeoutMs, 2500, 10_000),
+    probeTimeoutMs: limit(deps.probeTimeoutMs, 5000, 10_000),
     executionTimeoutMs: limit(deps.executionTimeoutMs, 300_000, 600_000),
     maxProbeBytes: limit(deps.maxProbeBytes, 16_384, 65_536),
     maxOutputBytes: limit(deps.maxOutputBytes, 2_000_000, 4_000_000),

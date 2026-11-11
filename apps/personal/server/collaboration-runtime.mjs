@@ -15,7 +15,7 @@ export class CollaborationRuntime {
     const participants = proposal.contributors.map(contribution => ({ ...proposal.participants.find(item => item.contactId === contribution.contactId), writePaths: contribution.writePaths }));
     const stepIds = Object.fromEntries(participants.map(participant => [participant.contactId, id('step')]));
     const work = { id: workId, threadId: proposal.threadId, messageId: proposal.messageId, proposalId: proposal.id, planHash: proposal.planHash,
-      artifactId: proposal.artifactId, title: proposal.title, kind: proposal.kind, goal: proposal.goal, participants, audienceIds: proposal.audienceIds, publishPaths: proposal.publishPaths,
+      artifactId: proposal.artifactId, title: proposal.title, kind: proposal.kind, goal: proposal.goal, participants, audienceIds: proposal.audienceIds, audienceBindings: proposal.audienceBindings, publishPaths: proposal.publishPaths,
       grantId, status: 'queued', createdAt: now(), messages: [], steps: proposal.contributors.map(contribution => ({
         id: stepIds[contribution.contactId], contactId: contribution.contactId, task: contribution.task, writePaths: contribution.writePaths,
         dependencies: contribution.dependsOnContacts.map(contactId => stepIds[contactId]), status: 'queued', runIds: [], mandatoryPaths: ['brief.md', 'decisions.md'],
@@ -38,8 +38,9 @@ export class CollaborationRuntime {
         catch (error) { work.status = 'blocked'; work.error = error.message; this.store.put('collaboration', work); return null; }
         const artifact = this.store.require('workspace_artifact', work.artifactId), checks = this.service.artifacts.check(artifact.headRevisionId, { owner: true }, { final: true });
         work.finalRevisionId = artifact.headRevisionId; work.finalChecks = checks;
-        work.status = !checks.passed ? 'blocked' : artifact.materializationState !== 'clean' ? 'waiting_local_changes' : 'completed';
-        work.finishedAt = now(); this.store.put('collaboration', work); this.updateLink(work);
+        work.status = !checks.passed ? 'blocked' : artifact.materializationState !== 'clean' ? 'waiting_local_changes' : artifact.kind === 'website' ? 'waiting_preview' : 'completed';
+        if (work.status === 'completed') work.finishedAt = now(); this.store.put('collaboration', work); this.updateLink(work);
+        if (work.status === 'waiting_preview') this.requestPreview(work);
       } else if (work.steps.some(item => ['blocked', 'cancelled', 'unknown'].includes(item.status))) { work.status = 'blocked'; this.store.put('collaboration', work); }
       else if (work.steps.some(item => item.status === 'waiting_permission')) { work.status = 'waiting_permission'; this.store.put('collaboration', work); }
       return null;
@@ -76,10 +77,10 @@ export class CollaborationRuntime {
     this.updateLink(work); return artifact;
   }
   updateLink(work) {
-    if (!work.artifactId) return;
+    if (!work.artifactId || work.publishRevoked) return;
     const artifact = this.store.require('workspace_artifact', work.artifactId), existing = this.store.list('artifact_link').find(link => link.artifactId === artifact.id && link.threadId === work.threadId);
     const link = { id: existing?.id || id('link'), artifactId: artifact.id, threadId: work.threadId, revisionId: artifact.headRevisionId, follow: false, paths: work.publishPaths || ['**'],
-      audienceIds: work.audienceIds, state: 'active', createdAt: existing?.createdAt || now() };
+      audienceIds: work.audienceIds, audienceBindings: work.audienceBindings, version: (existing?.version || 0) + 1, state: 'active', createdAt: existing?.createdAt || now() };
     this.store.put('artifact_link', link);
   }
   prepare(threadId, runId) {
@@ -206,6 +207,20 @@ export class CollaborationRuntime {
       if (work.steps.some(item => item.status === 'unknown')) work.status = 'unknown';
       this.store.put('collaboration', work);
     }
+  }
+  requestPreview(work) {
+    this.service.notify({ threadId: work.threadId, previewCheck: { workId: work.id, artifactId: work.artifactId, revisionId: work.finalRevisionId } });
+  }
+  resumePreviews() { for (const work of this.store.list('collaboration').filter(item => item.status === 'waiting_preview')) this.requestPreview(work); }
+  recordPreviewCheck(workId, revisionId, checks) {
+    const work = this.store.require('collaboration', workId);
+    if (work.status !== 'waiting_preview' || work.finalRevisionId !== revisionId) fail('version_conflict', '预览检查不属于当前待交付版本');
+    const artifact = this.store.require('workspace_artifact', work.artifactId);
+    for (const participant of work.participants) this.service.grant({ grantId: work.grantId, contactId: participant.contactId });
+    work.previewChecks = { passed: checks?.passed === true && Array.isArray(checks.errors) && checks.errors.length === 0, errors: (checks?.errors || ['预览未返回检查记录']).slice(0, 30).map(text => String(text).slice(0, 500)), viewports: checks?.viewports || [], checkedAt: now(), scope: 'native_page_load_and_narrow_layout', revisionId };
+    work.status = work.previewChecks.passed && artifact.headRevisionId === revisionId && artifact.materializationState === 'clean' ? 'completed' : 'blocked';
+    if (artifact.headRevisionId !== revisionId) work.error = '检查期间作品版本已变化，原预览结果不能验收新版本';
+    work.finishedAt = now(); this.store.put('collaboration', work); this.service.notify({ threadId: work.threadId }); return work;
   }
   control(workId, body) {
     const result = this.store.idempotent(`collaboration-control:${workId}`, body.clientId, body, () => {

@@ -7,7 +7,8 @@ import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 const requireDesktop = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { _electron } = createRequire(requireDesktop.resolve('@playwright/test'))('playwright');
 const { expect } = requireDesktop('@playwright/test');
-const real = process.argv.includes('--real');
+const real = process.argv.includes('--real'), brokenPreview = process.argv.includes('--expect-preview-block');
+if (real && brokenPreview) throw new Error('The failure fixture is synthetic only');
 const root = resolve(process.env.AGENTROOM_EVIDENCE_DIR || 'output/artifact-coauthoring'); await mkdir(root, { recursive: true });
 const output = await mkdtemp(join(root, real ? 'real-' : 'synthetic-'));
 const env = cleanDesktopTestEnv({ ...process.env, AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_CLAUDE_BIN: '/agentroom-missing-claude' });
@@ -22,6 +23,7 @@ if (!real) {
   await writeFile(join(piHome, 'models.json'), JSON.stringify({ providers: { synthetic: { models: [{ id: 'synthetic-model', reasoning: false }] } } }));
   const driver = `#!${process.execPath}
 import { basename } from 'node:path';
+const breakPreview = ${JSON.stringify(brokenPreview)};
 const pi = basename(process.argv[1]).includes('pi'), agent = pi ? 'pi' : 'codex', args=process.argv.slice(2);
 const out = value => console.log(JSON.stringify(value));
 if(args.includes('--version')) {console.log(agent+' 0.0.1-synthetic');process.exit(0)}
@@ -40,7 +42,8 @@ if(catalog.tools.some(t=>t.name==='creation_propose')){
  text=JSON.stringify({action:'reply',text:pi?'我建议把阅读过程做得更安静，先明确一个核心场景。方案卡里我负责设计选择。':'我会把阅读的节奏做成一页轻巧的网页，接着 Pi 的设计继续实现。请审核共同方案。'});
 }else{
  const status=await call('collaboration_status'), read=await call('artifact_read'), path=pi?'decisions.md':'index.html', previous=read.files.find(f=>f.path===path);
- const html='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:12vh 8vw;background:#f7f3eb;color:#243b33;font:18px/1.7 system-ui}small{letter-spacing:4px;color:#617d66}h1{font:500 clamp(40px,7vw,92px)/1.2 Georgia,serif;max-width:12em}p{max-width:32em}button{padding:14px 24px;border:0;border-radius:8px;background:#294c3f;color:white;font:inherit}</style><small>THE READING ROOM</small><h1>给想读的书，留一点安静。</h1><p>每天留一段属于自己的阅读时间。记下触动你的句子，慢慢读，也慢慢想。</p><button data-testid="reading-start" onclick="this.textContent=&quot;已留好今天的阅读时间&quot;">从一页开始</button><footer>'+(previous?'跨群继续修改，作品身份保持。':'由两位伙伴共同完成。')+'</footer></html>';
+ let html='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:12vh 8vw;background:#f7f3eb;color:#243b33;font:18px/1.7 system-ui}small{letter-spacing:4px;color:#617d66}h1{font:500 clamp(40px,7vw,92px)/1.2 Georgia,serif;max-width:12em}p{max-width:32em}button{padding:14px 24px;border:0;border-radius:8px;background:#294c3f;color:white;font:inherit}</style><small>THE READING ROOM</small><h1>给想读的书，留一点安静。</h1><p>每天留一段属于自己的阅读时间。记下触动你的句子，慢慢读，也慢慢想。</p><button data-testid="reading-start" onclick="this.textContent=&quot;已留好今天的阅读时间&quot;">从一页开始</button><footer>'+(previous?'跨群继续修改，作品身份保持。':'由两位伙伴共同完成。')+'</footer></html>';
+ if (breakPreview) html += '<script>throw new Error("Fixture preview failure")</script>';
  await call('artifact_write',{path,text:pi?'# 设计选择\\n\\n先服务一个阅读场景，保持低干扰。\\n'+(previous?'第二个群继续打磨同一作品。':'首轮设计。'):html,expectedHash:previous?.sha256||null});
  await call('artifact_submit',{summary:pi?'提交真实合成设计文件':'提交真实合成网页文件'});await call('task_complete',{summary:'本步骤已通过实际文件提交'});text='仅工作记录，不发布为群聊回复';
 }
@@ -77,10 +80,10 @@ try {
     const send = async text => { await page.getByTestId('im-message-input').fill(text); await page.getByTestId('im-send').click(); };
     await send('@all 我想做一个安静的阅读产品首页。请各自回应、提出创意，再用工具加入同一张共创方案卡。Pi 负责 decisions.md 说明设计选择，Codex 负责 index.html 并依赖 Pi。作品是无外部依赖的静态网页，包含 brief 和设计说明。先出方案，等我审核。');
     let state;
-    await wait(async () => { state = await request(`/threads/${group.id}/creation`); const thread = await request(`/threads/${group.id}`); if (thread.runs.some(run => ['blocked', 'unknown', 'failed'].includes(run.status))) throw new Error(JSON.stringify(thread.runs.map(({ localAgentId, status, error }) => ({ localAgentId, status, error })))); return state.proposals[0]?.state === 'ready'; });
+    await wait(async () => { state = await request(`/threads/${group.id}/creation`); const thread = await request(`/threads/${group.id}`); if (thread.runs.some(run => ['blocked', 'unknown', 'failed'].includes(run.status))) throw new Error(JSON.stringify(thread.runs.map(({ localAgentId, status, error }) => ({ localAgentId, status, error })))); if (state.proposals[0]?.state === 'needs_input' && thread.runs.every(run => ['completed', 'blocked', 'cancelled'].includes(run.status))) throw new Error(`Shared plan needs input: ${state.proposals[0].error}`); return state.proposals[0]?.state === 'ready'; });
     expect(state.proposals).toHaveLength(1); expect(state.proposals[0].contributors).toHaveLength(2);
     expect((await request('/library/artifacts')).artifacts).toHaveLength(0);
-    await expect(page.getByTestId('creation-card')).toHaveCount(1); await expect(page.getByTestId('im-message')).toHaveCount(3);
+    await expect(page.getByTestId('creation-card')).toHaveCount(1); if (!real) await expect(page.getByTestId('im-message')).toHaveCount(3); else expect((await request(`/threads/${group.id}`)).messages.filter(message => message.role === 'assistant').map(message => message.contactId).sort()).toEqual(['agent_codex', 'agent_pi']);
     await page.screenshot({ path: join(output, 'review-card.png') }); check('two separate replies and one native proposal, no content before approval');
     if (!real) {
       await page.getByTestId('creation-adjust').click(); await page.getByTestId('creation-edit-goal').fill('共同制作一个安静的阅读产品首页，保留设计选择，并适配窄屏。'); await page.getByTestId('creation-save').click();
@@ -88,7 +91,8 @@ try {
     }
     await page.getByTestId('creation-approve').click();
     let work;
-    await wait(async () => { state = await request(`/threads/${group.id}/creation`); work = state.collaborations[0]; if (['blocked', 'unknown', 'cancelled'].includes(work?.status)) throw new Error(JSON.stringify(work)); return work?.status === 'completed'; });
+    await wait(async () => { state = await request(`/threads/${group.id}/creation`); work = state.collaborations[0]; if (brokenPreview && work?.status === 'blocked' && work.previewChecks) return true; if (['blocked', 'unknown', 'cancelled'].includes(work?.status)) throw new Error(JSON.stringify(work)); return work?.status === 'completed'; });
+    if (brokenPreview) { expect(work.previewChecks.passed).toBe(false); expect(work.previewChecks.errors.join(' ')).toContain('Fixture preview failure'); check('native runtime errors block final delivery despite saved revisions'); report.status = 'passed'; } else {
     const artifactId = work.artifactId, firstRevision = work.finalRevisionId;
     const detail = await request(`/library/artifacts/${artifactId}`);
     expect(new Set(detail.contributions.filter(item => item.state === 'integrated').map(item => item.contactId))).toEqual(new Set(['self', 'agent_pi', 'agent_codex']));
@@ -117,6 +121,7 @@ try {
     await expect(page.getByTestId('artifact-workspace')).toBeVisible(); check('library reopens the artifact independently of either conversation');
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 640, height: 780 })); await page.screenshot({ path: join(output, 'narrow-workspace.png') });
     report.artifactId = artifactId; report.firstRevision = firstRevision; report.finalRevision = work.finalRevisionId; report.contributors = detail.contributions.map(({ contactId, runId, revisionId }) => ({ contactId, runId, revisionId })); report.status = 'passed';
+    }
   }
-} catch (error) { report.status = 'failed'; report.error = error.message; process.exitCode = 1; if (page) await page.screenshot({ path: join(output, 'failure.png') }).catch(() => {}); }
+} catch (error) { report.status = 'failed'; report.error = error.message; if (page) { try { const library = await request('/library/artifacts'); report.savedArtifactCount = library.artifacts.length; } catch {} } process.exitCode = 1; if (page) await page.screenshot({ path: join(output, 'failure.png') }).catch(() => {}); }
 finally { if (app) await app.close(); await new Promise(resolve => sentinel.close(resolve)); await writeFile(join(output, 'acceptance.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify({ output, status: report.status, checks, error: report.error })); }

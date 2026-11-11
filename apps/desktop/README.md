@@ -104,3 +104,9 @@ AGENTSTUDIO_WORKSPACE=matrix pnpm dev:desktop
 This path retains `out/renderer/index.html`, `out/preload/index.js`, `window.agentStudioDesktop`, its safeStorage session and original connectors. Its renderer's network CSP stays scoped to the configured server origin. The stack commands still manage the legacy `.local/` services; they do not reset the native personal profile. Full cross-client legacy E2E uses `AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e`.
 
 Setup, current evidence and explicit gaps: [personal guide](../../docs/personal/README.md), [macOS acceptance](../../docs/personal/macos-acceptance.md), [Mac decision record](../../docs/personal/macos-decision.md), [historical web acceptance](../../docs/personal/acceptance.md).
+
+## Shared artifacts from group conversations
+
+The personal desktop now supports a host-owned artifact library, native Codex/Pi tools, version-bound creation/permission cards and immutable static-document/website revisions. Work uses the existing single execution lane. Main serves checked revision files through an opaque `agentroom-artifact:` capability in a sandboxed iframe and owns a serialized hidden-window preview check; the utility receives its verdict over the private parent channel. No renderer verdict route, arbitrary command, network capability or model-generated approval HTML is exposed. Owner edit/import/accept/restore/archive and native reveal/export actions remain fixed capabilities.
+
+Workflow, current limits and directory layout: [coauthoring guide](../../docs/personal/artifact-coauthoring.md). Actual native, model and CI evidence: [acceptance record](../../docs/personal/artifact-coauthoring-acceptance-2026-11-11.md). Native deterministic acceptance is `node dev/artifact-coauthoring-acceptance.mjs` after building; `--expect-preview-block` checks actual page-error gating, `--real` uses actual configured models in an isolated profile.

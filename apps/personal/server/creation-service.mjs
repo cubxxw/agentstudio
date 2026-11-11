@@ -41,6 +41,7 @@ export class CreationService {
     if (!participant || contact.binding?.type !== 'local' || contact.binding.localAgentId !== participant.localAgentId) fail(403, 'binding_changed', '参与者的执行器已改变，原授权不能继续使用');
     return grant;
   }
+  audienceBindings(ids) { return Object.fromEntries(ids.map(contactId => [contactId, JSON.stringify(this.store.require('contact', contactId).binding || null)])); }
   canRead(context, artifactId, revisionId, path) {
     if (context.owner) return true;
     if (context.mode === 'work') {
@@ -53,7 +54,7 @@ export class CreationService {
     }
     const thread = this.store.require('thread', context.threadId);
     const links = this.store.list('artifact_link').filter(link => link.threadId === context.threadId && link.artifactId === artifactId && link.state === 'active');
-    return context.audienceIds.every(contactId => contactId === 'self' || (thread.memberIds.includes(contactId) && links.some(link => link.audienceIds.includes(contactId) && matches(link.paths, path) && (link.follow || link.revisionId === revisionId))));
+    return context.audienceIds.every(contactId => contactId === 'self' || (thread.memberIds.includes(contactId) && links.some(link => link.audienceIds.includes(contactId) && link.audienceBindings?.[contactId] === JSON.stringify(this.store.require('contact', contactId).binding || null) && matches(link.paths, path) && (link.follow || link.revisionId === revisionId))));
   }
   authorize(context, capability, artifactId, path, revisionId) {
     if (context?.owner && capability !== 'create') return;
@@ -151,10 +152,10 @@ export class CreationService {
       if (input.artifactId && !visible) fail(403, 'permission_required', '请先把这个作品明确共享到当前群聊');
       proposal = { id: proposalId, threadId: thread.id, messageId: context.messageId, title: visible?.title || input.title, kind: visible?.kind || input.kind,
         goal: input.goal, artifactId: visible?.id || null, baseRevisionId: visible?.revisionId || null, participants, audienceIds: context.audienceIds,
-        readPaths: ['**'], publishPaths: ['**'],
+        readPaths: ['**'], publishPaths: ['**'], audienceBindings: this.audienceBindings(context.audienceIds),
         contributors: [], version: 0, state: 'draft', createdAt: now(), sourceNames: (thread.messages.find(message => message.id === context.messageId)?.attachments || []).map(item => item.name) };
     }
-    if ((input.artifactId || null) !== proposal.artifactId || input.kind !== proposal.kind) fail(409, 'proposal_direction_conflict', '本轮存在不同的作品方向，请先在讨论中确定要采用的类型或作品');
+    if ((input.artifactId || null) !== proposal.artifactId || input.kind !== proposal.kind) fail(409, 'proposal_direction_conflict', `本轮整件作品的类型为 ${proposal.kind}，artifactId 为 ${proposal.artifactId || '新作品（省略 artifactId）'}。kind 不是你负责的文件类型；Markdown 设计说明也属于这件 ${proposal.kind}。请调用 creation_update，proposalId=${proposal.id}、version=${proposal.version}，提交你自己的 task、writePaths 和依赖，不要重新声明作品方向。`);
     const contribution = { contactId: context.contactId, task: input.task, notes: input.notes || '', writePaths, dependsOnContacts: input.dependsOnContacts || [] };
     proposal.contributors = [...proposal.contributors.filter(item => item.contactId !== context.contactId), contribution];
     proposal.state = 'draft'; proposal.version++; proposal.updatedAt = now(); this.store.put('creation_proposal', proposal);
@@ -162,7 +163,8 @@ export class CreationService {
   }
   update(context, input) {
     const proposal = this.store.require('creation_proposal', input.proposalId), own = proposal.contributors.find(item => item.contactId === context.contactId);
-    if (proposal.threadId !== context.threadId || proposal.messageId !== context.messageId || proposal.version !== input.version || !own) fail(409, 'version_conflict', '方案已更新或不属于本次讨论');
+    if (proposal.threadId !== context.threadId || proposal.messageId !== context.messageId || proposal.version !== input.version) fail(409, 'version_conflict', '方案已更新或不属于本次讨论');
+    if (!own && !input.task) fail(400, 'invalid_request', '加入方案时请提供你自己的 task 和文件范围');
     return this.propose(context, { ...own, ...input, title: proposal.title, kind: proposal.kind, goal: proposal.goal, ...(proposal.artifactId ? { artifactId: proposal.artifactId } : {}) });
   }
   seal(threadId, messageId, force = false) {
@@ -180,7 +182,7 @@ export class CreationService {
     };
     try { for (const contactId of ids) visit(contactId); proposal.state = 'ready'; delete proposal.error; }
     catch (error) { proposal.state = 'needs_input'; proposal.error = error.message; }
-    proposal.planHash = digest(JSON.stringify({ title: proposal.title, kind: proposal.kind, goal: proposal.goal, artifactId: proposal.artifactId, baseRevisionId: proposal.baseRevisionId, audienceIds: proposal.audienceIds, readPaths: proposal.readPaths, publishPaths: proposal.publishPaths, contributors: proposal.contributors }));
+    proposal.planHash = digest(JSON.stringify({ title: proposal.title, kind: proposal.kind, goal: proposal.goal, artifactId: proposal.artifactId, baseRevisionId: proposal.baseRevisionId, audienceIds: proposal.audienceIds, audienceBindings: proposal.audienceBindings, readPaths: proposal.readPaths, publishPaths: proposal.publishPaths, contributors: proposal.contributors }));
     proposal.version++; this.store.put('creation_proposal', proposal); this.notify({ threadId }); return proposal;
   }
   decide(proposalId, body) {
@@ -218,12 +220,18 @@ export class CreationService {
     });
     this.notify({ threadId: result.threadId }); return result;
   }
-  share(artifactId, { threadId, revisionId, follow = false, paths = ['**'] }) {
+  share(artifactId, { threadId, revisionId, follow = false, paths = ['**'], revoke = false, expectedVersion }) {
     const artifact = this.store.require('workspace_artifact', artifactId), thread = this.store.require('thread', threadId);
-    this.artifacts.revision(artifactId, revisionId);
     const existing = this.store.list('artifact_link').find(link => link.artifactId === artifactId && link.threadId === threadId);
+    if (revoke) {
+      if (!existing || (existing.version || 1) !== expectedVersion) fail(409, 'version_conflict', '共享范围已经改变，请重新查看后撤回');
+      const link = this.store.put('artifact_link', { ...existing, state: 'revoked', version: (existing.version || 1) + 1 });
+      for (const work of this.store.list('collaboration').filter(item => item.threadId === threadId && item.artifactId === artifactId && !['completed', 'cancelled'].includes(item.status))) this.store.put('collaboration', { ...work, publishRevoked: true });
+      this.notify({ threadId }); return link;
+    }
+    if (this.artifacts.revision(artifactId, revisionId).state !== 'committed') fail(400, 'invalid_revision', '只能共享已整合的确定版本');
     const link = { id: existing?.id || `link_${digest(`${artifactId}:${threadId}`).slice(0, 32)}`, artifactId: artifact.id, threadId, revisionId, follow: follow === true,
-      paths: creationPaths(paths), audienceIds: [...thread.memberIds], state: 'active', createdAt: now() };
+      paths: creationPaths(paths), audienceIds: [...thread.memberIds], audienceBindings: this.audienceBindings(thread.memberIds), version: (existing?.version || 0) + 1, state: 'active', createdAt: now() };
     this.store.put('artifact_link', link); this.notify({ threadId }); return link;
   }
   requestPermission(context, input) {
@@ -269,14 +277,15 @@ export class CreationService {
           if (!grant.participants.some(item => item.contactId === contact.id)) grant.participants.push({ contactId: contact.id, localAgentId: participant.localAgentId, writePaths: request.paths });
           if (!work.participants.some(item => item.contactId === contact.id)) work.participants.push(participant);
           grant.audienceIds = [...new Set([...grant.audienceIds, contact.id])]; work.audienceIds = grant.audienceIds;
+          work.audienceBindings = { ...work.audienceBindings, [contact.id]: JSON.stringify(contact.binding) };
           this.store.put('capability_grant', grant); this.store.put('collaboration', work); this.runtime.updateLink(work);
         }
       }
       request.state = body.choice === 'approve' ? 'approved' : 'rejected'; request.version++; request.decidedAt = now(); this.store.put('capability_request', request); return request;
     });
-    if (result.state === 'approved' && result.workId) {
+    if (['approved', 'rejected'].includes(result.state) && result.workId) {
       const work = this.store.require('collaboration', result.workId), step = work.steps.find(item => item.id === result.stepId);
-      if (step?.status === 'waiting_permission') { step.status = 'queued'; step.resumeStageId = step.stageId; work.status = 'queued'; this.store.put('collaboration', work); this.runtime.enqueueNext(work.id); }
+      if (step?.status === 'waiting_permission') { work.messages.push({ id: id('handoff'), fromContactId: 'self', toContactId: step.contactId, text: result.state === 'approved' ? '用户已批准这次额外范围，请读取当前授权后继续。' : '用户拒绝了这次额外范围；请在原授权范围内完成替代方案，不要重复申请相同范围。', createdAt: now() }); step.status = 'queued'; step.resumeStageId = step.stageId; work.status = 'queued'; this.store.put('collaboration', work); this.runtime.enqueueNext(work.id); }
     }
     this.notify({ threadId: result.threadId }); return result;
   }
@@ -290,6 +299,10 @@ export class CreationService {
   }
   reconcileMembership(threadId) {
     const thread = this.store.require('thread', threadId);
+    for (const link of this.store.list('artifact_link').filter(item => item.threadId === threadId && item.state === 'active')) {
+      const audienceIds = link.audienceIds.filter(contactId => thread.memberIds.includes(contactId) && link.audienceBindings?.[contactId] === JSON.stringify(this.store.get('contact', contactId)?.binding || null));
+      if (audienceIds.length !== link.audienceIds.length) this.store.put('artifact_link', { ...link, audienceIds, version: (link.version || 1) + 1 });
+    }
     for (const work of this.store.list('collaboration').filter(item => item.threadId === threadId && !['completed', 'cancelled'].includes(item.status))) {
       const grant = this.store.require('capability_grant', work.grantId);
       for (const participant of grant.participants) {

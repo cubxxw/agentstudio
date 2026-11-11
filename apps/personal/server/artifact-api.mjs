@@ -31,6 +31,26 @@ export class ArtifactAPI {
     if (!preview || preview.expiresAt <= Date.now()) fail(404, 'preview_expired', '预览已过期，请重新打开作品');
     return preview;
   }
+  ownerChange(artifactId, body) {
+    const route = `artifact-change:${artifactId}`, replay = this.store.replay(route, body.clientId, body);
+    if (replay.found) {
+      const operation = this.store.require('artifact_owner_operation', replay.value.id);
+      if (operation.state === 'completed') return operation.result;
+      if (operation.state === 'failed') fail(operation.error.status, operation.error.code, operation.error.message);
+      fail(409, 'operation_unknown', '原文件操作尚未核查，请查看已保存版本；没有重复执行');
+    }
+    const operation = { id: `owner_${digest(`${artifactId}:${body.clientId}`).slice(0, 32)}`, artifactId, action: body.action, expectedVersion: body.expectedVersion, revisionId: body.revisionId, state: 'pending' };
+    this.store.idempotent(route, body.clientId, body, () => this.store.put('artifact_owner_operation', operation));
+    try {
+      // Effects run outside the reservation transaction: ArtifactStore owns the
+      // head transaction and only materializes after that commit succeeds.
+      const result = this.service.artifacts.ownerChange(artifactId, body, { owner: true, contactId: 'self', runId: operation.id });
+      this.store.put('artifact_owner_operation', { ...operation, state: 'completed', result }); return result;
+    } catch (error) {
+      const safe = { status: error.status || 500, code: error.code || 'operation_unknown', message: error.status ? error.message : '文件操作未确认，请核查已保存版本和工作副本' };
+      this.store.put('artifact_owner_operation', { ...operation, state: error.status ? 'failed' : 'unknown', error: safe }); fail(safe.status, safe.code, safe.message);
+    }
+  }
   async route(method, path, readBody) {
     let match;
     if (method === 'GET' && path === '/api/library/artifacts') return { artifacts: this.store.list('workspace_artifact') };
@@ -56,10 +76,10 @@ export class ArtifactAPI {
         if (action === 'preview') { fields(body, ['revisionId']); return this.preview(artifactId, body.revisionId); }
         if (action === 'change') {
           fields(body, ['action', 'expectedVersion', 'revisionId', 'path', 'text', 'expectedHash', 'clientId']);
-          const result = this.store.idempotent(`artifact-change:${artifactId}`, body.clientId, body, () => this.service.artifacts.ownerChange(artifactId, body, { owner: true, contactId: 'self', runId: `human_${digest(body.clientId).slice(0, 32)}` }));
+          const result = this.ownerChange(artifactId, body);
           this.service.notify(); return result;
         }
-        if (action === 'share') { fields(body, ['threadId', 'revisionId', 'follow', 'paths', 'clientId']); return this.store.idempotent(`artifact-share:${artifactId}`, body.clientId, body, () => this.service.share(artifactId, body)); }
+        if (action === 'share') { fields(body, ['threadId', 'revisionId', 'follow', 'paths', 'revoke', 'expectedVersion', 'clientId']); return this.store.idempotent(`artifact-share:${artifactId}`, body.clientId, body, () => this.service.share(artifactId, body)); }
         if (action === 'resolve-local') { fields(body, ['action', 'clientId']); const result = this.store.idempotent(`artifact-local:${artifactId}`, body.clientId, body, () => this.service.artifacts.resolveLocal(artifactId, body.action, { owner: true })); this.service.notify(); return result; }
       }
     }

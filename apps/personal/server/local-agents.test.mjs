@@ -36,7 +36,7 @@ else if ((args[0] === 'login' || args[0] === 'auth') && args[1] === 'status') la
   }
 });
 else if (args[0] === '--help') {
-  write(mode === 'old-cli' ? '--print --output-format' : '--safe-mode --print --input-format --output-format --tools --strict-mcp-config --mcp-config --disallowedTools --permission-mode --disable-slash-commands --no-session-persistence --settings');
+  setTimeout(() => write(mode === 'old-cli' ? '--print --output-format' : '--safe-mode --print --input-format --output-format --tools --strict-mcp-config --mcp-config --disallowedTools --permission-mode --disable-slash-commands --no-session-persistence --settings'), fixture.helpDelayMs || 0);
 } else {
   let input = '';
   process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => input += chunk);
@@ -76,7 +76,7 @@ async function fixture(t, value = {}) {
       calls.push({ command, args, options }); active++; maximum = Math.max(active, maximum);
       // Execute synthetic scripts with the trusted interpreter. Fresh executable
       // shebang files can spend >3s in macOS launch checks before Node even starts;
-      // that is unrelated to the adapter's 2.5s protocol probe being tested.
+      // that is unrelated to the adapter's bounded protocol probe being tested.
       const child = spawn(process.execPath, [command, ...args], options);
       child.once('close', () => { active--; if (child.pid) closed.add(child.pid); }); return child;
     },
@@ -275,4 +275,9 @@ test('spawn failures remain safe errors without leaking native stderr or executa
   assert.equal(state.agents[0].installed, true); assert.equal(state.agents[0].auth.status, 'unknown');
   await assert.rejects(f.execute(), safeError('authentication_unknown'));
   assert.ok(!JSON.stringify(state).includes(SECRET));
+});
+
+test('a slow but bounded CLI help probe is not mistaken for an unsupported version', async t => {
+  const f = await fixture(t, { helpDelayMs: 3000 });
+  const result = await f.execute('claude'); assert.match(result.markdown, /Actual fixture result/);
 });

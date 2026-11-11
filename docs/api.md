@@ -4,10 +4,37 @@
 
 - `GET /api/bootstrap` includes `workspace: {onboardingCompleted, displayName}`. Existing populated workspaces are adopted without forced first-use UI.
 - `POST /api/workspace/onboarding`: `{action:"complete", name, clientId}` saves a trimmed 1–80 character owner name and completion marker atomically; `{action:"restart", clientId}` reopens onboarding without clearing other data. Unknown fields/actions are rejected.
-- `GET /api/workspace/status`: `{blockingRuns}` counts queued, active, approval-pending, unknown and unresolved runs.
+- `GET /api/workspace/status`: `{blockingRuns}` counts queued, active, approval-pending, unknown and unresolved runs, plus unresolved creation proposals, capability requests and collaboration work.
 - `agentstudio:personal:test-workspace` is a trusted personal-document-only native IPC action, with exactly `enter|reset|leave`. Preload exposes readonly `testMode` and `testWorkspace(action)`. No paths or commands are accepted. No HTTP profile-reset capability is exposed. The private utility message freezes writes/scheduling and checks existing work before confirmed shutdown and relaunch.
 
 See [test-mode boundaries](personal/testing.md).
+
+## Coauthored artifact capabilities
+
+These personal owner routes are allowlisted in native IPC. Agents use scoped native tools instead of these owner routes.
+
+| Method | Path | Body / result |
+| --- | --- | --- |
+| GET | `/api/library/artifacts` | Workspace artifact metadata; stable `aw_…` IDs |
+| GET | `/api/library/artifacts/:id` | Artifact, chronological committed revisions, contributions, group links and work |
+| POST | `/api/library/artifacts/:id/files` | `{revisionId, path?}`; verified UTF-8 files and hashes, never arbitrary filesystem paths |
+| POST | `/api/library/artifacts/:id/preview` | `{revisionId}`; opaque, expiring, checked revision capability |
+| GET | `/api/library/previews/:opaqueId` | Exact file mapping; only available in the owning utility lifetime |
+| GET | `/api/library/previews/:opaqueId/files/:fileId` | Verified single file and host MIME type |
+| POST | `/api/library/artifacts/:id/share` | `{threadId, revisionId, paths, follow:false, clientId}`; snapshot current audience; `{threadId,revoke:true,expectedVersion,clientId}` withdraws a link |
+| POST | `/api/library/artifacts/:id/change` | `{action,expectedVersion,clientId,…}`; `edit` adds `path,text,expectedHash`, `restore/accept` add `revisionId`, plus `import-local/archive/unarchive` |
+| POST | `/api/library/artifacts/:id/resolve-local` | `{action:"preserve-and-update",clientId}`; retain local backup before adopting head |
+| GET | `/api/threads/:id/creation` | Proposals, permission requests, work, active links and tool-operation metadata |
+| POST | `/api/creation-proposals/:id/decision` | `{version,choice:"approve|reject",clientId}`; one frozen plan |
+| POST | `/api/creation-proposals/:id/change` | `{version,goal,tasks?,paths?,dependencies?,clientId}`; edits own roles and regenerates canonical version |
+| POST | `/api/capability-requests/:id/decision` | `{version,choice:"approve|reject",clientId}`; precise extra scope, resume preserved step |
+| POST | `/api/collaborations/:id/control` | `{action:"stop|retry",stepId?,clientId}`; no replay of unknown or already-submitted effects |
+
+`GET /api/threads/:id` also includes the same `creation` metadata for cards. The original `/api/artifacts/:id` immutable Markdown routes retain their existing meaning.
+
+Native `artifactAction({kind:"reveal|export",artifactId,revisionId?})` accepts only opaque IDs. Main computes the current folder itself or uses a native directory dialog to export verified revision files into a new directory; credentials and transcripts are excluded. The `agentroom-artifact:` handler maps only preview capability/file members, adds CSP sandbox and denies network capability. Main's hidden-window verdict uses a private parent/utility message and has no renderer HTTP/IPC verdict endpoint.
+
+Discussion tools: `artifact_list/read`, `creation_propose/update`, `permission_request`, `collaboration_status`. `creation_update` can join another participant's existing draft by its current ID/version without restating the global artifact kind. Approved work also has `task_claim/delegate/yield`, `collaboration_message`, `artifact_write/submit/check` and `task_complete`. Every write includes the expected file SHA-256 (null for creation). Sessions bind trusted run/contact/backend/grant context, deduplicate call IDs, and revalidate cached reads after scope changes. Only a pre-execution unsupported-capability failure may retain the same backend's ordinary read-only chat path. See [full boundaries](personal/artifact-coauthoring.md).
 
 ## Default personal desktop IPC
 
@@ -48,6 +75,7 @@ interface PersonalDesktopBridge {
   saveArtifact(id: string): Promise<{
     cancelled: boolean; fileName?: string; path?: string; sha256?: string
   }>
+  artifactAction?(input: {kind:"reveal"|"export";artifactId:string;revisionId?:string}): Promise<{cancelled:boolean;path?:string}>
   restart(): Promise<void>
   nativeIntegration?(request: NativeIntegrationRequest): Promise<NativeIntegrationReply>
 }

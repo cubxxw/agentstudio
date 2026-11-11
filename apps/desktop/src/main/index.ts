@@ -38,6 +38,7 @@ import { LocalLoginHost, localExecutionEnv } from "./local-login";
 import { resolveWorkspaceProfile, testWorkspaceArgs, type TestWorkspaceAction } from "./workspace-profile";
 import type { NativeIntegrationReply } from "@agentstudio/personal/desktop-contract";
 import { PERSONAL_IPC, isTrustedDocument, personalCsp, readNativeIntegration, type PersonalCommand } from "../shared/personal-api";
+import { ArtifactPreviewChecker } from "./artifact-preview-check";
 import { artifactFileAction, readArtifactFileAction } from "./artifact-files";
 import { artifactPreviewResponse } from "./artifact-preview";
 
@@ -74,6 +75,7 @@ let quitting = false;
 let personalHost: PersonalHost | undefined;
 let personalServices: PersonalServices | undefined;
 let localLogin: LocalLoginHost | undefined;
+let artifactPreviewChecker: ArtifactPreviewChecker | undefined;
 let personalStartup = Promise.resolve();
 let personalStartupFailed = false;
 const nativeConnections = new Map<string, string>();
@@ -577,7 +579,7 @@ if (!gotLock) {
         },
         buildRef: process.env.PERSONAL_BUILD_REF || __APP_REVISION__, codexCommand: process.env.AGENTSTUDIO_CODEX_BIN,
         testExportDir: process.env.AGENTSTUDIO_PERSONAL_EXPORT_DIR,
-        onChanged: (event) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(PERSONAL_IPC.changed, event); },
+        onChanged: (event) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(PERSONAL_IPC.changed, event); if (event.previewCheck) artifactPreviewChecker?.enqueue(event.previewCheck); },
         chooseSavePath: async (name) => {
           const options = { defaultPath: join(app.getPath("downloads"), name), filters: [{ name: "Markdown", extensions: ["md"] }] };
           const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
@@ -585,6 +587,7 @@ if (!gotLock) {
         },
       });
     }
+    if (personalHost) artifactPreviewChecker = new ArtifactPreviewChecker(input => personalHost!.request(input), (target, checks) => personalHost!.reportArtifactPreview(target.workId, target.revisionId, checks));
     // Deny every permission request (camera, mic, geolocation, ...) except notifications.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(!personalMode && permission === "notifications"));
     installCsp();
@@ -613,7 +616,7 @@ if (!gotLock) {
     quitting = true;
     if (shutdownComplete) return;
     event.preventDefault();
-    if (!shutdownPromise) shutdownPromise = (async () => { localLogin?.stop(); await personalHost?.stop(); await personalServices?.stop(); await connectors?.stop(); })()
+    if (!shutdownPromise) shutdownPromise = (async () => { artifactPreviewChecker?.close(); localLogin?.stop(); await personalHost?.stop(); await personalServices?.stop(); await connectors?.stop(); })()
       .finally(() => { shutdownComplete = true; app.quit(); });
   });
 }
