@@ -27,7 +27,7 @@ export class Messenger {
       const contactId = `agent_${agent.id}`, previous = this.store.get('contact', contactId);
       this.putDiscovered({ id: contactId, kind: 'agent', name: agent.name, handle: agent.id,
         description: '这台 Mac 上的助手', instructions: '', color: agent.id === 'codex' ? 'blue' : 'violet',
-        version: 1, createdAt: now(), ...previous, discovered: true, binding: { type: 'local', localAgentId: agent.id },
+        version: 1, createdAt: now(), ...previous, added: previous ? previous.added !== false : false, discovered: true, binding: { type: 'local', localAgentId: agent.id },
         availability: !agent.installed ? 'not_installed' : !agent.execution.supported ? 'unsupported' : agent.auth.status === 'configured' ? 'ready' : 'login_required',
         profile: agent.profile || null, availabilityReason: agent.execution.reason || '', providerName: agent.name });
     }
@@ -59,6 +59,22 @@ export class Messenger {
         : { availability: connection ? 'ready' : 'disconnected', providerName: connection?.name || '连接已移除' }) };
   }
   contacts() { return this.store.list('contact').map(c => this.publicContact(c)).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')); }
+
+  addLocalAgents(body, detected) {
+    if (!Array.isArray(body.agentIds) || !body.agentIds.length || body.agentIds.length > 5
+      || body.agentIds.some(value => !['codex', 'claude', 'pi'].includes(value))) fail('请选择支持聊天的本机助手');
+    const agentIds = [...new Set(body.agentIds)];
+    // Validate the entire fresh inventory before changing any relationship.
+    for (const agentId of agentIds) {
+      const agent = detected.agents.find(item => item.id === agentId);
+      if (!agent?.installed || agent.execution?.supported !== true) fail('这个助手尚未安装或暂不支持聊天，请重新检查', 409, 'local_agent_unavailable');
+    }
+    return agentIds.map(agentId => {
+      const contact = this.store.require('contact', `agent_${agentId}`);
+      if (contact.added === false) this.store.put('contact', { ...contact, added: true, addedAt: now() });
+      return this.publicContact(this.store.require('contact', contact.id));
+    });
+  }
 
   saveContact(body, contactId) {
     const previous = contactId ? this.store.require('contact', contactId) : null;
@@ -112,6 +128,8 @@ export class Messenger {
     const memberIds = this.members(body.memberIds);
     if (body.kind === 'direct' && memberIds.length !== 2) fail('私聊只能有你和一位联系人');
     if (body.kind === 'direct') {
+      const peer = this.store.require('contact', memberIds.find(x => x !== SELF));
+      if (peer.added === false) this.store.put('contact', { ...peer, added: true, addedAt: now() });
       const existing = this.store.list('thread').find(t => t.kind === 'direct' && t.memberIds.includes(memberIds.find(x => x !== SELF)));
       if (existing) return existing;
     }

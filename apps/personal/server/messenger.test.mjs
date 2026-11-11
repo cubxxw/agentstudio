@@ -14,12 +14,12 @@ const detected = { checkedAt: new Date().toISOString(), agents: [
   { id: 'pi', name: 'Pi', installed: true, auth: { status: 'unknown' }, execution: { supported: false, reason: '尚未支持执行' } },
 ] };
 const fake = `let p='';for await(const c of process.stdin)p+=c;let x=JSON.parse(p.split('<untrusted_thread_context>\\n')[1].split('\\n</untrusted_thread_context>')[0]);if(p.includes('planning ONE explicit MCP'))x={toolName:'echo',arguments:{text:JSON.stringify(x)}};console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:JSON.stringify(p.includes('Group participation:')?{action:'reply',text:JSON.stringify(x)}:x)}}));console.log(JSON.stringify({type:'turn.completed'}));`;
-async function fixture(t) {
+async function fixture(t, inventory = detected) {
   const dir = await mkdtemp(join(tmpdir(), 'agentstudio-messenger-'));
   const changes = new EventEmitter(); let app;
   const start = async () => {
     app = await createPersonalServer({ dataDir: dir, port: 0, codexCommand: process.execPath,
-      codexArgs: ['--input-type=module', '-e', fake], discoverLocalAgents: async () => detected,
+      codexArgs: ['--input-type=module', '-e', fake], discoverLocalAgents: async () => inventory,
       onChange: () => changes.emit('change') });
     await app.listen();
   };
@@ -71,6 +71,73 @@ test('discovery, custom identities, stable direct chats and local-only people su
   await f.restart();
   assert.equal((await f.api(`/contacts/${contact.id}`)).body.instructions, '先核对来源');
   assert.equal((await f.api(`/threads/${chat.id}`)).body.id, chat.id);
+});
+
+test('quick add adopts stable contacts once, preserving edits and adoption across restart', async t => {
+  const f = await fixture(t);
+  const candidate = (await f.api('/contacts/agent_codex')).body;
+  assert.equal(candidate.added, false);
+  const body = { agentIds: ['codex'], clientId: key() };
+  const added = await f.api('/contacts/local', body);
+  assert.equal(added.status, 200);
+  assert.equal(added.body.contacts[0].id, candidate.id);
+  assert.equal(added.body.contacts[0].added, true);
+  assert.deepEqual((await f.api('/contacts/local', body)).body, added.body);
+  const edited = (await f.api('/contacts/agent_codex', { name: '我的助手', version: candidate.version, clientId: key() })).body;
+  const repeated = (await f.api('/contacts/local', { agentIds: ['codex', 'codex'], clientId: key() })).body.contacts;
+  assert.equal(repeated.length, 1);
+  assert.equal(repeated[0].name, '我的助手');
+  assert.equal(repeated[0].version, edited.version);
+  await f.restart();
+  assert.equal((await f.api('/contacts/agent_codex')).body.added, true);
+  assert.equal(f.store.list('thread').length, 0);
+});
+
+test('quick add validates the whole batch and cannot accept missing or unsupported agents', async t => {
+  const f = await fixture(t);
+  for (const agentIds of [[], ['codex', 'pi'], ['codex', 'missing'], 'codex']) {
+    const rejected = await f.api('/contacts/local', { agentIds, clientId: key() });
+    assert.ok(rejected.status >= 400);
+    assert.equal((await f.api('/contacts/agent_codex')).body.added, false);
+  }
+  assert.equal((await f.api('/contacts/local', { agentIds: ['codex'], command: 'anything', clientId: key() })).status, 400);
+});
+
+test('legacy contacts remain added and opening a candidate direct chat explicitly adopts it', async t => {
+  const f = await fixture(t);
+  const previous = f.store.require('contact', 'agent_codex');
+  delete previous.added;
+  f.store.put('contact', { ...previous, name: '旧联系人' });
+  assert.equal((await f.api('/contacts')).body.contacts.find(c => c.id === previous.id).added, true);
+  const pi = f.store.require('contact', 'agent_pi');
+  assert.equal(pi.added, false);
+  const chat = await f.api('/chats', { kind: 'direct', memberIds: [pi.id], clientId: key() });
+  assert.equal(chat.status, 201);
+  assert.equal((await f.api('/contacts/agent_pi')).body.added, true);
+  assert.equal((await f.api('/contacts/agent_codex')).body.name, '旧联系人');
+});
+
+test('quick add accepts signed-out assistants and preserves honest status after a fresh missing-install check', async t => {
+  const inventory = structuredClone(detected);
+  inventory.agents[0].auth.status = 'required';
+  const f = await fixture(t, inventory);
+  const added = await f.api('/contacts/local', { agentIds: ['codex'], clientId: key() });
+  assert.equal(added.status, 200);
+  assert.equal(added.body.contacts[0].availability, 'login_required');
+  inventory.agents[0].installed = false;
+  const missing = await f.api('/contacts/local', { agentIds: ['codex'], clientId: key() });
+  assert.equal(missing.status, 409);
+  assert.equal((await f.api('/contacts/agent_codex')).body.added, true);
+  assert.equal((await f.api('/contacts/agent_codex')).body.availability, 'not_installed');
+});
+
+test('concurrent quick adds with one request key produce one relationship and reject changed input', async t => {
+  const f = await fixture(t);
+  const body = { agentIds: ['codex'], clientId: key() };
+  const [one, two] = await Promise.all([f.api('/contacts/local', body), f.api('/contacts/local', body)]);
+  assert.equal(one.status, 200); assert.deepEqual(one, two);
+  assert.equal((await f.api('/contacts/local', { ...body, agentIds: ['pi'] })).status, 409);
+  assert.equal(f.store.list('contact').filter(c => c.id === 'agent_codex' && c.added).length, 1);
 });
 
 test('group mentions target exact members, each user message is stored once and accepted identities stay fixed', async t => {

@@ -244,6 +244,14 @@ export async function createPersonalServer(options = {}) {
         const detected = await localAgents();
         return json(response, 200, collectHostDiscovery({ contacts: messenger.sync(detected), integrations: store.list('connection'), localAgents: detected }));
       }
+      if (method === 'POST' && path === '/api/contacts/local') {
+        const body = await readJSON(request);
+        if (Object.keys(body).some(key => !['agentIds', 'clientId'].includes(key))) invalid('快速添加只接受本机助手选择');
+        const detected = await localAgents(true);
+        messenger.sync(detected);
+        const result = store.idempotent('contacts:local:add', body.clientId, body, () => ({ contacts: messenger.addLocalAgents(body, detected) }));
+        notify(); return json(response, 200, result);
+      }
       if ((match = path.match(/^\/api\/contacts\/([A-Za-z0-9_-]+)\/(control|run)$/))) {
         const contactId = match[1], action = match[2];
         messenger.sync(await localAgents());
