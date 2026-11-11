@@ -2,7 +2,9 @@
 
 AgentRoom is a room for conversations with distinct people and agents. macOS Messages is a reference for comfortable navigation, text size and native window behavior. AgentRoom's identity comes from the portraits and the way long Agent replies read.
 
-The sidebar stays quiet, the selected conversation becomes a white inset surface, and provider portraits carry their original colors. Agent portraits use a rounded square; people remain circular. The contact header belongs to the toolbar instead of reproducing Messages' centered avatar stack.
+The sidebar stays quiet, the selected conversation becomes a white inset surface, and provider portraits carry their original colors. WeChat informs the narrow left rail: the owner's portrait anchors the top, navigation stays in the middle, and settings sit at the bottom. Search, an independent filter disclosure and the plus action share one flexible toolbar without a redundant screen heading. The list and reading pane have soft outer corners.
+
+Feishu informs pinned conversation shortcuts: round portraits, short names and a subtle selection ring, in a horizontally scrollable row. These shortcuts deliberately use circles for people, agents and groups; ordinary agent portraits retain their rounded square shape. Pinning and order are saved per local profile. The contact header belongs to the toolbar instead of reproducing Messages' centered avatar stack.
 
 Agent replies sit directly on the reading surface. They have no repeated identity, timestamp, model label, document link or surrounding gray panel. The owner's messages use a deep slate-blue bubble with white text and an even radius. Group portraits align with the beginning of their reply. Failure, incomplete delivery and approvals remain explicit.
 
