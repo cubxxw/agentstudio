@@ -33,6 +33,7 @@ class FakeManager implements PersonalServicesManager {
   readonly cancelled: string[] = [];
   starts = 0;
   stops = 0;
+  status: ConnectorSummary["status"] = "ready";
   onSend: (id: string, message: InboundMessage) => Promise<void> = async () => {};
   nextProgress: LoginProgress = { state: "waiting", message: "Synthetic sign-in" };
   constructor(onEvent: (id: string, event: DirectConnectorEvent) => void) { this.host = new ConnectorHost(0, () => {}, () => {}, onEvent); }
@@ -51,7 +52,7 @@ class FakeManager implements PersonalServicesManager {
     }
   }
   async stop() { this.stops++; await this.host.close(); }
-  list(): ConnectorSummary[] { return this.records.map((entry) => ({ id: entry.instanceId, service: entry.service, name: entry.name, status: "ready", url: "http://legacy.invalid", canOpen: true })); }
+  list(): ConnectorSummary[] { return this.records.map((entry) => ({ id: entry.instanceId, service: entry.service, name: entry.name, status: this.status, url: "http://legacy.invalid", canOpen: true })); }
   registrations() { return this.records; }
   begin(service: ServiceId) { return `flow_${service}`; }
   progress() { return this.nextProgress; }
@@ -123,6 +124,35 @@ describe("personal service catalog and private sign-in capabilities", () => {
 });
 
 describe("durable local A2A dispatch", () => {
+  it("records an unready service as a failed unsent task and permits a new message after recovery", async () => {
+    const f = await fixture(); await f.services.list();
+    f.manager().status = "starting";
+    const response = await f.send();
+    expect(response.result).toMatchObject({ kind: "task", status: { state: "failed" } });
+    expect(f.manager().sends).toHaveLength(0);
+    expect((await f.get(response.result.id)).result.status.state).toBe("failed");
+    f.manager().status = "ready";
+    // A retry of the same identity reads the failure; it never silently sends.
+    expect((await f.send()).result.id).toBe(response.result.id);
+    expect(f.manager().sends).toHaveLength(0);
+    const next = await f.send("new_message");
+    expect(next.result.status.state).toBe("submitted");
+    await finish(f);
+    expect((await f.get(next.result.id)).result.status.state).toBe("completed");
+  });
+
+  it("retains a pre-dispatch failure through restart without blocking or replaying it", async () => {
+    const f = await fixture(); await f.services.list(); f.manager().status = "starting";
+    const first = await f.send(); await f.services.stop();
+    const restored = await fixture(f.directory); await restored.services.restore();
+    expect((await restored.get(first.result.id)).result).toMatchObject({ status: { state: "failed" }, metadata: { uncertain: false } });
+    expect((await restored.send()).result.id).toBe(first.result.id);
+    expect(restored.manager().sends).toHaveLength(0);
+    expect(restored.services.hasUnresolvedTasks()).toBe(false);
+    await restored.services.remove("fake_grok");
+    expect(restored.manager().removed).toEqual(["fake_grok"]);
+  });
+
   it("persists before send and exposes only correlated actual output as a completed artifact", async () => {
     const f = await fixture(); await f.services.list();
     f.manager().onSend = async (_instance, message) => {

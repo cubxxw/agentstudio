@@ -32,7 +32,7 @@ export type PersonalServicesOptions = {
   env?: ConnectorsEnv;
   createManager?(input: { directory: string; partitionPrefix: string; onEvent(id: string, event: DirectConnectorEvent): void }): PersonalServicesManager | Promise<PersonalServicesManager>;
 };
-type TaskState = "submitted" | "working" | "input-required" | "completed" | "unknown";
+type TaskState = "submitted" | "working" | "input-required" | "completed" | "failed" | "unknown";
 type TaskRecord = {
   id: string; instanceId: string; messageId: string; requestHash: string;
   state: TaskState; createdAt: string; updatedAt: string; text: string[];
@@ -42,7 +42,7 @@ type Manifest = { version: 1; chosenPort: number; tasks: TaskRecord[] };
 const validId = /^[A-Za-z0-9_-]{1,160}$/;
 const now = () => new Date().toISOString();
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
-const unresolved = (task: TaskRecord) => task.state !== "completed";
+const unresolved = (task: TaskRecord) => !["completed", "failed"].includes(task.state);
 
 /** No network, keychain access or directory creation until restore/list/begin. */
 export class PersonalServices {
@@ -135,7 +135,7 @@ export class PersonalServices {
     this.stopping = true;
     await this.initializing?.catch(() => {});
     if (this.server && !this.storageFault) {
-      for (const task of this.manifest.tasks) if (task.state !== "completed") { task.state = "unknown"; task.uncertain = true; task.updatedAt = now(); task.explanation = "应用已关闭，原服务执行尚未确认；不会自动重发。"; }
+      for (const task of this.manifest.tasks) if (unresolved(task)) { task.state = "unknown"; task.uncertain = true; task.updatedAt = now(); task.explanation = "应用已关闭，原服务执行尚未确认；不会自动重发。"; }
       try { this.save(); } catch { /* durable prior records remain for restart reconciliation */ }
     }
     try { if (this.manager) await this.manager.stop(); }
@@ -182,9 +182,9 @@ export class PersonalServices {
       const input = JSON.parse(readFileSync(this.manifestPath, "utf8")) as Manifest;
       if (input.version !== 1 || !Number.isInteger(input.chosenPort) || input.chosenPort < 1 || input.chosenPort > 65535 || !Array.isArray(input.tasks)
         || input.tasks.some((task) => !task || !validId.test(task.id) || !validId.test(task.instanceId) || !validId.test(task.messageId) || !Array.isArray(task.text) || task.text.some((text) => typeof text !== "string") || !/^[0-9a-f]{64}$/.test(task.requestHash)
-          || !["submitted", "working", "input-required", "completed", "unknown"].includes(task.state))) throw new Error("Personal services manifest is invalid; original data has been retained");
+          || !["submitted", "working", "input-required", "completed", "failed", "unknown"].includes(task.state))) throw new Error("Personal services manifest is invalid; original data has been retained");
       this.manifest = input;
-      for (const task of input.tasks) if (task.state !== "completed") {
+      for (const task of input.tasks) if (unresolved(task)) {
         task.state = "unknown"; task.uncertain = true; task.updatedAt = now(); task.explanation = "应用已重启。原服务可能已收到内容；只保留查询，不自动重发。";
       }
     }
@@ -265,8 +265,15 @@ export class PersonalServices {
     const previous = this.manifest.tasks.find((task) => task.instanceId === instanceId && task.messageId === message.messageId);
     if (previous) return previous.requestHash === requestHash ? this.json(res, 200, { jsonrpc: "2.0", id: body.id, result: this.taskResult(previous) }) : rpcError(-32602, "messageId already belongs to another payload");
     if (this.manifest.tasks.some((task) => task.instanceId === instanceId && unresolved(task))) return rpcError(-32002, "An earlier task is unresolved; inspect the original service. It must not be overwritten or replayed.");
-    if (this.manager!.list().find((entry) => entry.id === instanceId)?.status !== "ready") return rpcError(-32003, "The service is not ready; sign in or recover it first");
     const task: TaskRecord = { id: `pst_${randomUUID()}`, instanceId, messageId: message.messageId, requestHash, state: "submitted", createdAt: now(), updatedAt: now(), text: [] };
+    // A local readiness rejection is known to precede any provider dispatch.
+    // Return a durable terminal task so the caller can read it back instead of
+    // losing the receipt and classifying this as an uncertain external send.
+    if (this.manager!.list().find((entry) => entry.id === instanceId)?.status !== "ready") {
+      task.state = "failed"; task.explanation = "服务尚未就绪，本次内容未发送。请等连接恢复后发送新消息。";
+      this.manifest.tasks.push(task); this.save();
+      return this.json(res, 200, { jsonrpc: "2.0", id: body.id, result: this.taskResult(task) });
+    }
     this.manifest.tasks.push(task); this.save(); // Must be durable before any external send.
     this.sends.set(task.id, { accepted: false, completionReady: false, buffered: [] });
     this.json(res, 200, { jsonrpc: "2.0", id: body.id, result: this.taskResult(task) });
