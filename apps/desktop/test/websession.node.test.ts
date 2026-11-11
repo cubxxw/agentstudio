@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { createContext, runInContext } from "node:vm";
 import type { WebContents } from "electron";
 import { WebSession } from "../src/main/connectors/websession";
 
@@ -25,6 +26,7 @@ class FakeWindow extends EventEmitter {
     setWindowOpenHandler(handler: (details: { url: string }) => PopupReply): void;
     loadURL(url: string): Promise<void>;
     isDestroyed(): boolean;
+    isCrashed(): boolean;
     stop(): void;
   };
   readonly load: Deferred<void>;
@@ -47,6 +49,7 @@ class FakeWindow extends EventEmitter {
       setWindowOpenHandler: (handler: (details: { url: string }) => PopupReply) => { this.popup = handler; },
       loadURL: (url: string) => this.loadURL(url),
       isDestroyed: () => this.destroyed,
+      isCrashed: () => false,
       stop: () => this.load.reject(new Error("Synthetic navigation stopped")),
     });
     fake.windows.push(this);
@@ -108,6 +111,70 @@ afterEach(async () => {
 });
 
 describe("background session startup", () => {
+  it("bounds a debugger command that never returns and never executes it late", async () => {
+    const session = new WebSession({ partition: "persist:synthetic-websession", url: "https://example.invalid/", title: "Synthetic" });
+    await session.open();
+    const frame = deferred<unknown>(); const commands: string[] = [];
+    Object.assign(session.webContents!, { debugger: {
+      isAttached: () => true,
+      sendCommand: async (method: string) => { commands.push(method); return frame.promise; },
+    } });
+    const outcome: { error?: Error } = {};
+    void session.eval("must not execute").catch(error => { outcome.error = error; });
+    await vi.advanceTimersByTimeAsync(5001);
+    expect(outcome.error?.message).toMatch(/timed out/);
+    frame.resolve({ frameTree: { frame: { id: "late" } } }); await turn();
+    expect(commands).toEqual(["Page.getFrameTree"]);
+  });
+
+  it("returns from recovery while new media is still loading", async () => {
+    const session = new WebSession({ partition: "persist:synthetic-websession", url: "https://example.invalid/", title: "Synthetic" });
+    await session.open();
+    const load = deferred<void>();
+    session.webContents!.loadURL = () => load.promise;
+    let recovered = false;
+    void session.recover().then(() => { recovered = true; }); await turn();
+    expect(recovered).toBe(true);
+    load.resolve();
+  });
+
+  it("evaluates the chat driver in an isolated world before media finishes loading", async () => {
+    const load = deferred<void>(); fake.loads.push(load);
+    const session = new WebSession({ partition: "persist:synthetic-websession", url: "https://example.invalid/", title: "Synthetic" });
+    await session.open();
+    const wc = session.webContents!;
+    const main = createContext({ pageSecret: "not visible to driver" });
+    const isolated = createContext({});
+    let attached = false;
+    Object.assign(wc, {
+      executeJavaScriptInIsolatedWorld: async () => { await load.promise; return "too late"; },
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        sendCommand: async (method: string, params: any) => {
+          if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } };
+          if (method === "Page.createIsolatedWorld") {
+            expect(params.frameId).toBe("main-frame");
+            expect(params.grantUniveralAccess).not.toBe(true);
+            return { executionContextId: 7 };
+          }
+          if (method === "Runtime.evaluate") {
+            if (params.contextId !== 7) throw new Error("Must use the isolated context");
+            return { result: { value: runInContext(params.expression, isolated) } };
+          }
+          throw new Error("Unexpected protocol command");
+        },
+      },
+    });
+    let result: unknown;
+    void session.eval("globalThis.driverState = 42; typeof pageSecret").then(value => { result = value; }, () => {});
+    await turn();
+    expect(result).toBe("undefined");
+    expect(runInContext("typeof driverState", main)).toBe("undefined");
+    expect(await session.eval("driverState")).toBe(42);
+    session.close();
+  });
+
   it("starts a restored connector without waiting for the page's full load", async () => {
     const load = deferred<void>(); fake.loads.push(load);
     const session = new WebSession({ partition: "persist:synthetic-websession", url: "https://example.invalid/", title: "Synthetic service" });

@@ -6,7 +6,7 @@
 import { BrowserWindow, app, session as electronSession, shell, type WebContents } from "electron";
 import { traceNetwork } from "./nettrace";
 
-const WORLD_ID = 1999;
+const DRIVER_WORLD = "agentstudio-webchat-driver";
 
 export type WebSessionOptions = {
   /** Partition name, e.g. "persist:agentstudio-muse". */
@@ -99,7 +99,7 @@ export class WebSession {
       return;
     }
     this.broken = null;
-    await wc.loadURL(this.opts.url).catch(() => {});
+    void wc.loadURL(this.opts.url).catch(() => {});
   }
 
   close() {
@@ -137,7 +137,38 @@ export class WebSession {
   /** Runs an expression in the isolated world and returns its (JSON-safe) value. */
   async eval<T>(expression: string, wc: WebContents | null = this.webContents): Promise<T> {
     if (!wc || wc.isDestroyed()) throw new Error("session window is closed");
-    return (await wc.executeJavaScriptInIsolatedWorld(WORLD_ID, [{ code: expression }], true)) as T;
+    // WebContents' execution helper waits for did-stop-loading, even when the
+    // composer is usable and only media is outstanding. CDP creates the same
+    // separate JS world without that full-navigation gate. No Node APIs or
+    // universal cross-origin access are exposed to the page or driver.
+    const dbg = wc.debugger;
+    if (!dbg.isAttached()) dbg.attach("1.3");
+    let expired = false;
+    const timedOut = () => new Error("The service page driver timed out");
+    const command = async (method: string, params?: Record<string, unknown>) => {
+      if (expired || wc.isDestroyed()) throw timedOut();
+      const value = await dbg.sendCommand(method, params);
+      if (expired || wc.isDestroyed()) throw timedOut();
+      return value;
+    };
+    let timer!: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => { expired = true; reject(timedOut()); }, 5000);
+    });
+    try {
+      return await Promise.race([deadline, (async () => {
+        const { frameTree } = await command("Page.getFrameTree");
+        const { executionContextId } = await command("Page.createIsolatedWorld", {
+          frameId: frameTree.frame.id, worldName: DRIVER_WORLD, grantUniveralAccess: false,
+        });
+        const result = await command("Runtime.evaluate", {
+          expression, contextId: executionContextId, returnByValue: true,
+          awaitPromise: true, userGesture: true, timeout: 5000,
+        });
+        if (result.exceptionDetails) throw new Error("The service page driver could not execute");
+        return result.result.value as T;
+      })()]);
+    } finally { expired = true; clearTimeout(timer); }
   }
 
   /** Types into the focused element with real keyboard events (for editors that ignore synthetic input). */

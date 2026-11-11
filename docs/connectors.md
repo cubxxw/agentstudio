@@ -29,10 +29,10 @@ flowchart LR
   - **The page window never shows.** "View in Muse" / "View in ChatGPT" (Connect sheet), and cards AgentRoom can't show, open the service in the user's browser instead. `AGENTSTUDIO_CONNECTOR_SHOW=1` still shows it, for calibrating.
   - **Reconnecting.** The connector reloads the page when it shows a connection problem ("Connection error", "Reconnecting", "Offline", …) for 15 s, crashes, stops responding, fails to load, or can't be read 5 times in a row. Reloads back off (15 s, 30 s, 60 s, 2 min, then every 5 min). Meanwhile the agent shows "Reconnecting…" in the inbox and the Connect sheet, a message sent waits up to 45 s, and no "agent problem" notification goes out. Replies that arrived during the outage are still relayed.
   - **Sign-in happens in an AgentRoom window**, not the browser: these sites keep the sign-in in the browser's cookies, which other apps can't read.
-  - The page runs in a hidden window. Page scripts run in an isolated world.
+  - The page runs in a hidden window. Chat drivers run in a named isolated world through Electron's in-process debugger (`Page.createIsolatedWorld` / `Runtime.evaluate`), without Node or universal cross-origin access. This avoids the `WebContents` helper's full-navigation wait when a usable page still has pending media; driver evaluation is bounded to five seconds and is never automatically replayed.
   - The user agent is plain Chrome, without the Electron token.
   - Sign-in happens in a visible window on the same partition.
-  - **Muse login readiness.** The window starts hidden with a loading state in Connect. Its public login controls can become interactive before images/video finish loading. A main-frame check returns only `signedIn`/`ready` booleans, so the usable form can appear without Electron's full-navigation JavaScript wait. It returns no passwords, codes, account labels or conversations; chat drivers still run in isolated world 1999. Initial loading is bounded to 90 seconds; cancel/close interrupts loading and pending checks, closes owned login/popups, and a cancelled request cannot reopen them. An ordinary `ERR_ABORTED` navigation after readiness does not invalidate the auth flow. See [the actual Muse investigation](personal/muse-login.md).
+  - **Muse login readiness.** The window starts hidden with a loading state in Connect. Its public login controls can become interactive before images/video finish loading. A main-frame check returns only `signedIn`/`ready` booleans, so the usable form can appear without Electron's full-navigation JavaScript wait. It returns no passwords, codes, account labels or conversations; chat drivers still run in a separate named isolated world. Initial loading is bounded to 90 seconds; cancel/close interrupts loading and pending checks, closes owned login/popups, and a cancelled request cannot reopen them. An ordinary `ERR_ABORTED` navigation after readiness does not invalidate the auth flow. See [the actual Muse investigation](personal/muse-login.md).
 - **Offline behaviour.** When the Mac app is closed, these agents don't answer. When it starts again, the connectors resume.
 
 ## Grok Bot
@@ -64,6 +64,7 @@ This connector drives Meta's Muse at `muse.ai`. The page driver (`apps/desktop/s
 | Busy state | `aria-busy` |
 
 - **Replies** are relayed once their text stops changing and Muse is idle.
+- A personal-service message rejected before dispatch because its connector is not ready returns a durable `failed` task. Reading or repeating that message ID returns the original failure; a new message can be sent after recovery. Transport failures after dispatch remain uncertain and are not retried.
 - **Approvals.** Buttons in a reply that read as yes/no (Approve/Deny, Book/Don't book, …) become an approval card. Answering the card clicks the button on the page.
 - **Other interactive cards** become a card with **Open Muse**, which shows the Muse window so the user can answer there.
 
