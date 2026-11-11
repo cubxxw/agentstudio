@@ -84,11 +84,11 @@
 
 **Interfaces:** Cards consume server-owned proposal/status data, never model-generated executable HTML. Workspace reads an explicit revision, shows preview/files/history/permissions and links another group through an owner decision.
 
-- [ ] Add the agreed test IDs and browser acceptance assertions for one shared card, actual approve/reject, isolated preview, library reopen and cross-group link/update.
-- [ ] Run the acceptance flow against the pre-change UI; expect missing-element RED.
-- [ ] Implement the views using the current visual language, narrow-window layout, keyboard focus and honest partial/failure states.
-- [ ] Run type checks and deterministic native/browser acceptance; expect PASS, screenshots and no relevant renderer errors.
-- [ ] Commit the user flow.
+- [x] Add the agreed test IDs and browser acceptance assertions for one shared card, actual approve/reject, isolated preview, library reopen and cross-group link/update.
+- [x] Run the acceptance flow against the pre-change UI; expect missing-element RED.
+- [x] Implement the views using the current visual language, narrow-window layout, keyboard focus and honest partial/failure states.
+- [x] Run type checks and deterministic native/browser acceptance; expect PASS, screenshots and no relevant renderer errors.
+- [x] Commit the user flow.
 
 ### Task 6: Real evaluation, docs, independent review and delivery
 

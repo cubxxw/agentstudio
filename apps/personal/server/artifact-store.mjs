@@ -126,7 +126,7 @@ export class ArtifactStore {
   }
   ownStage(stageId, context) {
     const stage = this.store.require('artifact_stage', stageId);
-    if (stage.contactId !== context.contactId) fail(403, 'step_not_owned', '不能修改其他参与者的工作副本');
+    if (stage.contactId !== context.contactId || stage.runId !== context.runId) fail(403, 'step_not_owned', '不能修改其他参与者的工作副本');
     this.authorize(context, 'write', stage.artifactId); return stage;
   }
   readStage(stageId, context, paths) {

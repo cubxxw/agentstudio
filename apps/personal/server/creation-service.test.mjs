@@ -222,3 +222,25 @@ test('owner stop revokes a native session and retry cannot replay an unknown att
   const work = f.store.require('collaboration', collaboration.id); work.status = 'unknown'; work.steps[0].status = 'unknown'; f.store.put('collaboration', work);
   assert.throws(() => f.service.runtime.control(work.id, { action: 'retry', stepId: work.steps[0].id, clientId: 'unsafe-unknown-retry' }), errorCode('reconciliation_required'));
 });
+
+test('the owner can revise the shared goal and scopes, invalidating the older review card', t => {
+  const f = fixture(t), proposal = f.prepare();
+  const updated = f.service.ownerUpdate(proposal.id, { version: proposal.version, goal: '先做文档，不做网页', tasks: { agent_pi: '只做一个阅读场景' }, paths: { agent_pi: ['design.md'] }, dependencies: { agent_codex: [] }, clientId: 'owner-adjust-plan' });
+  assert.equal(updated.goal, '先做文档，不做网页'); assert.equal(updated.contributors.find(item => item.contactId === 'agent_pi').writePaths[0], 'design.md');
+  assert.ok(updated.version > proposal.version);
+  assert.throws(() => f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'old-plan-after-owner-edit' }), errorCode('version_conflict'));
+});
+
+test('permission approval resumes a paused step with its unsubmitted files intact', t => {
+  const f = fixture(t), proposal = f.prepare({ piPaths: ['design.md'] }), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'pause-for-permission' });
+  const ctx = f.begin(collaboration.id);
+  f.call(ctx, 'artifact_write', { path: 'design.md', text: 'Keep this draft', expectedHash: null });
+  const request = f.call(ctx, 'permission_request', { capability: 'artifact_write', paths: ['extra.md'], reason: 'Need another design note' });
+  f.finish(ctx);
+  assert.equal(f.store.require('collaboration', collaboration.id).steps.find(step => step.id === ctx.stepId).status, 'waiting_permission');
+  f.service.decidePermission(request.requestId, { choice: 'approve', version: 1, clientId: 'allow-extra-note' });
+  const resumed = f.begin(collaboration.id); assert.notEqual(resumed.runId, ctx.runId);
+  assert.equal(f.call(resumed, 'artifact_read', { paths: ['design.md'] }).files[0].text, 'Keep this draft');
+  f.contribute(resumed, 'extra.md', 'Additional design note');
+  assert.equal(f.store.require('collaboration', collaboration.id).steps.find(step => step.id === ctx.stepId).status, 'completed');
+});

@@ -41,6 +41,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
   POST: [
     new RegExp(`^/api/library/artifacts/${opaqueId}/(files|preview|share|resolve-local|change)$`),
     new RegExp(`^/api/(creation-proposals|capability-requests)/${opaqueId}/decision$`),
+    new RegExp(`^/api/creation-proposals/${opaqueId}/change$`),
     new RegExp(`^/api/collaborations/${opaqueId}/control$`),
     /^\/api\/workspace\/onboarding$/,
     /^\/api\/(threads|connections|memories)$/,

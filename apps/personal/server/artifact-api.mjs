@@ -11,7 +11,7 @@ export class ArtifactAPI {
   constructor(service, kick) { this.service = service; this.store = service.store; this.kick = kick; this.previews = new Map(); }
   detail(artifactId) {
     const artifact = this.store.require('workspace_artifact', artifactId);
-    return { artifact, revisions: this.store.list('artifact_revision').filter(item => item.artifactId === artifactId && item.state === 'committed'),
+    return { artifact, revisions: this.store.list('artifact_revision').filter(item => item.artifactId === artifactId && item.state === 'committed').reverse(),
       contributions: this.store.list('artifact_contribution').filter(item => item.artifactId === artifactId),
       links: this.store.list('artifact_link').filter(item => item.artifactId === artifactId),
       collaborations: this.store.list('collaboration').filter(item => item.artifactId === artifactId) };
@@ -35,6 +35,9 @@ export class ArtifactAPI {
     let match;
     if (method === 'GET' && path === '/api/library/artifacts') return { artifacts: this.store.list('workspace_artifact') };
     if (method === 'GET' && (match = path.match(/^\/api\/threads\/([A-Za-z0-9_-]+)\/creation$/))) { this.store.require('thread', match[1]); return this.service.forThread(match[1]); }
+    if (method === 'POST' && (match = path.match(/^\/api\/creation-proposals\/([A-Za-z0-9_-]+)\/change$/))) {
+      const body = await readBody(); fields(body, ['version', 'goal', 'tasks', 'paths', 'dependencies', 'clientId']); return this.service.ownerUpdate(match[1], body);
+    }
     if (method === 'POST' && (match = path.match(/^\/api\/(creation-proposals|capability-requests)\/([A-Za-z0-9_-]+)\/decision$/))) {
       const body = await readBody(); fields(body, ['choice', 'version', 'clientId']);
       const result = match[1] === 'creation-proposals' ? this.service.decide(match[2], body) : this.service.decidePermission(match[2], body);

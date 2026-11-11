@@ -41,6 +41,7 @@ export class CollaborationRuntime {
         work.status = !checks.passed ? 'blocked' : artifact.materializationState !== 'clean' ? 'waiting_local_changes' : 'completed';
         work.finishedAt = now(); this.store.put('collaboration', work); this.updateLink(work);
       } else if (work.steps.some(item => ['blocked', 'cancelled', 'unknown'].includes(item.status))) { work.status = 'blocked'; this.store.put('collaboration', work); }
+      else if (work.steps.some(item => item.status === 'waiting_permission')) { work.status = 'waiting_permission'; this.store.put('collaboration', work); }
       return null;
     }
     const participant = work.participants.find(item => item.contactId === step.contactId), thread = this.store.require('thread', work.threadId);
@@ -88,7 +89,13 @@ export class CollaborationRuntime {
     let context = this.service.context(threadId, runId);
     const artifact = this.ensureArtifact(work, context), refreshed = this.store.require('collaboration', work.id), current = refreshed.steps.find(item => item.id === step.id);
     context = this.service.context(threadId, runId);
-    const stage = this.service.artifacts.stage(artifact.id, runId, artifact.headRevisionId, context); current.stageId = stage.id; this.store.put('collaboration', refreshed);
+    let stage;
+    if (current.resumeStageId) {
+      stage = this.store.require('artifact_stage', current.resumeStageId);
+      if (stage.contactId !== context.contactId || stage.artifactId !== artifact.id) fail('step_not_owned', '保留副本不属于这个步骤');
+      stage.runId = runId; this.store.put('artifact_stage', stage); delete current.resumeStageId;
+    } else stage = this.service.artifacts.stage(artifact.id, runId, artifact.headRevisionId, context);
+    current.stageId = stage.id; this.store.put('collaboration', refreshed);
     return this.service.context(threadId, runId);
   }
   tool(context, name, args) {
@@ -121,7 +128,7 @@ export class CollaborationRuntime {
       const participant = grant.participants.find(item => item.contactId === args.contactId);
       if (!participant || grant.revokedContacts.includes(args.contactId)) fail('permission_required', '这位伙伴不在已批准的参与范围内');
       const writePaths = args.writePaths || participant.writePaths;
-      if (writePaths.some(path => !participant.writePaths.some(allowed => allowed === '**' || allowed === path))) fail('permission_required', '派工不能扩大这位伙伴的修改范围');
+      if (writePaths.some(path => !allowedPath(participant.writePaths, path))) fail('permission_required', '派工不能扩大这位伙伴的修改范围');
       const dependencies = args.dependsOnStepIds || [];
       if (dependencies.some(dependency => dependency === step.id || !work.steps.some(item => item.id === dependency))) fail('invalid_dependency', '子步骤不能依赖仍在等待它的父步骤');
       const child = { id: id('step'), parentId: step.id, contactId: args.contactId, task: args.task, writePaths, dependencies, status: 'queued', runIds: [], mandatoryPaths: ['brief.md', 'decisions.md'] };
@@ -152,16 +159,17 @@ export class CollaborationRuntime {
     catch (error) { step.status = 'cancelled'; step.error = error.message; }
     if (step.status === 'running') {
       if (step.completionRequested && step.submittedRevisionId) { step.status = 'completed'; step.finishedAt = now(); }
+      else if (this.store.list('capability_request').some(request => request.workId === work.id && request.stepId === step.id && request.state === 'pending')) step.status = 'waiting_permission';
       else { step.status = 'blocked'; step.error = '助手已返回，但没有完成实际贡献与步骤确认；成果和工作副本已保留'; }
     }
     delete step.activeRunId;
     this.store.put('collaboration', work);
     this.store.updateThread(threadId, item => {
       const accepted = item.runs.find(candidate => candidate.id === runId);
-      accepted.status = ['completed', 'waiting_dependency'].includes(step.status) ? 'completed' : 'blocked'; accepted.finishedAt = now(); delete accepted.progress;
+      accepted.status = ['completed', 'waiting_dependency', 'waiting_permission'].includes(step.status) ? 'completed' : 'blocked'; accepted.finishedAt = now(); delete accepted.progress;
       accepted.chosenExecutor = run.localAgentId; accepted.executionIdentity = result.identity; accepted.verificationState = step.status === 'completed' ? 'verified' : 'not_started';
       if (step.error) accepted.error = step.error;
-      this.store.event(item, 'collaboration', `${run.contactSnapshot.name}：${step.status === 'completed' ? '已完成共创步骤' : step.status === 'waiting_dependency' ? '正在等待依赖，执行槽已释放' : '共创步骤需要处理'}`, { runId, workId: work.id, stepId: step.id });
+      this.store.event(item, 'collaboration', `${run.contactSnapshot.name}：${step.status === 'completed' ? '已完成共创步骤' : step.status === 'waiting_permission' ? '等待权限决定，工作副本已保留' : step.status === 'waiting_dependency' ? '正在等待依赖，执行槽已释放' : '共创步骤需要处理'}`, { runId, workId: work.id, stepId: step.id });
     });
     this.enqueueNext(work.id); this.service.notify({ threadId }); return this.store.require('collaboration', work.id);
   }
@@ -222,7 +230,7 @@ export class CollaborationRuntime {
         if (!step || step.status !== 'blocked' || work.status === 'unknown' || work.steps.some(item => item.activeRunId) || thread.runs.some(run => run.collaboration?.workId === workId && (run.status === 'unknown' || run.stopUnconfirmed || run.requiresReconciliation))) fail('reconciliation_required', '原执行或停止状态尚未核查，不能重复执行');
         this.service.grant({ grantId: work.grantId, contactId: step.contactId });
         if (step.submittedRevisionId) fail('contribution_already_saved', '这次贡献已经保存，请通过新的讨论计划继续；不会重复提交');
-        step.status = 'queued'; work.status = 'queued'; delete step.error;
+        step.status = 'queued'; step.resumeStageId = step.stageId; work.status = 'queued'; delete step.error;
       } else fail('invalid_control', '请选择停止或重试一个已核查失败的步骤');
       this.store.put('collaboration', work); return work;
     });

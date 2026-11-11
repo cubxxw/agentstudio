@@ -310,3 +310,11 @@ The quiet `im-chat-info` header displays the peer/group and status (`im-header-s
 | Discovery actions / state | `im-discovery-refresh`, `im-discovery-retry`, `im-discovery-empty`, `im-discovery-more`, `im-discovery-prepare`, `im-discovery-connect`, `im-discovery-details` |
 
 Schedules start disabled. Run Now requires a saved active goal. Pause turns off later scheduling and invalidates queued ticks; it does not claim to stop an operation already sent. Save conflict/network errors preserve editing. App exit and Mac sleep suspend scheduling. Fixed remote schedules do not claim structured autonomy. Human contacts remain local-only until an actual messaging transport exists.
+
+### Shared artifact coauthoring (personal desktop)
+
+The `im-nav-library` entry opens the independent artifact library. `library-artifact-<artifactId>` opens the same work across chats. Discussion cards use host-owned records, with `creation-card`, `creation-scope`, `creation-approve`, `creation-adjust`, `creation-edit-goal`, `creation-save` and `creation-reject`. A decision binds the displayed version; approving an old card fails rather than executing a changed plan.
+
+`artifact-tool-activity` lists actual scoped tool operations. `artifact-permission-card` with `artifact-permission-approve/reject` grants or denies a precise extra scope. `artifact-result-card`, `artifact-open`, `collaboration-stop` and `collaboration-retry` show real contributions and partial/unknown outcomes. Collaboration runs do not expose ordinary chat retry controls.
+
+The `artifact-workspace` contains `artifact-revision-select`, tabs `artifact-tab-preview/files/history/activity/permissions`, isolated `artifact-preview`, `artifact-file`, `artifact-file-content`, `artifact-editor`, `artifact-edit-save`, `artifact-revision`, `artifact-accept`, `artifact-restore` and `artifact-archive`. Native actions use `artifact-reveal` and `artifact-export`. Sharing uses `artifact-share`, `artifact-share-thread`, `artifact-share-paths`, `artifact-share-follow` (unchecked by default), `artifact-share-confirm` and `artifact-share-notice`. Human Finder changes appear in `artifact-local-warning` and are preserved until explicitly coordinated.

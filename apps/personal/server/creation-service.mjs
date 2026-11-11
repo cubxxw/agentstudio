@@ -202,6 +202,22 @@ export class CreationService {
     if (result.collaboration) this.runtime.enqueueNext(result.collaboration.id);
     this.notify({ threadId: result.proposal.threadId }); return result;
   }
+  ownerUpdate(proposalId, body) {
+    const result = this.store.idempotent(`creation-change:${proposalId}`, body.clientId, body, () => {
+      const proposal = this.store.require('creation_proposal', proposalId);
+      if (!['ready', 'needs_input'].includes(proposal.state) || proposal.version !== body.version) fail(409, 'version_conflict', '方案已经更新，请重新打开后调整');
+      if (typeof body.goal !== 'string' || !body.goal.trim() || body.goal.length > 4000) fail(400, 'invalid_request', '请填写有效的作品目标');
+      for (const values of [body.tasks, body.paths, body.dependencies]) if (values && (typeof values !== 'object' || Array.isArray(values) || Object.keys(values).some(contactId => !proposal.contributors.some(item => item.contactId === contactId)))) fail(400, 'invalid_request', '只能调整当前方案中的参与者');
+      for (const contribution of proposal.contributors) {
+        if (body.tasks?.[contribution.contactId] !== undefined) { const task = body.tasks[contribution.contactId]; if (typeof task !== 'string' || !task.trim() || task.length > 3000) fail(400, 'invalid_request', '请填写有效分工'); contribution.task = task; }
+        if (body.paths?.[contribution.contactId]) contribution.writePaths = creationPaths(body.paths[contribution.contactId]);
+        if (body.dependencies?.[contribution.contactId]) { const values = body.dependencies[contribution.contactId]; if (!Array.isArray(values) || values.some(contactId => contactId === contribution.contactId || !proposal.contributors.some(item => item.contactId === contactId))) fail(400, 'invalid_dependency', '请选择本轮另一位伙伴作为依赖'); contribution.dependsOnContacts = [...new Set(values)]; }
+      }
+      proposal.goal = body.goal.trim(); proposal.state = 'draft'; this.store.put('creation_proposal', proposal);
+      return this.seal(proposal.threadId, proposal.messageId, true);
+    });
+    this.notify({ threadId: result.threadId }); return result;
+  }
   share(artifactId, { threadId, revisionId, follow = false, paths = ['**'] }) {
     const artifact = this.store.require('workspace_artifact', artifactId), thread = this.store.require('thread', threadId);
     this.artifacts.revision(artifactId, revisionId);
@@ -258,6 +274,10 @@ export class CreationService {
       }
       request.state = body.choice === 'approve' ? 'approved' : 'rejected'; request.version++; request.decidedAt = now(); this.store.put('capability_request', request); return request;
     });
+    if (result.state === 'approved' && result.workId) {
+      const work = this.store.require('collaboration', result.workId), step = work.steps.find(item => item.id === result.stepId);
+      if (step?.status === 'waiting_permission') { step.status = 'queued'; step.resumeStageId = step.stageId; work.status = 'queued'; this.store.put('collaboration', work); this.runtime.enqueueNext(work.id); }
+    }
     this.notify({ threadId: result.threadId }); return result;
   }
   canPublishConversation(threadId, runId) {
