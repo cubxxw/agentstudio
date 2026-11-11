@@ -1,4 +1,4 @@
-import { Check, Copy, FileText, Reply, Square } from "lucide-react";
+import { Check, Clock3, Copy, FileText, Reply, Square } from "lucide-react";
 import { Avatar } from "./ContactAvatar";
 import { runLabel } from "./ConversationDetails";
 import { conversationRows } from "./conversation-rows";
@@ -14,6 +14,7 @@ export function ConversationTimeline({ thread, contacts, limit, onMore, onReply,
 }) {
   const allRows = conversationRows(thread), rows = allRows.slice(-limit * 2);
   const bubble = (message: Message, run?: Run, preview = false) => {
+    if (message.role === "system") return <div className="im-schedule-event" data-testid="im-schedule-event"><Clock3 size={13} /><RichText text={message.text} /></div>;
     const sender = message.contactSnapshot || contacts.find(contact => contact.id === message.contactId);
     const reply = message.replyTo ? thread.messages.find(item => item.id === message.replyTo) : null;
     const queued = message.role === "user" && thread.runs.some(item => item.messageId === message.id && item.status === "queued");

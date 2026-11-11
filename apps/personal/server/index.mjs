@@ -9,6 +9,8 @@ import { discoverLocalAgents } from './local-agents.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 import { Messenger } from './messenger.mjs';
 import { AgentOnboarding } from './agent-onboarding.mjs';
+import { AgentScheduler } from './agent-scheduler.mjs';
+import { collectHostDiscovery } from './host-discovery.mjs';
 import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -98,7 +100,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -124,6 +126,10 @@ export async function createPersonalServer(options = {}) {
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
+  const scheduler = new AgentScheduler(store, messenger, { clock: options.schedulerNow, validateInput: input => validateInput(store, input),
+    refresh: async () => messenger.sync(await localAgents()), kick: () => worker.kick(), notify });
+  worker.options.agentScheduler = scheduler;
+  scheduler.recover();
   const acceptedLocalInput = (body, detected) => {
     const input = validateInput(store, body);
     const agent = detected?.agents.find(item => item.id === input.localAgentId);
@@ -204,6 +210,21 @@ export async function createPersonalServer(options = {}) {
       let match;
       if (method === 'GET' && path === '/api/health') return json(response, 200, { ok: true, service: 'agentstudio-personal', durableQueue: true, build });
       if (method === 'GET' && path === '/api/contacts') return json(response, 200, { contacts: messenger.sync(await localAgents()) });
+      if (method === 'GET' && path === '/api/host/discovery') {
+        const detected = await localAgents();
+        return json(response, 200, collectHostDiscovery({ contacts: messenger.sync(detected), integrations: store.list('connection'), localAgents: detected }));
+      }
+      if ((match = path.match(/^\/api\/contacts\/([A-Za-z0-9_-]+)\/(control|run)$/))) {
+        const contactId = match[1], action = match[2];
+        messenger.sync(await localAgents());
+        if (method === 'GET' && action === 'control') return json(response, 200, scheduler.get(contactId));
+        if (method === 'POST') {
+          const body = await readJSON(request);
+          if (Object.keys(body).some(key => !(action === 'control' ? ['version', 'clientId', 'goal', 'scheduler'] : ['version', 'clientId']).includes(key))) invalid('目标调度包含不支持的选项');
+          const result = store.idempotent(`contacts:${contactId}:${action}`, body.clientId, body, () => action === 'control' ? scheduler.save(contactId, body) : scheduler.runNow(contactId, body));
+          notify({ contactId }); worker.kick(); return json(response, action === 'run' ? 202 : 200, result);
+        }
+      }
       if (method === 'GET' && (match = path.match(/^\/api\/contacts\/([A-Za-z0-9_-]+)$/))) return json(response, 200, messenger.publicContact(store.require('contact', match[1])));
       if (method === 'POST' && (path === '/api/contacts' || (match = path.match(/^\/api\/contacts\/([A-Za-z0-9_-]+)$/)))) {
         const contactId = match?.[1], body = await readJSON(request);
@@ -357,6 +378,7 @@ export async function createPersonalServer(options = {}) {
             store.event(thread, 'cancelled', thread.summary, { runId: run.id });
           } else {
             if (!terminal.includes(run.status)) throw new APIError(409, 'active_run', '任务仍在进行中');
+            if (run.agentSchedule && action === 'retry' && !run.externalTaskId) throw new APIError(409, 'goal_retry_policy', '目标运行请从 Agent 设置中点击立即运行，按当前目标和每日次数重新安排');
             if (run.mode === 'connection' && run.externalTaskId) {
               run.status = 'queued'; run.phase = 'reconcile'; delete run.error; delete run.finishedAt;
               thread.status = 'queued'; thread.summary = '已排队核查原远端任务，不会重新提交';
@@ -367,7 +389,7 @@ export async function createPersonalServer(options = {}) {
               const message = thread.messages.find((item) => item.id === run.messageId);
               store.appendRun(thread, { ...message, mode: run.mode, localAgentId: run.localAgentId || 'codex', connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id,
                 executionSnapshot: run.executionSnapshot, contactId: run.contactId, contactSnapshot: run.contactSnapshot, participantSnapshot: run.participantSnapshot, conversationSnapshot: run.conversationSnapshot,
-                visibleAfterMessageId: run.visibleAfterMessageId, responsePolicy: run.responsePolicy });
+                visibleAfterMessageId: run.visibleAfterMessageId, responsePolicy: run.responsePolicy, connectionIdentityId: run.id });
             }
           }
           store.refreshThread(thread);
@@ -377,6 +399,7 @@ export async function createPersonalServer(options = {}) {
         // Older persisted idempotency records contained only the thread snapshot.
         const result = record.thread || record;
         if (action === 'cancel') worker.cancel(threadId, record.runId || result.runs.at(-1)?.id);
+        if (action === 'cancel') scheduler.afterRun(threadId, record.runId || result.runs.at(-1)?.id);
         notify({ threadId }); worker.kick(); return json(response, 200, result);
       }
       if (method === 'POST' && (match = path.match(/^\/api\/decisions\/([^/]+)$/))) {
@@ -457,8 +480,9 @@ export async function createPersonalServer(options = {}) {
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   worker.start();
+  scheduler.start(options.schedulerTickMs ?? 30_000);
   return {
-    server, store, worker,
+    server, store, worker, scheduler,
     listen: () => new Promise((resolveListen, reject) => {
       server.once('error', reject);
       server.listen(port, host, () => { server.removeListener('error', reject); resolveListen(server.address()); });
@@ -470,7 +494,7 @@ export async function createPersonalServer(options = {}) {
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
-      stopProfileWatch(); await worker.close(); await stopped; store.close();
+      stopProfileWatch(); await scheduler.close(); await worker.close(); await stopped; store.close();
     },
   };
 }

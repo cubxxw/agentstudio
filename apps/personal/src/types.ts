@@ -147,6 +147,8 @@ export type Connection = {
 export type Memory = { id: string; text: string; createdAt: string };
 export type ResponsePolicy = "auto" | "mention" | "always" | "manual";
 export type Contact = {
+  chatBackend?: { type: "local"; localAgentId: LocalAgentId } | null;
+  connectionType?: "a2a" | "mcp" | null;
   id: string; kind: "agent" | "human"; name: string; handle: string;
   description: string; instructions: string; color: string; version: number;
   icon?: string; avatarAgent?: LocalAgentId; configuration?: AgentConfiguration; profile?: AgentProfile | null; execution?: ExecutionSnapshot | null; configurationError?: string;

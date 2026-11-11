@@ -7,6 +7,8 @@ import { CredentialVault } from './vault.mjs';
 export const now = () => new Date().toISOString();
 export const id = (prefix) => `${prefix}_${randomUUID()}`;
 export const digest = (text) => createHash('sha256').update(text).digest('hex');
+export const connectionIdentity = connection => ({ connectionId: connection.id, url: connection.url,
+  credentialRef: connection.credentialRef || null, credentialVersion: connection.credentialVersion || 0 });
 
 export class APIError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -127,8 +129,11 @@ export class PersonalStore {
       return thread.runs.find((run, index) => run.status === 'queued' && !thread.runs.slice(0, index).some(previous =>
         previous.contactId === run.contactId && (['queued', 'running', 'verifying', 'needs_input'].includes(previous.status) || this.unresolved(previous)))) || null;
     }
-    const index = thread.runs.findIndex((run) => run.status === 'queued');
-    if (index < 0 || thread.runs.slice(0, index).some((run) => ['queued', 'running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run))) return null;
+    let index = thread.runs.findIndex((run) => run.status === 'queued');
+    // Owner messages can pass waiting goal ticks, never running or uncertain work.
+    const ownerIndex = thread.runs.findIndex(run => run.status === 'queued' && !run.agentSchedule);
+    if (ownerIndex >= 0 && !thread.runs.slice(0, ownerIndex).some(run => ['running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run) || (run.status === 'queued' && !run.agentSchedule))) index = ownerIndex;
+    if (index < 0 || thread.runs.slice(0, index).some((run) => ['running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run) || (run.status === 'queued' && (!run.agentSchedule || thread.runs[index].agentSchedule)))) return null;
     return thread.runs[index];
   }
 
@@ -190,6 +195,15 @@ export class PersonalStore {
         responsePolicy: input.responsePolicy } : {}),
       messageId: message.id, memoryIds: input.memoryIds || thread.memoryIds || [], createdAt: now(),
       action: input.action || null, phase: 'prepare', deliveryState: 'not_sent', actionState: 'not_started', verificationState: 'not_started' };
+    if (input.contactId && input.contactSnapshot && run.mode === 'connection') {
+      const connection = this.require('connection', run.connectionId);
+      if (connection.type === 'a2a') {
+        // This record is private: accepting Send binds chat to this exact transport,
+        // without inventing an approval or exposing credential references to the UI.
+        const binding = input.connectionIdentityId ? this.get('message_identity', input.connectionIdentityId) : connectionIdentity(connection);
+        if (binding) this.put('message_identity', { ...binding, id: run.id });
+      }
+    }
     thread.runs.push(run);
     thread.status = 'queued'; thread.summary = '等待开始'; thread.updatedAt = now();
     this.event(thread, 'queued', run.mode === 'local' ? '已排队：本地整理，无需模型' : '任务已排队', { runId: run.id });

@@ -22,13 +22,13 @@ export default defineConfig({
     plugins: [{
       name: "agentstudio-personal-runtime",
       buildStart() {
-        for (const file of ["index.mjs", "runtime.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "agent-profiles.mjs", "agent-onboarding.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
+        for (const file of ["index.mjs", "runtime.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "agent-profiles.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
         this.addWatchFile(resolve(__dirname, "src/main/worker.mjs"));
       },
       writeBundle() {
         const output = resolve(__dirname, "out/main/personal");
         mkdirSync(output, { recursive: true });
-        for (const file of ["index.mjs", "runtime.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "agent-profiles.mjs", "agent-onboarding.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
+        for (const file of ["index.mjs", "runtime.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "agent-profiles.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
         copyFileSync(resolve(__dirname, "src/main/worker.mjs"), resolve(output, "worker.mjs"));
       },
     }],

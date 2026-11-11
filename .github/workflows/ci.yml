@@ -69,6 +69,7 @@ jobs:
           node dev/personal-browser.mjs edges
           node dev/messenger-acceptance.mjs
           node dev/agent-onboarding-acceptance.mjs
+          node dev/agent-profile-ui-acceptance.mjs
           node dev/conversation-acceptance.mjs
           node dev/live-conversation-acceptance.mjs
           node dev/macos-design-acceptance.mjs
@@ -80,6 +81,7 @@ jobs:
             output/playwright/personal/
             output/playwright/messenger/
             output/playwright/agent-onboarding/
+            output/playwright/agent-profile-ui/
             output/playwright/conversations/
             output/playwright/live-conversations/
             output/playwright/macos-design/

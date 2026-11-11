@@ -46,13 +46,16 @@ export class Messenger {
 
   publicContact(contact) {
     const binding = contact.binding;
-    const base = binding?.type === 'local' ? this.store.get('contact', `agent_${binding.localAgentId}`) : null;
     const connection = binding?.type === 'connection' ? this.store.get('connection', binding.connectionId) : null;
+    const chatBinding = connection?.type === 'mcp' ? contact.chatBackend : binding;
+    const base = chatBinding?.type === 'local' ? this.store.get('contact', `agent_${chatBinding.localAgentId}`) : null;
     let execution = null, configurationError = '';
     const profile = base?.profile || (contact.discovered ? contact.profile : null);
-    if (contact.kind === 'agent' && binding?.type === 'local' && profile) { try { execution = resolveExecution(profile, contact.configuration || {}); } catch (error) { configurationError = error.message; } }
-    return { ...contact, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
-      : binding?.type === 'local' ? { availability: configurationError ? 'configuration_required' : base?.availability || 'not_installed', providerName: base?.providerName || binding.localAgentId }
+    if (connection?.type === 'mcp' && !chatBinding) configurationError = '请在联系人设置中明确选择聊天助手，工具连接本身没有对话模型';
+    if (contact.kind === 'agent' && chatBinding?.type === 'local' && profile) { try { execution = resolveExecution(profile, contact.configuration || {}); } catch (error) { configurationError = error.message; } }
+    return { ...contact, connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
+      : configurationError ? { availability: 'configuration_required', providerName: connection?.name || base?.providerName || '' }
+      : chatBinding?.type === 'local' ? { availability: base?.availability || 'not_installed', providerName: connection?.name || base?.providerName || chatBinding.localAgentId }
         : { availability: connection ? 'ready' : 'disconnected', providerName: connection?.name || '连接已移除' }) };
   }
   contacts() { return this.store.list('contact').map(c => this.publicContact(c)).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')); }
@@ -82,12 +85,18 @@ export class Messenger {
     if (!colors.includes(color)) fail('请选择提供的头像颜色');
     let configuration;
     try { configuration = validateConfiguration(body.configuration ?? previous?.configuration ?? {}); } catch (error) { fail(error.message); }
-    if (kind === 'agent' && binding?.type === 'connection' && (configuration.modelMode !== 'follow' || configuration.thinking !== 'follow')) fail('这个连接由服务管理模型，不能使用本机 CLI 模型选项');
+    const toolConnection = binding?.type === 'connection' && this.store.require('connection', binding.connectionId).type === 'mcp';
+    let chatBackend = body.chatBackend === undefined ? previous?.chatBackend || null : body.chatBackend;
+    if (chatBackend) {
+      if (!toolConnection || chatBackend.type !== 'local' || !['codex', 'claude', 'pi'].includes(chatBackend.localAgentId) || !this.store.get('contact', `agent_${chatBackend.localAgentId}`)) fail('工具连接的聊天助手必须是已发现、支持执行的本机助手');
+      chatBackend = { type: 'local', localAgentId: chatBackend.localAgentId };
+    }
+    if (kind === 'agent' && binding?.type === 'connection' && !chatBackend && (configuration.modelMode !== 'follow' || configuration.thinking !== 'follow')) fail('这个连接由服务管理模型，不能使用本机 CLI 模型选项');
     const icon = body.icon ?? previous?.icon ?? 'auto';
     if (!icons.includes(icon)) fail('请选择支持的联系人图标');
     const contact = this.store.put('contact', { ...previous, id: contactId || id('contact'), kind, name, handle,
       description: text(body.description ?? previous?.description, 300), instructions: kind === 'agent' ? text(body.instructions ?? previous?.instructions, 3000) : '',
-      binding, color, icon, ...(kind === 'agent' ? { configuration } : {}), version: (previous?.version || 0) + 1, createdAt: previous?.createdAt || now(), updatedAt: now() });
+      binding, color, icon, ...(kind === 'agent' ? { configuration, chatBackend: toolConnection ? chatBackend : null } : {}), version: (previous?.version || 0) + 1, createdAt: previous?.createdAt || now(), updatedAt: now() });
     return this.publicContact(contact);
   }
 
@@ -157,8 +166,9 @@ export class Messenger {
       }
       const binding = contact.binding;
       const input = validateInput({ ...body, mode: binding.type === 'local' ? 'codex' : 'connection',
-        localAgentId: binding.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
-      return [{ ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: identity(contact),
+        localAgentId: binding.localAgentId || contact.chatBackend?.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
+      const goal = this.store.get('agent_control', contact.id)?.goal;
+      return [{ ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
         conversationSnapshot: { kind: thread.kind, title: thread.title, version: thread.version,
           attention: { addressedContactIds: thread.memberIds.filter(contactId => {

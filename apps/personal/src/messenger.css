@@ -484,3 +484,7 @@
 .im-role-instructions { white-space: pre-wrap; }
 .im-role-suggestion button { width: 100%; justify-content: center; }
 @media (max-width: 560px) { .im-onboarding-intro h2 { font-size: 17px; } .im-role-suggestion { padding: 14px; } }
+
+.im-schedule-event { display: flex; align-items: baseline; justify-content: center; gap: 7px; margin: 14px auto; max-width: 80%; color: var(--im-muted); font-size: 12px; }
+.im-schedule-event > svg { flex-shrink: 0; }
+.im-schedule-event p { margin: 0; white-space: pre-wrap; }

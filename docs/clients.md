@@ -43,7 +43,7 @@ The shared reader, connection preferences and decision cards retain these IDs:
 | Optional Bearer disclosure / password field | `personal-connection-auth-toggle`, `personal-connection-token` |
 | Memory / save | `personal-memory-input`, `personal-memory-save` |
 
-`node dev/messenger-acceptance.mjs` tests contacts, direct/group replies and approval. `node dev/conversation-acceptance.mjs` tests legacy links, exact pending-request migration, creation-response races and historical tools. Both accept `--native` after desktop build, use isolated profiles and synthetic data; the history fixture uses the existing mock keychain switch only for its fresh test profile. The complete reading/connection/browser edge checks use the same Messenger IDs.
+`node dev/messenger-acceptance.mjs` tests contacts and direct/group replies, including remote chat without per-message approvals. `node dev/conversation-acceptance.mjs` tests legacy links, exact pending-request migration, creation-response races and historical tools. Both accept `--native` after desktop build, use isolated profiles and synthetic data; the history fixture uses the existing mock keychain switch only for its fresh test profile. `node dev/personal-connect-synthetic.mjs --synthetic` also exercises two direct Muse chat turns through the real native connector against the existing fake service, while retaining an explicit Cue task approval. The complete reading/connection/browser edge checks use the same Messenger IDs.
 
 ## Retained Matrix clients
 
@@ -272,3 +272,22 @@ Approval cards from connectors use the choice keys the connector sends:
 | Suggestions/adoption | `im-role-suggestion`, `im-adopt-role` |
 
 The default member policy is `auto`; completed silent runs create no chat bubble. Their reasons remain in execution details, and model failure is never displayed as a silence decision. Explicit member policies remain selectable through `im-policy-<contactId>`.
+
+### Contact profiles, goals, schedules and local discovery
+
+The quiet `im-chat-info` header displays the peer/group and status (`im-header-status`), without model metadata. Clicking a peer opens an in-place profile; clicking a group opens group information. Inspecting member configuration does not change membership. Profile/basic editors preserve the underlying chat, draft and reading position.
+
+| Surface | `data-testid` |
+| --- | --- |
+| Profile entry / root / basic editor | `im-agent-profile-open`, `im-agent-profile`, `im-agent-basic` |
+| Per-member profile | `im-member-profile-<contactId>` |
+| Goal / status / control state | `im-agent-goal`, `im-agent-goal-status`, `im-agent-control`, `im-agent-state` |
+| Schedule fields | `im-agent-schedule-enabled`, `im-agent-schedule-mode`, `im-agent-schedule-time`, `im-agent-schedule-timezone`, `im-agent-schedule-interval`, `im-agent-schedule-limit` |
+| Capability / timing | `im-agent-unsupported`, `im-agent-autonomous-hint`, `im-agent-next-run`, `im-agent-last-reason` |
+| Mutations / recovery | `im-agent-save`, `im-agent-run-now`, `im-agent-pause`, `im-agent-unsaved`, `im-agent-error`, `im-agent-reload`, `im-agent-notice` |
+| Run history / system trigger | `im-agent-history`, `im-agent-run-<runId>`, `im-agent-run-open-<runId>`, `im-schedule-event` |
+| MCP explicit planner | `im-contact-chat-backend`, `im-contact-chat-backend-hint` |
+| Discovery entry / body / contact | `im-discovery-entry`, `im-host-discovery`, `im-discovery-contact` (`data-contact-id`), `im-discovery-open-<contactId>` |
+| Discovery actions / state | `im-discovery-refresh`, `im-discovery-retry`, `im-discovery-empty`, `im-discovery-more`, `im-discovery-prepare`, `im-discovery-connect`, `im-discovery-details` |
+
+Schedules start disabled. Run Now requires a saved active goal. Pause turns off later scheduling and invalidates queued ticks; it does not claim to stop an operation already sent. Save conflict/network errors preserve editing. App exit and Mac sleep suspend scheduling. Fixed remote schedules do not claim structured autonomy. Human contacts remain local-only until an actual messaging transport exists.
