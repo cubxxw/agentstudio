@@ -31,7 +31,7 @@ export function macSigningOptions(signing) {
     identity: signing.identity, identityValidation: signing.identity !== '-', continueOnError: false,
     // Preserve the existing local runtime profile. This is not a notarized
     // distribution profile, even when an Apple Development certificate is used.
-    optionsForFile: () => ({ hardenedRuntime: false, entitlements: ['com.apple.security.cs.allow-jit'],
+    optionsForFile: () => ({ hardenedRuntime: false, timestamp: 'none', entitlements: ['com.apple.security.cs.allow-jit'],
       additionalArguments: ['--options', '0'] }),
     preAutoEntitlements: false, preEmbedProvisioningProfile: false, gatekeeperAssess: false,
   };
