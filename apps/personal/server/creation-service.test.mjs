@@ -372,6 +372,28 @@ test('artifact dependencies carried by a reaction propagate before another membe
   assert.equal(f.service.canPublishConversation(f.group.id, second.runId), false);
 });
 
+test('remote contact publication accepts valid shared dependencies and rejects their later revocation', t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f);
+  f.store.put('connection', { id: 'synthetic-remote', type: 'a2a', url: 'https://example.invalid/owned' });
+  const remote = f.messenger.saveContact({ kind: 'agent', name: '远端伙伴', handle: 'remote-reader', binding: { type: 'connection', connectionId: 'synthetic-remote' } });
+  const chat = f.messenger.createChat({ kind: 'group', title: '含远端成员的共享群', memberIds: ['agent_codex', remote.id] });
+  const link = f.service.share(artifact.id, { threadId: chat.id, revisionId: artifact.headRevisionId, paths: ['design.md'] });
+  f.send(chat.id);
+  const local = f.context('agent_codex', chat.id);
+  f.call(local, 'artifact_read', { artifactId: artifact.id, revisionId: artifact.headRevisionId, paths: ['design.md'] });
+  f.store.updateThread(chat.id, thread => {
+    const source = thread.runs.find(run => run.id === local.runId);
+    thread.messages.find(message => message.id === source.messageId).reactions = [{ contactId: 'agent_codex', emoji: '✅', artifactReads: source.artifactReads, recipientIds: [...thread.memberIds] }];
+    thread.runs.find(run => run.contactId === remote.id).status = 'running';
+  });
+  const current = f.store.require('thread', chat.id), remoteRun = current.runs.find(run => run.contactId === remote.id);
+  threadContext(f.store, current, remoteRun, f.service);
+  assert.ok(f.store.require('thread', chat.id).runs.find(run => run.id === remoteRun.id).artifactReads.length);
+  assert.equal(f.service.canPublishConversation(chat.id, remoteRun.id), true);
+  f.service.share(artifact.id, { threadId: chat.id, revoke: true, expectedVersion: link.version });
+  assert.equal(f.service.canPublishConversation(chat.id, remoteRun.id), false);
+});
+
 test('queued approved DAGs recover after the decision commits before initial dispatch', t => {
   const f = fixture(t), proposal = f.prepare(), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'recover-undispatched-plan' });
   f.store.updateThread(f.group.id, thread => { thread.runs = thread.runs.filter(run => !run.collaboration); });
