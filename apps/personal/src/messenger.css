@@ -3,7 +3,7 @@
   --im-blue: #35627b; --im-blue-soft: #e7eff4; --im-bg: #fff;
   --im-paper: #fff; --im-ink: #27343e; --im-muted: #5d6b77; --im-line: #e3e8ec;
   --im-outgoing: #294f68; --im-hover: rgb(45 70 90 / 5%);
-  --im-incoming: transparent; --im-sidebar: #f3f5f7;
+  --im-incoming: #f2f2f2; --im-sidebar: #f3f5f7;
   --im-well: rgb(45 70 90 / 5%); --im-selection: #fff;
   --im-row-shadow: 0 1px 3px rgb(25 30 43 / 6%), inset 0 0 0 1px rgb(25 30 43 / 3%);
   --attention: #86580b; --attention-soft: #fff0d6; --porch: #f2a93b; --danger: #b14135;
@@ -266,7 +266,7 @@
     color-scheme: dark;
     --im-paper: #262e36; --im-bg: #1d232a; --im-ink: #edf0f3; --im-muted: #a6b0ba;
     --im-line: #39434e; --im-blue: #9ac4df; --im-blue-soft: #2d4353; --im-outgoing: #345970;
-    --im-incoming: transparent; --im-sidebar: #232a32;
+    --im-incoming: #343434; --im-sidebar: #232a32;
     --im-hover: rgb(255 255 255 / 6%); --im-well: rgb(0 0 0 / 15%); --im-selection: #35363e;
     --im-row-shadow: 0 1px 3px #0002, inset 0 0 0 1px #ffffff08;
     --attention: #f0c98b; --attention-soft: #3a3022; --danger: #ffaba0;
@@ -353,8 +353,7 @@
 .im-agent-fields > label { display: grid; gap: 6px; font-size: 11px; font-weight: 550; }
 .im-timeline { padding-top: 26px; }
 .im-message { margin-bottom: 24px; gap: 12px; }
-.im-bubble { max-width: min(680px, 84%); background: var(--im-incoming); padding: 4px 0; border-radius: 0; box-shadow: none; }
-.im-message.outgoing .im-bubble { padding: 10px 16px; border-radius: 18px; }
+.im-bubble { max-width: min(680px, 84%); background: var(--im-incoming); padding: 10px 16px; border-radius: 18px; box-shadow: none; }
 .im-bubble .prose { font-size: 15px; line-height: 1.85; letter-spacing: 0; }
 .im-bubble .prose p { margin-bottom: 13px; }
 .im-bubble .prose h1 { font-size: 20px; font-weight: 620; line-height: 1.5; margin: 12px 0 16px; }
@@ -396,7 +395,7 @@
   .im-message.outgoing .im-bubble { background: var(--im-outgoing); }
 }
 @media (max-width: 760px) {
-  .im-bubble { max-width: calc(100% - 20px); padding: 4px 0; }
+  .im-bubble { max-width: calc(100% - 20px); padding: 10px 12px; }
   .im-bubble .prose { font-size: 15px; }
   .im-message.outgoing .im-bubble { max-width: 91%; }
   .im-composer { border-radius: 16px; }

@@ -161,7 +161,7 @@ function createWindow() {
     title: workspaceProfile.testMode ? "AgentRoom · 测试模式" : "AgentRoom",
     icon: appIcon, // Windows and Linux; macOS uses the Dock icon below
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    trafficLightPosition: personalMode ? { x: 18, y: 14 } : { x: 16, y: 18 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1c1e" : "#f5f5f7",
     ...(personalMode && process.platform === "darwin" ? {
       vibrancy: "sidebar" as const,
