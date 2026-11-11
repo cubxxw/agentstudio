@@ -1,5 +1,12 @@
 # AgentStudio design system (v0.2)
 
+The default personal Messenger now follows the [macOS reference and implementation
+order](personal/macos-design.md): neutral navigation materials, a quiet opaque
+reading pane and a collapsible list. Its system font and semantic tokens live in
+`apps/personal/src/messenger.css`. The porch-light system below remains the design
+contract for the retained Matrix renderer; amber still marks pending personal
+decisions.
+
 ## What Hullo gets right (from its production CSS and app mockups)
 
 These notes come from `app.hullo.computer`'s production CSS (`index-*.css`) and the mockups on `hullo.computer`.

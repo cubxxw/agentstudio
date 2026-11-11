@@ -20,14 +20,17 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Live reply slot / partial / precise stop | `im-response-<runId>`, `im-streaming-message`, `im-run-stop-<runId>` |
 | Group editor / name / members / policy | `im-group-editor`, `im-group-name`, `im-group-search`, `im-member-<contactId>`, `im-policy-<contactId>`, `im-group-save` |
 | Conversation / information / create group | `im-main`, `im-chat-info`, `im-info`, `im-promote-group`, `im-back` |
-| Messages / reply / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-reply-message`, `im-run-status` |
+| Messages / metadata / actions / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-message-meta`, `im-message-actions`, `im-reply-message`, `im-run-status` |
 | Composer / text / send / file / mentions | `im-composer`, `im-message-input`, `im-send`, `im-attach`, `im-mention-<contactId>` |
 | Approvals / return / original artifact | `im-pending-bar`, `im-approval-open-chat`, `im-open-artifact` |
 | History / scratch / mode / recovery | `im-new-notes`, `im-send-options-toggle`, `im-task-mode`, `im-task-connection`, `im-send-recovery` |
 | Results / records / artifacts | `im-results`, `im-conversation-details`, `im-artifact`, `im-execution-record` |
 | Rail / list / skip | `im-rail`, `im-list-panel`, `im-skip` |
+| Focus reading / reveal list | `im-focus-toggle` (`aria-expanded`, `aria-controls`) |
 
 Every personal conversation uses this Messenger shell, including old `?workspace=tasks&thread=…` links and scratch drafts (`?thread=new`). The old workspace parameter is removed without replacing the shell. Historical threads retain their IDs, mode/connection and draft recovery keys; no message is sent during migration. The conversation title opens its contact/group information; `im-info` opens result versions and execution records. `im-new-notes` continues the old unsent scratch draft or starts local organization. Native New Chat opens the conversation picker.
+
+Above 760 CSS pixels, the sidebar button or `⌘\` (`Ctrl+\` off Mac) hides the list for focused reading. The preference survives reload. Search (`⌘K`) and rail navigation reveal it again; collapsing from inside the list moves keyboard focus to its toggle. Dialogs keep these shortcuts inactive. At 760 CSS pixels and below, the normal list/chat Back flow takes precedence, so a saved focus preference never removes navigation. Navigation uses neutral materials; the macOS personal window uses native sidebar vibrancy that follows window activity, while the reading pane stays opaque. Reduced transparency uses solid surfaces, reduced motion disables transitions, and increased contrast strengthens text and selection. See the [design reference and implementation order](personal/macos-design.md).
 
 The shared reader, connection preferences and decision cards retain these IDs:
 

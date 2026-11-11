@@ -295,6 +295,22 @@ html.macos-app {
 @media (prefers-reduced-motion: reduce) {
   .macos-app *, .macos-app *::before, .macos-app *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+/* Messenger navigation reveals the native sidebar material. Other workspaces
+   keep their existing background, including the retained Matrix renderer. */
+html.macos-app:has(.im-native), .macos-app body:has(.im-native) { background: transparent; }
+.macos-app .im-native { background: transparent; --im-rail: rgb(235 235 234 / 55%); --im-sidebar: rgb(247 247 246 / 70%); }
+.macos-app .im-native .im-list-panel { background: var(--im-sidebar); }
+.macos-app .im-app .modal-header h2, .macos-app .im-app .decision h3 { font-family: inherit; }
+.macos-app .im-app .modal { background: var(--im-paper); }
+.macos-app .im-app .modal::backdrop { background: rgb(22 25 36 / 22%); backdrop-filter: blur(6px); }
+@media (prefers-color-scheme: dark) {
+  .macos-app .im-native { --im-rail: rgb(28 29 33 / 65%); --im-sidebar: rgb(36 37 42 / 78%); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .macos-app .im-native { --im-rail: #ececea; --im-sidebar: #f4f4f3; }
+  .macos-app .im-native .im-list-panel, .macos-app .im-app .modal::backdrop { backdrop-filter: none; }
+  @media (prefers-color-scheme: dark) { .macos-app .im-native { --im-rail: #1e1f23; --im-sidebar: #232429; } }
+}
 /* Electron zoom changes the CSS viewport too. Keep the list reachable without
    forcing a wide window, and leave the actual macOS controls unobstructed. */
 @media (max-width: 700px) {
