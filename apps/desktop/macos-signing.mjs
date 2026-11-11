@@ -68,9 +68,10 @@ export async function inspectMacSigning(bundle, signing) {
     const directory = await mkdtemp(join(tmpdir(), 'agentroom-signature-'));
     try {
       const prefix = join(directory, 'cert');
-      execFileSync('/usr/bin/codesign', ['-d', '--extract-certificates', prefix, bundle], { stdio: 'pipe' });
+      execFileSync('/usr/bin/codesign', ['-d', `--extract-certificates=${prefix}`, bundle], { stdio: 'pipe' });
       leafSha1 = new X509Certificate(await readFile(`${prefix}0`)).fingerprint.replaceAll(':', '');
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
-  return verifyMacSigning(signing, signature.stderr, entitlements.stdout, leafSha1);
+  // codesign writes metadata to stderr but the designated requirement to stdout.
+  return verifyMacSigning(signing, `${signature.stderr}\n${signature.stdout}`, entitlements.stdout, leafSha1);
 }
