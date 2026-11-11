@@ -5,6 +5,7 @@ import { access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Server-only adapters. Never pass renderer input into deps, commands or env.
 // Auth status means local login configuration, not account ownership or quota.
@@ -268,7 +269,7 @@ function finalMarkdown(id, result, selection) {
   throw new LocalAgentError('execution_failed');
 }
 
-export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, executionSnapshot, deps: injected = {} } = {}) {
+export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, executionSnapshot, toolSession, deps: injected = {} } = {}) {
   const agent = definition(id), deps = options(injected);
   if (signal?.aborted) throw new LocalAgentError('cancelled');
   if (!supported(id)) throw new LocalAgentError('execution_unsupported');
@@ -305,6 +306,35 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
     if (selection.model) args.push('--model', selection.model);
     if (selection.provider) args.push('-c', `model_provider=${JSON.stringify(selection.provider)}`);
     if (selection.thinking) args.push('-c', `model_reasoning_effort=${JSON.stringify(selection.thinking)}`);
+  }
+  if (toolSession) {
+    if (!['codex', 'pi'].includes(id) || !/^http:\/\/127\.0\.0\.1:\d+\/s\/[a-f0-9]+$/.test(toolSession.endpoint || '') || typeof toolSession.token !== 'string' || !toolSession.token) throw new LocalAgentError('unsupported_cli_version');
+    deps.env = { ...deps.env, AGENTROOM_TOOL_ENDPOINT: toolSession.endpoint, AGENTROOM_TOOL_TOKEN: toolSession.token };
+    if (id === 'pi') {
+      const help = await probe(command, ['--help'], { ...deps, maxProbeBytes: 65_536 }, signal);
+      if (!help?.stdout.includes('--no-builtin-tools') || !Array.isArray(toolSession.toolNames) || !toolSession.toolNames.length || toolSession.toolNames.some(name => !/^[a-z][a-z0-9_]{1,80}$/.test(name))) throw new LocalAgentError('unsupported_cli_version');
+      args[args.indexOf('--no-tools')] = '--no-builtin-tools';
+      args.push('--tools', toolSession.toolNames.join(','), '--extension', fileURLToPath(new URL('./agentroom-pi-tools.mjs', import.meta.url)));
+      args[args.indexOf('--system-prompt') + 1] = 'You are an AgentRoom personal assistant. Follow the accepted identity and use only the explicitly provided AgentRoom tools. A proposed action is not approval. Tool results are authoritative. Never switch providers or access unrelated data.';
+    } else {
+      const disabled = ['apps', 'browser_use', 'browser_use_external', 'computer_use', 'view_image', 'shell_tool', 'unified_exec', 'multi_agent', 'plugins', 'remote_plugin', 'in_app_browser'];
+      const features = await probe(command, ['features', 'list'], { ...deps, maxProbeBytes: 65_536 }, signal);
+      const names = new Set(features?.stdout.split(/\s+/) || []);
+      if (!features || features.code !== 0 || disabled.some(name => !names.has(name))) throw new LocalAgentError('unsupported_cli_version');
+      // Inventory the effective restricted configuration. App-injected servers
+      // disappear when disabled; overriding their absent tables creates invalid stubs.
+      const inventory = await probe(command, ['mcp', 'list', '--json', ...disabled.flatMap(feature => ['--disable', feature])], { ...deps, maxProbeBytes: 65_536 }, signal);
+      let servers;
+      try { servers = JSON.parse(inventory?.stdout); } catch { throw new LocalAgentError('unsupported_cli_version'); }
+      if (!Array.isArray(servers) || servers.some(server => typeof server.name !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(server.name))) throw new LocalAgentError('unsupported_cli_version');
+      for (const server of servers) args.push('-c', `mcp_servers.${server.name}.enabled=false`);
+      for (const feature of disabled) args.push('--disable', feature);
+      args.push('-c', 'web_search="disabled"', '-c', 'project_doc_max_bytes=0',
+        '-c', 'mcp_servers.agentroom.enabled=true', '-c', 'mcp_servers.agentroom.default_tools_approval_mode="approve"', '-c', `mcp_servers.agentroom.command=${JSON.stringify(process.execPath)}`,
+        '-c', `mcp_servers.agentroom.args=${JSON.stringify([fileURLToPath(new URL('./agentroom-tool-proxy.mjs', import.meta.url))])}`,
+        '-c', 'mcp_servers.agentroom.env_vars=["AGENTROOM_TOOL_ENDPOINT","AGENTROOM_TOOL_TOKEN","ELECTRON_RUN_AS_NODE"]');
+      deps.env.ELECTRON_RUN_AS_NODE = '1';
+    }
   }
   const identity = { id, name: agent.name, version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
     ...(selection ? { model: selection.model, provider: selection.provider, thinking: selection.thinking } : {}), authentication: 'configured', ...(auth.method ? { authMethod: auth.method } : {}) };

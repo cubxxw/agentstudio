@@ -35,11 +35,11 @@
 
 **Interfaces:** `ToolSessions.open(context, tools, handler)` returns `{endpoint,token,close}`; `executeLocalAgent({toolSession,...})` exposes only the approved catalog and emits authoritative tool events. Protocol adapters do not implement business policy.
 
-- [ ] Write tests exercising stdio initialize/list/call, denied tokens, malformed/oversize calls, actual argument/identity binding, and closure.
-- [ ] Run `node --test apps/personal/server/tool-sessions.test.mjs`; expect missing-module RED.
-- [ ] Implement the authenticated loopback broker, MCP JSONL proxy, Pi extension and trusted executor configuration. Disable inherited executable tools in this mode; fail closed on unsupported capability setup.
-- [ ] Run the same tests; expect PASS. Probe real Codex and Pi against synthetic tools, preserving their configured models; save actual outcomes.
-- [ ] Commit the tool transport and executor boundary.
+- [x] Write tests exercising stdio initialize/list/call, denied tokens, malformed/oversize calls, actual argument/identity binding, and closure.
+- [x] Run `node --test apps/personal/server/tool-sessions.test.mjs`; expect missing-module RED.
+- [x] Implement the authenticated loopback broker, MCP JSONL proxy, Pi extension and trusted executor configuration. Disable inherited executable tools in this mode; fail closed on unsupported capability setup.
+- [x] Run the same tests; expect PASS. Probe real Codex and Pi against synthetic tools, preserving their configured models; save actual outcomes.
+- [x] Commit the tool transport and executor boundary.
 
 ### Task 2: Immutable artifacts and contribution integration
 
