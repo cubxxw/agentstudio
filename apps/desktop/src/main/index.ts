@@ -151,6 +151,11 @@ function createWindow() {
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 18 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1c1e" : "#f5f5f7",
+    ...(personalMode && process.platform === "darwin" ? {
+      vibrancy: "sidebar" as const,
+      visualEffectState: "followWindow" as const,
+      backgroundColor: "#00000000",
+    } : {}),
     webPreferences: {
       preload: join(__dirname, personalMode ? "../preload/personal.js" : "../preload/index.js"),
       contextIsolation: true,

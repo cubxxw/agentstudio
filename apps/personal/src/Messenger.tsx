@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, Paperclip, Plus, RefreshCw, Reply, Search, Settings2, ShieldCheck, Square, SquarePen, UserRound, Users, WifiOff, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, Settings2, ShieldCheck, Square, SquarePen, UserRound, Users, WifiOff, X } from "lucide-react";
 import appIcon from "@agentstudio/brand/assets/agentstudio.png";
 import { api, key, RequestError } from "./api";
 import { desktopBridge } from "./native";
@@ -58,6 +58,7 @@ function Messenger() {
   const [search, setSearch] = useState(""), [filter, setFilter] = useState("all");
   const [contactId, setContactId] = useState<string | null>(null), [approvalId, setApprovalId] = useState<string | null>(null);
   const [mobileDetail, setMobileDetail] = useState(() => Boolean(selectedId()));
+  const [listHidden, setListHidden] = useState(() => read<unknown>("listHidden", false) === true);
   const [preferences, setPreferences] = useState(false), [newChat, setNewChat] = useState(false);
   const [details, setDetails] = useState(false);
   const [contactEditor, setContactEditor] = useState<Contact | "new" | null>(null);
@@ -69,11 +70,20 @@ function Messenger() {
   const lastFullRefresh = useRef(0);
   const [newMessages, setNewMessages] = useState(false), [messageLimit, setMessageLimit] = useState(80);
   const timeline = useRef<HTMLDivElement>(null), nearBottom = useRef(true), input = useRef<HTMLTextAreaElement>(null), searchInput = useRef<HTMLInputElement>(null);
+  const focusToggle = useRef<HTMLButtonElement>(null);
   const actionRequests = useRef(new Map<string, string>());
   const contact = contacts.find(c => c.id === contactId);
   const directContact = thread?.kind === "direct" ? contacts.find(c => thread.memberIds?.includes(c.id) && c.id !== "self") : undefined;
   const selectedApproval = approvals.find(a => a.id === approvalId) || approvals.find(a => a.state === "pending");
   const pending = approvals.filter(a => a.state === "pending");
+  const toggleList = useCallback(() => {
+    if (!window.matchMedia("(min-width: 761px)").matches) return;
+    const focusWasInList = document.getElementById("im-list")?.contains(document.activeElement);
+    setListHidden(hidden => !hidden);
+    if (focusWasInList) requestAnimationFrame(() => focusToggle.current?.focus());
+  }, []);
+  useEffect(() => { write("listHidden", listHidden); }, [listHidden]);
+  const focusControl = <button ref={focusToggle} className="im-icon im-focus-toggle" aria-label={listHidden ? "显示列表" : "收起列表，专注阅读"} title={`${listHidden ? "显示列表" : "收起列表"} (⌘\\)`} aria-expanded={!listHidden} aria-controls="im-list" data-testid="im-focus-toggle" onClick={toggleList}><PanelLeft size={19} /></button>;
 
   const persistDraft = (id: string, value: Draft) => {
     draftCache.set(id, value);
@@ -141,17 +151,18 @@ function Messenger() {
     const command = (value: string) => {
       if (document.querySelector("dialog[open]")) return;
       if (value === "new") setNewChat(true);
-      if (value === "search") { setMobileDetail(false); requestAnimationFrame(() => searchInput.current?.focus()); }
+      if (value === "search") { setListHidden(false); setMobileDetail(false); requestAnimationFrame(() => searchInput.current?.focus()); }
+      if (value === "sidebar") toggleList();
       if (value === "settings") setPreferences(true);
     };
     const unsubscribe = desktop?.onCommand(command);
     const shortcut = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      const value = e.key.toLowerCase() === "k" ? "search" : e.key.toLowerCase() === "n" ? "new" : e.key === "," ? "settings" : null;
+      const value = e.key.toLowerCase() === "k" ? "search" : e.key.toLowerCase() === "n" ? "new" : e.key === "," ? "settings" : e.key === "\\" ? "sidebar" : null;
       if (value) { e.preventDefault(); command(value); }
     };
     window.addEventListener("keydown", shortcut); return () => { unsubscribe?.(); window.removeEventListener("keydown", shortcut); };
-  }, [desktop]);
+  }, [desktop, toggleList]);
   useEffect(() => {
     if (nearBottom.current) { const node = timeline.current; if (node) node.scrollTop = node.scrollHeight; }
     else setNewMessages(true);
@@ -229,7 +240,7 @@ function Messenger() {
       persistDraft(id, { ...current, attachments: [...current.attachments, ...added], revision: current.revision + 1 });
     } catch (e) { setError(errorText(e)); }
   };
-  const switchScreen = (value: Screen) => { setScreen(value); setSearch(""); setFilter("all"); setMobileDetail(false); setError(""); };
+  const switchScreen = (value: Screen) => { setScreen(value); setSearch(""); setFilter("all"); setMobileDetail(false); setListHidden(false); setError(""); };
   const refreshContacts = async () => { try { await api("/integrations/refresh", {}); await refresh(); } catch (e) { setError(errorText(e)); } };
   const startNotes = () => { setNewChat(false); openThread("new"); requestAnimationFrame(() => input.current?.focus()); };
   const reconnect = async () => { setBusy("reconnect"); setError(""); try { if (desktop) await desktop.restart(); await refresh(); } catch (e) { setError(errorText(e)); } finally { setBusy(""); } };
@@ -242,14 +253,14 @@ function Messenger() {
   const mentionMatch = draft.text.match(/(?:^|\s)@([a-z0-9_-]*)$/i);
   const mentionCandidates = thread?.kind === "group" && mentionMatch ? contacts.filter(c => c.kind === "agent" && thread.memberIds?.includes(c.id) && c.handle.startsWith((mentionMatch[1] || "").toLowerCase())) : [];
 
-  return <div className={`im-app ${desktop ? "im-native" : ""} ${mobileDetail ? "im-show-detail" : ""}`} data-testid="im-app">
+  return <div className={`im-app ${desktop ? "im-native" : ""} ${mobileDetail ? "im-show-detail" : ""} ${listHidden ? "im-focused" : ""}`} data-testid="im-app">
     <a className="skip-link" data-testid="im-skip" href="#im-main">跳到聊天内容</a>
     <nav className="im-rail" aria-label="主导航" data-testid="im-rail">
       <div className="im-drag-area" /><img className="im-brand" src={appIcon} alt="AgentStudio" />
       {([["chats", MessageCircle, "聊天"], ["contacts", Users, "联系人"], ["approvals", ShieldCheck, "审批"]] as const).map(([id, Icon, label]) => <button key={id} className={`im-nav-item ${screen === id ? "selected" : ""}`} aria-label={label} aria-current={screen === id ? "page" : undefined} data-testid={`im-nav-${id}`} onClick={() => switchScreen(id)}><span><Icon size={23} />{id === "approvals" && pending.length > 0 && <b>{pending.length}</b>}</span><small>{label}</small></button>)}
       <div className="im-rail-bottom"><IconButton label="连接与设置" testId="im-settings" onClick={() => setPreferences(true)}><Settings2 size={23} /></IconButton><Avatar contact={{ name: "你", color: "blue", kind: "human" }} size="small" /></div>
     </nav>
-    <aside className="im-list-panel" data-testid="im-list-panel" aria-label={screen === "chats" ? "会话列表" : screen === "contacts" ? "联系人列表" : "审批列表"}>
+    <aside className="im-list-panel" id="im-list" data-testid="im-list-panel" aria-label={screen === "chats" ? "会话列表" : screen === "contacts" ? "联系人列表" : "审批列表"}>
       <div className="im-list-heading"><h1>{screen === "chats" ? "聊天" : screen === "contacts" ? "联系人" : "审批"}</h1><IconButton label={screen === "contacts" ? "添加联系人" : "发起聊天"} testId="im-new" onClick={() => screen === "contacts" ? setContactEditor("new") : setNewChat(true)}>{screen === "contacts" ? <Plus size={22} /> : <SquarePen size={21} />}</IconButton></div>
       <div className="im-search"><Search size={17} /><input type="search" ref={searchInput} value={search} onChange={e => setSearch(e.target.value)} placeholder={screen === "chats" ? "搜索聊天" : screen === "contacts" ? "搜索联系人" : "搜索审批"} aria-label="搜索" data-testid="im-search" /></div>
       <div className="im-list-tabs" aria-label="列表筛选">{(screen === "chats" ? [["all", "全部"], ["group", "群聊"]] : screen === "contacts" ? [["all", "全部"], ["agent", "Agent"], ["human", "人"]] : [["all", `待处理${pending.length ? ` ${pending.length}` : ""}`], ["history", "历史"]]).map(([id, label]) => <button key={id} aria-pressed={filter === id} data-testid={`im-filter-${id}`} onClick={() => setFilter(id!)}>{label}</button>)}</div>
@@ -269,17 +280,17 @@ function Messenger() {
       {(!connected && !loading) && <div className="im-connection-warning" role="status"><WifiOff size={16} />连接中断，草稿和已加载的消息仍保留。<button disabled={busy === "reconnect"} onClick={() => void reconnect()}>{busy === "reconnect" ? "正在恢复…" : "重新连接"}</button></div>}
       {error && <div className="im-error-banner" role="alert">{error}<IconButton label="关闭提示" onClick={() => setError("")}><X size={16} /></IconButton></div>}
       {screen === "contacts" && contact ? <>
-        <header className="im-header"><IconButton label="返回联系人" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton><strong>联系人信息</strong></header>
+        <header className="im-header"><IconButton label="返回联系人" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<strong>联系人信息</strong></header>
         <div className="im-contact-detail" data-testid="im-contact-detail"><Avatar contact={contact} size="hero" /><h2>{contact.name}</h2><span className="im-handle">@{contact.handle}</span><p>{contact.description || (contact.kind === "agent" ? "你的 Agent 伙伴" : "保存在这台 Mac 的联系人")}</p><div className="im-contact-status"><span className={contact.availability === "ready" ? "im-online-dot" : "im-offline-dot"} />{availabilityText[contact.availability]}</div>
           <div className="im-profile-actions"><button className="im-primary" onClick={() => void startChat(contact)} disabled={busy === contact.id} data-testid="im-start-chat"><MessageCircle size={18} />{contact.kind === "human" ? "打开本地对话" : "发送消息"}</button><button className="im-secondary" onClick={() => setContactEditor(contact)} data-testid="im-edit-contact">编辑身份</button></div>
           {contact.kind === "agent" && <div className="im-profile-info"><h3>身份与回复方式</h3><p>{contact.instructions || "尚未自定义，使用这位助手的默认身份。"}</p><dl><div><dt>使用助手</dt><dd>{contact.providerName}</dd></div><div><dt>接下来使用</dt><dd>{contact.execution?.model || "助手默认模型"}{contact.execution?.thinking ? ` · ${contact.execution.thinking}` : ""}</dd></div><div><dt>私聊</dt><dd>每条消息都回应</dd></div><div><dt>群聊</dt><dd>默认仅在提及或回复时回应</dd></div></dl><button className="im-text-button" onClick={() => setPreferences(true)}>管理连接<ChevronRight size={15} /></button></div>}
           {contact.kind === "human" && <p className="im-callout">还未接入跨设备消息网络。这里的对话仅保存在这台 Mac，对方收不到消息。</p>}
         </div>
       </> : screen === "approvals" && selectedApproval ? <>
-        <header className="im-header"><IconButton label="返回审批列表" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton><div className="im-header-copy"><strong>由你决定</strong><small>{selectedApproval.contact?.name || "助手"} · {selectedApproval.threadTitle}</small></div><button className="im-text-button" data-testid="im-approval-open-chat" onClick={() => openThread(selectedApproval.threadId)}>回到聊天<ChevronRight size={16} /></button></header>
+        <header className="im-header"><IconButton label="返回审批列表" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<div className="im-header-copy"><strong>由你决定</strong><small>{selectedApproval.contact?.name || "助手"} · {selectedApproval.threadTitle}</small></div><button className="im-text-button" data-testid="im-approval-open-chat" onClick={() => openThread(selectedApproval.threadId)}>回到聊天<ChevronRight size={16} /></button></header>
         <div className="im-approval-content"><ShieldCheck size={28} className="im-blue" /><h2>看过，再决定。</h2><p>每项审批绑定这一次动作。批准后的执行和结果会继续记录在原聊天中。</p><DecisionView decision={selectedApproval} busy={busy === selectedApproval.id} onDecide={choice => void decide(selectedApproval, choice)} /></div>
       </> : screen === "chats" && selected ? <>
-        <header className="im-header"><IconButton label="返回聊天列表" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton><button className="im-chat-identity" onClick={() => thread?.kind === "group" ? setGroupEditor(thread) : directContact ? (setContactId(directContact.id), setScreen("contacts")) : setDetails(true)} data-testid="im-chat-info"><Avatar contact={directContact} group={thread?.kind === "group"} size="small" /><span><strong>{selected === "new" ? "整理资料" : thread ? chatTitle(thread) : "正在打开聊天…"}</strong><small>{thread?.kind === "group" ? `${thread.memberIds?.length || 0} 位成员 · 默认提及回应` : directContact ? directContact.kind === "agent" ? `${directContact.execution?.model || directContact.providerName} · ${thread?.runs.some(run => ["running", "verifying"].includes(run.status)) ? "正在回复" : availabilityText[directContact.availability]}` : "本地对话 · 对方收不到消息" : selected === "new" ? "资料与草稿保存在这台 Mac" : "个人对话"}</small></span></button><div className="im-header-actions">{Boolean(thread?.artifacts.length) && <IconButton label="聊天成果" testId="im-results" onClick={() => setDetails(true)}><FileText size={20} /></IconButton>}{thread?.kind === "direct" && <IconButton label="从这段私聊创建群聊" testId="im-promote-group" onClick={() => setGroupEditor("new")}><Users size={20} /></IconButton>}<IconButton label="聊天信息" testId="im-info" onClick={() => setDetails(true)}><Info size={20} /></IconButton></div></header>
+        <header className="im-header"><IconButton label="返回聊天列表" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<button className="im-chat-identity" onClick={() => thread?.kind === "group" ? setGroupEditor(thread) : directContact ? (setContactId(directContact.id), setScreen("contacts")) : setDetails(true)} data-testid="im-chat-info"><Avatar contact={directContact} group={thread?.kind === "group"} size="small" /><span><strong>{selected === "new" ? "整理资料" : thread ? chatTitle(thread) : "正在打开聊天…"}</strong><small>{thread?.kind === "group" ? `${thread.memberIds?.length || 0} 位成员 · 默认提及回应` : directContact ? directContact.kind === "agent" ? `${directContact.execution?.model || directContact.providerName} · ${thread?.runs.some(run => ["running", "verifying"].includes(run.status)) ? "正在回复" : availabilityText[directContact.availability]}` : "本地对话 · 对方收不到消息" : selected === "new" ? "资料与草稿保存在这台 Mac" : "个人对话"}</small></span></button><div className="im-header-actions">{Boolean(thread?.artifacts.length) && <IconButton label="聊天成果" testId="im-results" onClick={() => setDetails(true)}><FileText size={20} /></IconButton>}{thread?.kind === "direct" && <IconButton label="从这段私聊创建群聊" testId="im-promote-group" onClick={() => setGroupEditor("new")}><Users size={20} /></IconButton>}<IconButton label="聊天信息" testId="im-info" onClick={() => setDetails(true)}><Info size={20} /></IconButton></div></header>
         {thread?.decisions.some(d => d.state === "pending") && <button className="im-pending-bar" data-testid="im-pending-bar" onClick={() => { setApprovalId(thread.decisions.find(d => d.state === "pending")!.id); setScreen("approvals"); }}><ShieldCheck size={17} /><span>{thread.decisions.filter(d => d.state === "pending").length} 项操作等待审批</span><ChevronRight size={17} /></button>}
         <div className="im-timeline" ref={timeline} data-testid="im-timeline" onScroll={e => { const node = e.currentTarget; nearBottom.current = node.scrollHeight - node.clientHeight - node.scrollTop < 100; if (nearBottom.current) setNewMessages(false); }}>
           {thread && thread.messages.length === 0 && <div className="im-conversation-start"><Avatar contact={directContact} group={thread.kind === "group"} size="large" /><h2>{thread.kind === "group" ? "伙伴到齐，开始聊吧。" : `和 ${directContact?.name || thread.title} 聊聊`}</h2><p>{thread.kind === "group" ? "输入 @ 选择一位 Agent，让它加入讨论。" : directContact?.instructions || directContact?.description || "发一条消息，开始这段对话。"}</p></div>}
@@ -300,7 +311,7 @@ function Messenger() {
           <p className="im-composer-hint">{directContact?.kind === "human" ? "仅本机保存 · 尚无网络投递" : thread?.kind === "group" ? "@ 提及回应 · Shift Enter 换行" : "Enter 发送 · Shift Enter 换行"}</p>
           </>
         </div>
-      </> : <div className="im-welcome"><div className="im-welcome-symbol">{screen === "approvals" ? <ShieldCheck size={37} strokeWidth={1.3} /> : screen === "contacts" ? <Users size={37} strokeWidth={1.3} /> : <MessageCircle size={39} strokeWidth={1.3} />}</div><span className="im-welcome-brand">AgentStudio</span><h2>{screen === "approvals" ? "需要你的时候，都在这里。" : screen === "contacts" ? "认识你的下一位伙伴。" : "好想法，从一句话开始。"}</h2><p>{screen === "approvals" ? "Agent 请求发送内容或调用工具时，可以在这里统一查看和决定。" : screen === "contacts" ? "人和 Agent，都可以成为联系人。为同一个助手创建不同身份，也各有一段对话。" : "和你的 Agent 私聊，或让几个伙伴在群里一起想。每段对话，都能接着聊。"}</p>
+      </> : <div className="im-welcome"><div className="im-welcome-toolbar">{focusControl}</div><div className="im-welcome-symbol">{screen === "approvals" ? <ShieldCheck size={37} strokeWidth={1.3} /> : screen === "contacts" ? <Users size={37} strokeWidth={1.3} /> : <MessageCircle size={39} strokeWidth={1.3} />}</div><span className="im-welcome-brand">AgentStudio</span><h2>{screen === "approvals" ? "需要你的时候，都在这里。" : screen === "contacts" ? "认识你的下一位伙伴。" : "好想法，从一句话开始。"}</h2><p>{screen === "approvals" ? "Agent 请求发送内容或调用工具时，可以在这里统一查看和决定。" : screen === "contacts" ? "人和 Agent，都可以成为联系人。为同一个助手创建不同身份，也各有一段对话。" : "和你的 Agent 私聊，或让几个伙伴在群里一起想。每段对话，都能接着聊。"}</p>
         {screen !== "approvals" && <><button className="im-primary" data-testid="im-welcome-start" onClick={() => screen === "contacts" ? setContactEditor("new") : setNewChat(true)}><Plus size={17} />{screen === "contacts" ? "添加联系人" : "发起聊天"}</button>{contacts.some(c => c.kind === "agent" && c.availability === "ready") && <div className="im-ready-contacts"><span>从你的助手开始</span>{contacts.filter(c => c.kind === "agent" && c.availability === "ready").slice(0, 3).map(c => <button key={c.id} data-testid={`im-quick-${c.id}`} onClick={() => void startChat(c)} disabled={busy === c.id}><Avatar contact={c} size="small" /><span>{c.name}</span><ChevronRight size={14} /></button>)}</div>}</>}
       </div>}
     </main>
