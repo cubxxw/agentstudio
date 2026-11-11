@@ -70,7 +70,7 @@ export class AgentOnboarding {
   }
 
   recover() {
-    for (const job of this.store.list('agent_onboarding').filter(x => active.includes(x.status))) {
+    for (const job of this.store.list('agent_onboarding').filter(x => active.includes(x.status) || this.store.require('thread', x.threadId).runs.some(r => r.stopUnconfirmed))) {
       this.update(job.id, { status: 'interrupted', error: '上次准备已中断。已保留来源和模型，请重新开始；没有自动重试。', suggestions: [] });
       this.store.updateThread(job.threadId, t => { for (const r of t.runs) if (['queued', 'running', 'verifying'].includes(r.status)) { r.status = 'blocked'; r.finishedAt = now(); r.error = '角色准备中断，未自动重试'; } });
     }

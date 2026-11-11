@@ -22,21 +22,22 @@
 
 ### Task 1: Group participation backend
 Files: messenger.mjs, runtime.mjs, store.mjs and relevant server tests.
-- [ ] Add failing tests for default auto delivery, reply/silence, attention facts, malformed output, manual/mention policies and snapshots.
-- [ ] Implement structured local group participation, suppress envelope previews and preserve group context.
-- [ ] Run targeted messenger/runtime tests; update legacy fixtures to explicitly request old policies when testing them.
-- [ ] Report exact contract for UI and integrate.
+- [x] Add failing tests for default auto delivery, reply/silence, attention facts, malformed output, manual/mention policies and snapshots.
+- [x] Implement structured local group participation, suppress envelope previews and preserve group context.
+- [x] Run targeted messenger/runtime tests; update legacy fixtures to explicitly request old policies when testing them.
+- [x] Report exact contract for UI and integrate.
 
 ### Task 2: Durable onboarding
 Files: server/agent-onboarding.mjs and tests; server/index.mjs, narrow runtime dispatch hook and native route/build registration.
 Interfaces: GET /agent-onboarding/context; POST /agent-onboarding; GET /agent-onboarding/:id; POST /agent-onboarding/:id/adopt; POST /agent-onboarding/:id/cancel.
-- [ ] Write failing source-boundary, actual-probe, validation, recovery and idempotent adoption tests.
-- [ ] Implement immutable bounded sources, two-phase local execution and queue integration; preserve tested model.
-- [ ] Register routes and backend file in native copying/provenance/watch sets; verify tests.
+- [x] Write failing source-boundary, actual-probe, validation, recovery and idempotent adoption tests.
+- [x] Implement immutable bounded sources, two-phase local execution and queue integration; preserve tested model.
+- [x] Register routes and backend file in native copying/provenance/watch sets; verify tests.
 
 ### Task 3: Product UI and acceptance
 Files: AgentOnboarding.tsx, Messenger.tsx, MessengerDialogs.tsx, types.ts, styles and docs, browser acceptance.
-- [ ] Add auto participation controls, quiet completed state and clear group copy.
-- [ ] Add local-backend selection, source toggles, progress/failure/cancel, grounded suggestion preview/adoption and reload recovery.
-- [ ] Update API/client/product contracts; run host tests, TS/build, browser/native acceptance and real local Codex onboarding.
-- [ ] Independently review, fix confirmed findings, create linked PR, verify latest-head CI and merge when gates pass; update Linear with actual evidence.
+- [x] Add auto participation controls, quiet completed state and clear group copy.
+- [x] Add local-backend selection, source toggles, progress/failure/cancel, grounded suggestion preview/adoption and reload recovery.
+- [x] Update API/client/product contracts; run host tests, TS/build, browser/native acceptance and real local Codex onboarding.
+- [ ] Finish latest-head CI, merge when gates pass and update Linear with actual evidence (delivery tracked in PR #13).
+- [x] Independent review and confirmed fixes; local/native/real Codex acceptance recorded in docs/personal/agent-onboarding-acceptance.md.

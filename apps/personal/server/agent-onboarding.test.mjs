@@ -153,13 +153,23 @@ test('HTTP cancel handles queued and running jobs atomically and preserves an un
  const queued = (await api('/agent-onboarding', { clientId: 'cancel-queued-start', agentId: 'claude' })).body;
  assert.equal(queued.status, 'queued');
  const cancelled = await api(`/agent-onboarding/${queued.id}/cancel`, { clientId: 'cancel-queued-request' });
- assert.equal(cancelled.status, 200); assert.equal(cancelled.body.status, 'cancelled'); assert.deepEqual(calls, ['codex']);
+ assert.equal(cancelled.status, 200); assert.equal(cancelled.body.status, 'cancelled'); assert.equal(cancelled.body.cancelPending, false); assert.deepEqual(calls, ['codex']);
  const body = { clientId: 'cancel-running-request' };
- assert.equal((await api(`/agent-onboarding/${running.id}/cancel`, body)).status, 200);
+ const stopping = await api(`/agent-onboarding/${running.id}/cancel`, body); assert.equal(stopping.status, 200); assert.equal(stopping.body.cancelPending, true);
  await wait(() => app.store.require('thread', running.threadId).runs[0].stopUnconfirmed === true);
  assert.equal(app.store.require('thread', running.threadId).runs[0].status, 'unknown');
  assert.equal(app.store.require('agent_onboarding', running.id).status, 'interrupted');
  assert.equal((await api(`/agent-onboarding/${running.id}/cancel`, body)).status, 200);
  assert.equal((await api('/agent-onboarding', { clientId: 'cancel-must-not-restart', agentId: 'codex' })).status, 409);
  assert.deepEqual(calls, ['codex']);
+});
+
+test('restart during cancellation exposes interrupted preparation and preserves the stop barrier', async t => {
+ const f = await setup(t), job = start(f);
+ f.service.cancel(job.id);
+ const thread = f.store.require('thread', job.threadId); thread.runs[0].cancelPending = true; f.store.put('thread', thread);
+ f.store.recover(); f.service.recover();
+ const recovered = f.service.get(job.id);
+ assert.equal(recovered.status, 'interrupted'); assert.equal(recovered.cancelPending, false); assert.equal(recovered.stopUnconfirmed, true);
+ assert.equal(f.store.require('thread', job.threadId).runs[0].status, 'unknown');
 });
