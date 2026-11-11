@@ -25,6 +25,8 @@
 .creation-activity p { display: flex; flex-wrap: wrap; gap: 12px; padding: 5px 0; }.creation-activity code { flex: 1; }
 .library-row .im-row-copy strong { overflow-wrap: anywhere; }
 .artifact-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; height: 100%; }
+.artifact-workspace .im-header-copy { flex: 1; min-width: 0; }
+.artifact-workspace .im-header-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 22px; border-bottom: 1px solid var(--im-line); color: var(--im-muted); font-size: 12px; }
 .artifact-toolbar label { display: flex; gap: 8px; align-items: center; flex: 1; }
 .artifact-toolbar select { border: 1px solid var(--im-line); background: var(--im-paper); color: var(--im-ink); border-radius: 6px; padding: 5px 8px; max-width: 230px; }
@@ -48,4 +50,4 @@
 .artifact-share-form > label { display: grid; gap: 5px; font-size: 12px; }.artifact-share-form input:not([type="checkbox"]), .artifact-share-form select { border: 1px solid var(--im-line); background: var(--im-paper); color: var(--im-ink); border-radius: 6px; padding: 8px; }
 .artifact-share-form label.artifact-checkbox { display: flex; align-items: center; gap: 7px; }.artifact-share-form p, .artifact-share-form small { color: var(--im-muted); font-size: 12px; overflow-wrap: anywhere; }
 .artifact-local-warning { margin: 14px 22px; padding: 16px; background: var(--attention-soft); border-radius: 10px; }.artifact-local-warning p { margin: 6px 0 12px; }.artifact-local-warning button { margin-right: 12px; }
-@media (max-width: 760px) { .creation-card { padding: 16px; }.creation-card dl { grid-template-columns: 65px 1fr; }.artifact-file-layout { grid-template-columns: minmax(0, 1fr); }.artifact-file-layout > nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--im-line); }.artifact-toolbar { padding: 10px 16px; }.artifact-tabs { gap: 18px; padding: 0 16px; }.artifact-records { padding: 18px; }.artifact-workspace .im-header .im-header-copy { min-width: 0; }.artifact-toolbar select { max-width: 175px; } }
+@media (max-width: 760px) { .creation-card { padding: 16px; }.creation-card dl { grid-template-columns: 65px 1fr; }.artifact-file-layout { grid-template-columns: minmax(0, 1fr); }.artifact-file-layout > nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--im-line); }.artifact-toolbar { padding: 10px 16px; }.artifact-tabs { gap: 18px; padding: 0 16px; }.artifact-records { padding: 18px; }.artifact-workspace .im-header .im-header-copy { min-width: 0; }.artifact-toolbar label { flex-basis: 100%; white-space: nowrap; }.artifact-toolbar select { flex: 1; min-width: 0; max-width: none; } }
