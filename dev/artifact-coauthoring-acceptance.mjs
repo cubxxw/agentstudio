@@ -133,7 +133,15 @@ try {
     await page.goto(`${page.url().split(/[?#]/)[0]}?thread=${second.id}`);
     if (!existingSecond) await send('@all 接着已共享的同一件作品修改。请两位都回应并用工具加入新一轮方案；Pi 改进 decisions.md，Codex 依赖 Pi 修改 index.html，加上跨群继续创作的说明。保持同一 artifactId，先给我审核卡。');
     state = await request(`/threads/${second.id}/creation`); work = state.collaborations[0];
-    if (work?.status !== 'completed') {
+    if (work && work.status !== 'completed') {
+      if (work.status === 'blocked') {
+        const owner = await request(`/collaborations/${work.id}`), failed = owner.steps.filter(step => step.status === 'blocked');
+        if (!resume || failed.length !== 1 || failed[0].submittedRevisionId || !failed[0].error?.includes('输出超过上限') || owner.runs.some(run => run.stopUnconfirmed || run.requiresReconciliation)) throw new Error(JSON.stringify(owner));
+        await page.getByTestId('collaboration-owner-review').click(); await page.getByTestId('collaboration-retry').click(); await page.getByTestId('personal-modal-close').click();
+        report.retriedOutputLimitStep = failed[0].id; check('owner reviews a confirmed output-limit failure and retries its retained stage once');
+      }
+      await wait(async () => { state = await request(`/threads/${second.id}/creation`); work = state.collaborations[0]; if (['blocked', 'unknown', 'cancelled'].includes(work?.status)) throw new Error(JSON.stringify(await request(`/collaborations/${work.id}`))); return work?.status === 'completed'; });
+    } else if (!work) {
       await wait(async () => {
         state = await request(`/threads/${second.id}/creation`); const thread = await request(`/threads/${second.id}`);
         const bad = thread.runs.filter(run => ['blocked', 'unknown', 'failed'].includes(run.status));

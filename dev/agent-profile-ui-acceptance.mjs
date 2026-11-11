@@ -49,6 +49,7 @@ try {
     if (path === '/bootstrap') return fulfill({ threads: Object.values(threads), connections: [], memories: [], settings: { defaultMode: 'local', codexAvailable: true } });
     if (path === '/contacts') return fulfill({ contacts });
     if (path === '/approvals') return fulfill({ approvals: [] });
+    if (path === '/library/artifacts' && request.method() === 'GET') return fulfill({ artifacts: [] });
     if (path.startsWith('/threads/')) return fulfill(threads[path.split('/')[2]]);
     const controlMatch = path.match(/^\/contacts\/([^/]+)\/(control|run)$/);
     if (controlMatch) {

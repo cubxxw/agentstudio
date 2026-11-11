@@ -84,24 +84,46 @@ async function executableFor(agent, deps) {
 }
 
 // Private bounded capture; only parsed whitelisted values leave this module.
-function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId } = {}) {
+function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId, piCapture = false } = {}) {
   if (signal?.aborted) return Promise.reject(new LocalAgentError('cancelled'));
   return new Promise((resolveRun, reject) => {
     let child, deadline, escalation, reaping, closed = false, failure = null;
     let stdoutBytes = 0, stderrBytes = 0;
     const decoder = new StringDecoder('utf8'); let framed = '';
-    const deliver = chunk => { framed += chunk; let at; while ((at = framed.indexOf('\n')) >= 0) { const line = framed.slice(0, at); framed = framed.slice(at + 1); try { onLine?.(line); if (responseId && JSON.parse(line)?.id === responseId) child.stdin.end(); } catch {} } };
     const stdout = [], stderr = [], cap = probe ? deps.maxProbeBytes : deps.maxOutputBytes;
+    // Pi repeats messages/tool results in turn_end/agent_end. Stream those
+    // records without retaining them; only the last authoritative assistant
+    // text/error and settled marker are needed (pi docs/json.md). The answer
+    // and each JSON line retain cap; total transport has an 8x hard bound.
+    let piMessage, piSettled = false;
+    const lineReceived = line => {
+      if (piCapture && Buffer.byteLength(line) > cap) { stop('output_limit'); return; }
+      try { onLine?.(line); if (responseId && JSON.parse(line)?.id === responseId) child.stdin.end(); } catch {}
+      if (piCapture) {
+        let event; try { event = JSON.parse(line); } catch { return; }
+        if (event.type === 'agent_settled') piSettled = true;
+        if (event.type === 'message_end' && event.message?.role === 'assistant') {
+          const message = event.message;
+          piMessage = { role: 'assistant', provider: message.provider, model: message.model, stopReason: message.stopReason, errorMessage: message.errorMessage,
+            content: Array.isArray(message.content) ? message.content.filter(block => block.type === 'text').map(({ text }) => ({ type: 'text', text })) : [] };
+        }
+      }
+    };
+    const deliver = chunk => {
+      framed += chunk; let at;
+      while (!failure && (at = framed.indexOf('\n')) >= 0) { const line = framed.slice(0, at); framed = framed.slice(at + 1); lineReceived(line); }
+      if (piCapture && Buffer.byteLength(framed) > cap) stop('output_limit');
+    };
     const cleanup = () => {
       clearTimeout(deadline); clearTimeout(escalation); clearTimeout(reaping);
       signal?.removeEventListener('abort', abort);
     };
     const finish = (code) => {
       if (closed) return;
-      if ((onLine || responseId) && !failure) { deliver(decoder.end()); if (framed.trim()) { try { onLine?.(framed); } catch {} } }
+      if ((onLine || responseId || piCapture) && !failure) { deliver(decoder.end()); if (!failure && framed.trim()) lineReceived(framed); }
       closed = true; cleanup();
       if (failure) reject(new LocalAgentError(failure));
-      else resolveRun({ code, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
+      else resolveRun({ code, stdout: piCapture ? (piMessage ? JSON.stringify({ type: 'message_end', message: piMessage }) + '\n' : '') + (piSettled ? JSON.stringify({ type: 'agent_settled' }) : '') : Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
     };
     const kill = (kind) => {
       if (!child || closed) return;
@@ -130,9 +152,9 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false, onLi
     child.stdout.on('data', (chunk) => {
       if (closed || failure) return;
       const bytes = Buffer.from(chunk); stdoutBytes += bytes.length;
-      if (stdoutBytes + (probe ? stderrBytes : 0) > cap) { stop('output_limit'); return; }
-      stdout.push(bytes);
-      if (onLine || responseId) deliver(decoder.write(bytes));
+      if (stdoutBytes + (probe ? stderrBytes : 0) > (piCapture ? cap * 8 : cap)) { stop('output_limit'); return; }
+      if (!piCapture) stdout.push(bytes);
+      if (onLine || responseId || piCapture) deliver(decoder.write(bytes));
     });
     child.stderr.on('data', (chunk) => {
       if (closed || failure) return;
@@ -341,7 +363,7 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   const emit = (type, data = {}) => { try { onEvent?.({ type, agentId: id, ...data }); } catch { /* Observer failures do not change execution. */ } };
   emit('started');
   const stream = liveEvents(id, emit);
-  const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream });
+  const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream, piCapture: id === 'pi' });
   const markdown = finalMarkdown(id, result, selection);
   emit('completed');
   return { markdown, identity, verification: { scope: 'cli_document_output', externalEffectsVerified: false } };
