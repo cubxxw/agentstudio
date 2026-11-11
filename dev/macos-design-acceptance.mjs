@@ -105,6 +105,9 @@ try {
   }
   const pinnedOrder = () => page.getByTestId('im-pinned').evaluate(node => [...node.querySelectorAll('button')].map(item => item.dataset.testid));
   await expect.poll(pinnedOrder).toEqual([first, group, direct].map(chat => `im-pinned-${chat.id}`));
+  // A real click settles the preceding pin action's deferred focus restoration.
+  await page.getByTestId(`im-pinned-${direct.id}`).click();
+  await expect(page.getByTestId(`im-pinned-${direct.id}`)).toBeFocused();
   await page.getByTestId(`im-pinned-${direct.id}`).press('Alt+ArrowLeft');
   await expect.poll(pinnedOrder).toEqual([first, direct, group].map(chat => `im-pinned-${chat.id}`));
   await page.reload();
