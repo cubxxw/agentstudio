@@ -687,7 +687,7 @@ export class GrokBotConnector implements Connector {
       const revision = createHash("sha256").update(JSON.stringify([this.data.agent.id, this.data.agent.sessionId, id, entry.updated_seq, widget])).digest("hex");
       const reply = this.personalReply;
       const related = reply?.echoed && (reply.cards.includes(id) || Number(entry.seq) > reply.startSeq && (this.data.agent.harness !== "temporal" || !!reply.temporalTurn && /^(t\d+)s\d+$/.exec(id)?.[1] === reply.temporalTurn));
-      const firstAnswered = related && answered && !prior;
+      const firstAnswered = related && answered && prior?.card.replyTo !== reply.messageId;
       if (related && this.data.agent.harness === "temporal") {
         reply.lastCardSeq = Math.max(reply.lastCardSeq ?? 0, Number(entry.seq));
         for (const item of entries.filter(item => !answered || Number(item.seq) <= Number(entry.seq))) {
@@ -697,8 +697,8 @@ export class GrokBotConnector implements Connector {
         this.persistTurn();
       }
       if (firstAnswered) {
-        // The owner can answer between polls. Even without a pending snapshot,
-        // text before this card is not an answer to its choice.
+        // The owner can answer between polls, including before the original
+        // echo arrives. First association with this turn must exclude earlier text.
         reply.resumeAfter = Math.max(reply.resumeAfter ?? 0, Number(entry.seq));
         reply.resumeUpdated = undefined; reply.runningObserved = false; reply.settled = false; this.terminalCandidate = ""; this.persistTurn();
       }
