@@ -1,8 +1,12 @@
 /* WeChat's compact navigation, with circular Feishu-style conversation shortcuts. */
 .im-app { grid-template-columns: 72px clamp(270px, 24vw, 316px) minmax(0, 1fr); background: color-mix(in srgb, var(--im-sidebar) 86%, var(--im-line)); }
+.im-native { grid-template-rows: 42px minmax(0, 1fr); }
+.im-window-drag { grid-column: 1 / -1; grid-row: 1; -webkit-app-region: drag; }
+.im-native > .im-rail, .im-native > .im-list-panel, .im-native > .im-main { grid-row: 2; }
+.im-native .im-header, .im-native .im-conversation-header { min-height: 70px; }
 .im-rail { flex-direction: column; gap: 0; min-height: 0; padding: 0 10px 16px; }
 .im-rail-drag { width: 100%; height: 26px; flex-shrink: 0; -webkit-app-region: drag; }
-.im-native .im-rail-drag { height: 52px; }
+.im-native .im-rail-drag { height: 22px; }
 .im-owner { position: relative; padding: 4px; margin-bottom: 25px; border-radius: 50%; }
 .im-owner .im-avatar { width: 36px; height: 36px; font-size: 15px; }
 .im-owner-dot { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #438877; border: 2px solid var(--im-sidebar); right: 4px; bottom: 5px; }
@@ -10,7 +14,6 @@
 .im-rail-pages { display: flex; flex-direction: column; gap: 13px; }
 .im-nav-item { position: relative; width: 44px; height: 44px; border-radius: 14px; }
 .im-nav-item.selected { background: var(--im-paper); box-shadow: 0 2px 5px rgb(25 45 60 / 4%); }
-.im-nav-item.selected::before { content: ""; position: absolute; left: -8px; top: 17px; height: 10px; width: 3px; border-radius: 4px; background: var(--im-blue); }
 .im-rail-bottom { flex-direction: column; gap: 14px; margin: auto 0 0; padding-top: 24px; }
 .im-rail-bottom .im-icon { width: 40px; height: 40px; border-radius: 12px; }
 .im-list-panel { margin-block: 8px; border: 1px solid var(--im-line); border-radius: 16px; }
@@ -68,14 +71,15 @@
   .im-app { grid-template-columns: 60px minmax(0, 1fr); }
   .im-rail { padding: 0 5px 12px; }
   .im-rail-drag { height: 18px; }
-  .im-native .im-rail-drag { height: 52px; }
+  .im-native .im-rail-drag { height: 22px; }
   .im-owner { margin-bottom: 20px; }
   .im-list-panel { margin: 6px 6px 6px 0; border: 1px solid var(--im-line); border-radius: 14px; }
   .im-list-toolbar { padding: 14px 10px; min-height: 66px; }
   .im-app.im-show-detail { grid-template-columns: minmax(0, 1fr); }
   .im-show-detail > .im-rail { display: none; }
   .im-main { margin: 0; border: 0; border-radius: 0; }
-  .im-native .im-conversation-header { padding-top: 42px; }
+  .im-native .im-header, .im-native .im-conversation-header { padding-top: 12px; min-height: 70px; }
+  .im-native .im-header::before { display: none; }
 }
 @media (hover: none) { .im-row-pin { opacity: 1; width: 30px; height: 30px; } }
 @media (prefers-contrast: more) { .im-pinned-chat.selected .im-pinned-portrait { border-width: 2px; } }
