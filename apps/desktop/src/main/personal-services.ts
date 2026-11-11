@@ -4,14 +4,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { NotSentError, SERVICES, type ConnectorSummary, type DirectConnectorEvent, type LoginProgress, type ServiceId, type NativeApproval } from "./connectors/types";
+import { NotSentError, SERVICES, type AvatarImage, type ConnectorSummary, type DirectConnectorEvent, type LoginProgress, type ServiceId, type NativeApproval } from "./connectors/types";
 import type { InboundMessage } from "./connectors/protocol";
 import type { ConnectorsEnv } from "./connectors/manager";
 
 export type PersonalServiceInstance = { instanceId: string; name: string; url: string; token: string; service?: ServiceId };
 export type PersonalServicesProgress = Exclude<LoginProgress, { state: "ready" }> | { state: "ready"; instances: PersonalServiceInstance[] };
 export type PublicPersonalServicesProgress = Exclude<LoginProgress, { state: "ready" }> | { state: "ready"; instances: { instanceId: string; name: string }[] };
-export type PersonalServiceSummary = Omit<ConnectorSummary, "url" | "connectionId">;
+export type PersonalServiceSummary = Omit<ConnectorSummary, "url" | "connectionId"> & { avatarDataUrl?: string };
 export interface PersonalServicesManager {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -27,10 +27,12 @@ export interface PersonalServicesManager {
   handleLink?(url: string): boolean;
   decideDirect?(id: string, externalId: string, choice: string): Promise<void>;
   sendDirect(id: string, message: InboundMessage): Promise<void>;
+  avatarDirect?(id: string): Promise<AvatarImage | null>;
 }
 export type PersonalServicesOptions = {
   userData: string;
   env?: ConnectorsEnv;
+  onAvatarsChanged?(): void;
   createManager?(input: { directory: string; partitionPrefix: string; onEvent(id: string, event: DirectConnectorEvent): void }): PersonalServicesManager | Promise<PersonalServicesManager>;
 };
 type TaskState = "submitted" | "working" | "input-required" | "completed" | "failed" | "unknown";
@@ -60,6 +62,8 @@ export class PersonalServices {
   private readonly secrets = new Set<string>();
   private readonly sends = new Map<string, { accepted: boolean; completionReady: boolean; buffered: DirectConnectorEvent[] }>();
   private readonly loginFlows = new Set<string>();
+  private readonly avatarImages = new Map<string, string>();
+  private readonly avatarRequests = new Map<string, Promise<void>>();
   constructor(private readonly options: PersonalServicesOptions) {
     this.directory = join(options.userData, "personal-services");
     this.manifestPath = join(this.directory, "manifest.json");
@@ -82,7 +86,24 @@ export class PersonalServices {
   }
   async list(): Promise<PersonalServiceSummary[]> {
     await this.initialize();
-    return this.manager!.list().map(({ id, service, name, status, message, canOpen }) => ({ id, service, name: this.clean(name), status, ...(message ? { message: this.clean(message) } : {}), canOpen }));
+    return this.manager!.list().map(({ id, service, name, status, message, canOpen }) => {
+      this.refreshAvatar(id);
+      const avatarDataUrl = this.avatarImages.get(id);
+      return { id, service, name: this.clean(name), status, ...(message ? { message: this.clean(message) } : {}), canOpen, ...(avatarDataUrl ? { avatarDataUrl } : {}) };
+    });
+  }
+  private refreshAvatar(id: string) {
+    const manager = this.manager;
+    if (!manager?.avatarDirect || this.stopping || this.avatarRequests.has(id)) return;
+    const pending = Promise.resolve().then(() => manager.avatarDirect!(id)).catch(() => null).then(image => {
+      if (this.stopping || this.manager !== manager || !manager.registrations().some(entry => entry.instanceId === id)) return;
+      const value = image?.mime === "image/png" && image.data.length <= 512_000 && image.data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+        ? `data:image/png;base64,${image.data.toString("base64")}` : undefined;
+      if (this.avatarImages.get(id) === value) return;
+      if (value) this.avatarImages.set(id, value); else this.avatarImages.delete(id);
+      this.options.onAvatarsChanged?.();
+    }).finally(() => { this.avatarRequests.delete(id); });
+    this.avatarRequests.set(id, pending);
   }
   async begin(service: ServiceId): Promise<string> {
     if (!SERVICES.some((entry) => entry.id === service)) throw new Error("Unknown personal service");
@@ -147,6 +168,7 @@ export class PersonalServices {
     if (this.manifest.tasks.some((task) => task.instanceId === instanceId && unresolved(task))) throw new Error("该连接仍有执行或待核查结果，请先在原服务核查，不能移除核查渠道");
     if (this.manifest.approvals?.some(card => card.instanceId === instanceId && card.state === "pending")) throw new Error("该连接仍有待处理审批，请先处理后再移除");
     await this.manager!.remove(instanceId);
+    this.avatarImages.delete(instanceId);
   }
   handleLink(url: string) { return this.manager?.handleLink?.(url) ?? false; }
   stop(): Promise<void> {

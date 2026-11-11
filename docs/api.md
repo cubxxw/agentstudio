@@ -31,7 +31,7 @@ type NativeIntegrationReply = {
   flowId?: string; message?: string
   providers?: {id: PersonalServiceId; name: string; description: string}[]
   instances?: {id?: string; instanceId?: string; service?: PersonalServiceId;
-    name: string; status?: string; canOpen?: boolean; connectionId?: string}[]
+    name: string; status?: string; canOpen?: boolean; connectionId?: string; avatarDataUrl?: string}[]
   connectionIds?: string[]
   actions?: {id: string; label: string}[]
   choices?: {id: string; label: string}[]
@@ -52,6 +52,8 @@ interface PersonalDesktopBridge {
   nativeIntegration?(request: NativeIntegrationRequest): Promise<NativeIntegrationReply>
 }
 ```
+
+Native `services` catalog instances may include `avatarDataUrl`, a main-generated PNG data URL (at most 512,000 image bytes, 256 px maximum side). Provider photo URLs, authentication and filesystem paths are never returned. An unavailable avatar is omitted. This is presentation metadata, separate from contact configuration and model context; see [Grok Bot avatars](personal/grok-bot-avatars.md).
 
 `request` accepts only the following fixed paths; IDs are opaque, without URL syntax. Queries, arbitrary URLs/headers, file paths and shell commands are rejected. POST requires a JSON object of at most 2 MB; GET/DELETE accept no body.
 

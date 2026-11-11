@@ -48,7 +48,7 @@ export function defaultColor(id: string): string {
 
 // ---- the shapes, made from the installed Grok Bot app ------------------------------
 
-type Shapes = { dir: string; colors: Record<string, string> };
+type Shapes = { dir: string; version: string; colors: Record<string, string> };
 
 /** The installed Grok Bot app, or null. AGENTSTUDIO_GROKBOT_APP overrides (tests). */
 function grokApp(): string | null {
@@ -63,26 +63,33 @@ function appVersion(app: string): string {
   return /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1] ?? "unknown";
 }
 
-let shapes: Promise<Shapes | null> | null = null;
+const shapes = new Map<string, Promise<Shapes | null>>();
 
 /** The shape masks for this Mac's Grok Bot app (made once per app version), or null without the app. */
 export function grokShapes(userData: string): Promise<Shapes | null> {
-  shapes ??= loadShapes(join(userData, "grokbot-shapes")).catch((err) => {
+  const app = grokApp();
+  if (!app) return Promise.resolve(null);
+  const dir = join(userData, "grokbot-shapes");
+  const version = `${appVersion(app)}/3`;
+  const key = `${dir}:${app}:${version}`;
+  let pending = shapes.get(key);
+  if (pending) return pending;
+  pending = loadShapes(app, dir, version).catch((err) => {
     console.warn("[connectors] couldn't make Grok Bot's avatar shapes:", err);
     return null;
   });
-  return shapes;
+  shapes.set(key, pending);
+  return pending;
 }
 
-async function loadShapes(dir: string): Promise<Shapes | null> {
-  const app = grokApp();
-  if (!app) return null;
-  // Bump the suffix when what's cached changes (2: colors are always #rrggbb).
-  const version = `${appVersion(app)}/2`;
+async function loadShapes(app: string, dir: string, version: string): Promise<Shapes> {
   const stamp = join(dir, "version");
   const colorsFile = join(dir, "colors.json");
-  if (existsSync(stamp) && readFileSync(stamp, "utf8") === version && existsSync(colorsFile)) {
-    return { dir, colors: JSON.parse(readFileSync(colorsFile, "utf8")) as Record<string, string> };
+  if (existsSync(stamp) && readFileSync(stamp, "utf8") === version && existsSync(colorsFile) && SHAPES.every(shape => existsSync(join(dir, `${shape}.png`)))) {
+    try {
+      const colors = JSON.parse(readFileSync(colorsFile, "utf8")) as Record<string, string>;
+      if (COLOR_IDS.every(color => /^#[0-9a-f]{6}$/i.test(colors[color] ?? ""))) return { dir, version, colors };
+    } catch { /* Regenerate incomplete or corrupt derived data. */ }
   }
   const made = await makeShapes(join(app, "Contents", "Resources", "app.asar", "dist", "renderer", "assets"));
   mkdirSync(dir, { recursive: true });
@@ -91,7 +98,24 @@ async function loadShapes(dir: string): Promise<Shapes | null> {
   }
   writeFileSync(colorsFile, JSON.stringify(made.colors));
   writeFileSync(stamp, version);
-  return { dir, colors: made.colors };
+  return { dir, version, colors: made.colors };
+}
+
+/** Select pure rendering exports by their purpose, never by minified names.
+ * Inspecting function source does not invoke unrelated app exports or hooks.
+ * This function is also serialized into the offline sandbox below.
+ */
+export function avatarExportNames(common: Record<string, unknown>, platform: Record<string, unknown>) {
+  const select = (label: string, module: Record<string, unknown>, accepts: (source: string) => boolean) => {
+    const found = Object.entries(module).filter(([, value]) => typeof value === "function" && accepts(Function.prototype.toString.call(value)));
+    if (found.length !== 1) throw new Error(`Grok Bot avatar ${label} exports are unfamiliar or ambiguous (${found.length})`);
+    return found[0]![0];
+  };
+  return {
+    body: select("body", common, source => source.includes("sphere") && source.includes("starFlower") && source.includes("heartChubby")),
+    color: select("color", common, source => source.includes(".find(") && /\.id\s*===/.test(source) && source.includes(".value??")),
+    still: select("still", platform, source => /return\s*[`"']data:image\/svg\+xml,/.test(source) && source.includes("encodeURIComponent")),
+  };
 }
 
 /**
@@ -110,53 +134,43 @@ async function makeShapes(assets: string): Promise<{ shapes: Record<string, stri
     show: false,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: false, partition: "agentstudio-grokbot-shapes" },
   });
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     // The page may only read the app's files; nothing goes to the network.
     win.webContents.session.webRequest.onBeforeRequest((d, cb) => cb({ cancel: !/^(file|data):/.test(d.url) }));
     await win.loadURL("data:text/html,<html></html>");
-    // In the bundle: common exports E (shape body) and P (frame); platform
-    // exports Z (body + eyes paths) and Q (eye seat); app exports Pb (ink color).
     const result = (await Promise.race([
       win.webContents.executeJavaScript(`(async () => {
         const c = await import(${JSON.stringify(pick("index.eager-common-"))});
         const p = await import(${JSON.stringify(pick("index.eager-platform-"))});
-        const a = await import(${JSON.stringify(pick("index.eager-app-"))});
+        const names = (${avatarExportNames.toString()})(c, p);
         const pad = 4, size = ${SIZE} - pad * 2;
         const shapes = {};
         for (const shape of ${JSON.stringify(SHAPES)}) {
-          const body = c.E(shape);
-          const { body: b, eyes } = p.Z(c.P({ body }).frame(), body, size, p.Q(body));
+          const body = c[names.body](shape);
+          const image = new Image();
+          image.src = p[names.still]({ body, ink: "#000000", size });
+          await image.decode();
           const cv = document.createElement("canvas");
           cv.width = cv.height = ${SIZE};
           const g = cv.getContext("2d");
-          g.translate(pad, pad);
-          g.fillStyle = "#000"; g.fill(new Path2D(b));
-          g.fillStyle = "#fff"; g.fill(new Path2D(eyes.join("")));
+          g.drawImage(image, pad, pad, size, size);
           shapes[shape] = cv.toDataURL("image/png");
         }
-        // The ink color (color id, "light") -> "#rrggbb". Its export name changes between
-        // versions (Pb in 0.78.3, Ib in 0.78.4), so find it by what it returns.
-        const hex = (v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
-        const isInk = (f) => {
-          if (typeof f !== "function" || f.length !== 2) return false;
-          try {
-            const o = f("orange", "light"), v = f("violet", "light");
-            return hex(o) && hex(v) && o !== v && hex(f("orange", "dark"));
-          } catch {
-            return false;
-          }
-        };
-        const ink = isInk(a.Pb) ? a.Pb : Object.values(a).find(isInk);
-        if (!ink) throw new Error("Grok Bot's ink colors not found");
         const colors = {};
-        for (const color of ${JSON.stringify(COLOR_IDS)}) colors[color] = ink(color, "light");
+        for (const color of ${JSON.stringify(COLOR_IDS)}) {
+          const value = c[names.color](color);
+          if (typeof value !== "string" || !/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(value)) throw new Error("Invalid Grok Bot avatar color");
+          colors[color] = value.length === 4 ? "#" + [...value.slice(1)].map(c => c + c).join("") : value;
+        }
         return { shapes, colors };
       })()`),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timed out")), 30_000)),
+      new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("timed out")), 30_000); }),
     ])) as { shapes: Record<string, string>; colors: Record<string, string> };
     if (Object.keys(result.shapes).length !== SHAPES.length) throw new Error("missing shapes");
     return result;
   } finally {
+    clearTimeout(timeout);
     win.destroy();
   }
 }
@@ -169,10 +183,10 @@ const cache = new Map<string, AvatarImage | null>();
 export async function grokAvatar(agent: { id: string; avatarShape?: string; avatarColor?: string }, userData: string): Promise<AvatarImage | null> {
   const s = await grokShapes(userData);
   if (!s) return null;
-  const known = (shape: string) => existsSync(join(s.dir, `${shape}.png`));
+  const known = (shape: string) => SHAPES.includes(shape) && existsSync(join(s.dir, `${shape}.png`));
   const shape = agent.avatarShape && known(agent.avatarShape) ? agent.avatarShape : defaultShape(agent.id);
   const color = agent.avatarColor && s.colors[agent.avatarColor] ? agent.avatarColor : defaultColor(agent.id);
-  const key = `${shape}:${color}`;
+  const key = `${s.dir}:${s.version}:${shape}:${color}`;
   if (cache.has(key)) return cache.get(key)!;
   const mask = known(shape) ? nativeImage.createFromPath(join(s.dir, `${shape}.png`)) : null;
   const hex = s.colors[color];

@@ -95,6 +95,36 @@ async function finish(f: Awaited<ReturnType<typeof fixture>>, text = "# Syntheti
 }
 
 describe("personal service catalog and private sign-in capabilities", () => {
+  it("returns service metadata while a slow avatar is still loading", async () => {
+    const f = await fixture(); await f.services.list();
+    let release!: (image: null) => void;
+    const pending = new Promise<null>(resolve => { release = resolve; });
+    let reads = 0;
+    Object.assign(f.manager(), { avatarDirect: async () => { reads++; return pending; } });
+    let metadata: Awaited<ReturnType<PersonalServices["list"]>> | undefined;
+    const listing = f.services.list().then(value => { metadata = value; });
+    await eventTurn();
+    try {
+      expect(metadata?.[0]?.name).toBe("Synthetic Grok");
+      await Promise.all([f.services.list(), f.services.list(), f.services.list()]);
+      expect(reads).toBe(2); // One in-flight lookup per instance, across all catalogs.
+    }
+    finally { release(null); await listing; }
+  });
+  it("returns a bot raster image without exposing provider URLs or credentials", async () => {
+    const f = await fixture(); await f.services.list();
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2XcAAAAASUVORK5CYII=", "base64");
+    Object.assign(f.manager(), { avatarDirect: async (id: string) => id === "fake_grok" ? { mime: "image/png", data: png } : null });
+    await expect.poll(async () => (await f.services.list())[0]?.avatarDataUrl).toBe(`data:image/png;base64,${png.toString("base64")}`);
+    const catalog = await f.services.list();
+    expect(JSON.stringify(catalog)).not.toMatch(/token|https?:/);
+    Object.assign(f.manager(), { avatarDirect: async () => ({ mime: "image/svg+xml", data: Buffer.from("<svg/>") }) });
+    await expect.poll(async () => (await f.services.list())[0]?.avatarDataUrl).toBeUndefined();
+    Object.assign(f.manager(), { avatarDirect: async () => ({ mime: "image/png", data: Buffer.alloc(512_001) }) });
+    expect((await f.services.list())[0]).not.toHaveProperty("avatarDataUrl");
+    Object.assign(f.manager(), { avatarDirect: async () => { throw new Error("avatar unavailable"); } });
+    expect((await f.services.list())[0]?.name).toBe("Synthetic Grok");
+  });
   it("lists four services without network, keychain, storage creation or legacy discovery", async () => {
     const f = await fixture();
     expect(f.services.services().map((entry) => entry.id)).toEqual(["grokbot", "muse", "dots", "cue"]);
