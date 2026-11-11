@@ -1,4 +1,4 @@
-// Copied beside the seven backend ESM files. No browser sessions or
+// Copied beside the backend ESM modules. No browser sessions or
 // renderer-provided paths are read here; only the owning main process configures it.
 import { createPersonalServer } from './index.mjs';
 import { DatabaseSync } from 'node:sqlite';
@@ -14,6 +14,10 @@ async function close() {
 }
 
 process.parentPort.on('message', async ({ data }) => {
+  if (data?.type === 'artifact-preview-result' && application && !closing) {
+    try { application.creation.runtime.recordPreviewCheck(data.workId, data.revisionId, data.checks); } catch { /* An old check cannot complete a changed work. */ }
+    return;
+  }
   if (data?.type === 'register-native-source' && application && data.ownerId === ownerId && !closing) {
     try { application.registerNativeSource(data.source); send({ type: 'native-source-ready', requestId: data.requestId }); }
     catch { send({ type: 'native-source-ready', requestId: data.requestId, error: true }); }
@@ -38,6 +42,7 @@ process.parentPort.on('message', async ({ data }) => {
     if (closing) { await application.close(); process.exit(0); return; }
     const address = await application.listen();
     send({ type: 'ready', workspace: application.store.dataDir, port: address.port, runtime: { electron: process.versions.electron, node: process.versions.node, sqlite } });
+    application.creation.runtime.resumePreviews();
   } catch (error) {
     starting = false;
     await application?.close();

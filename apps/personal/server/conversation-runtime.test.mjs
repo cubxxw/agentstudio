@@ -23,3 +23,12 @@ test('causal reply ordering still enforces recipient and join boundaries', () =>
   ] };
   assert.deepEqual(messagesForRun(thread, run).map(m => m.id), ['m2']);
 });
+
+test('the entire new group audience must be authorized for historical replies and attachments', () => {
+  const run = { id: 'r2', messageId: 'm2', contactId: 'agent_codex' }, thread = { kind: 'group', memberIds: ['self', 'agent_codex', 'agent_pi', 'newcomer'], runs: [{ id: 'r1', messageId: 'm1' }, run], messages: [
+    { id: 'm1', role: 'user', text: 'PRIVATE_OLD_ATTACHMENT', recipientIds: ['self', 'agent_codex', 'agent_pi'] },
+    { id: 'a1', role: 'assistant', runId: 'r1', text: 'PRIVATE_OLD_REPLY', recipientIds: ['self', 'agent_codex', 'agent_pi'] },
+    { id: 'm2', role: 'user', text: 'Current request', recipientIds: ['self', 'agent_codex', 'agent_pi', 'newcomer'] },
+  ] };
+  assert.deepEqual(messagesForRun(thread, run).map(message => message.id), ['m2']);
+});

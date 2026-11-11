@@ -55,6 +55,7 @@ export type Message = {
   skippedContacts?: { id: string; name: string; reason: string }[];
 };
 export type Run = {
+  collaboration?: { workId: string; stepId: string };
   id: string;
   status: Status;
   mode: Mode;
@@ -125,6 +126,7 @@ export type ThreadSummary = {
   pendingApprovals?: number;
 };
 export type Thread = ThreadSummary & {
+  creation?: CreationState;
   createdAt: string;
   messages: Message[];
   runs: Run[];
@@ -174,3 +176,14 @@ export type OnboardingSource = { id: string; kind: "role" | "group" | "message" 
 export type OnboardingContext = { sources: OnboardingSource[]; counts: { roles: number; groups: number; memories: number }; scope: { includeRecentMessages: boolean; includeMemories: boolean; privateMessages: boolean }; truncation: { omitted: number; clipped: number; characterBudget: number } };
 export type RoleSuggestion = { id: string; name: string; handle: string; description: string; instructions: string; rationale: string; sourceIds: string[]; groupIds: string[]; color: string; contactId?: string };
 export type OnboardingJob = OnboardingContext & { id: string; threadId: string; agentId: LocalAgentId; status: "queued" | "probing" | "analyzing" | "completed" | "failed" | "interrupted" | "cancelled"; goal: string; cancelPending?: boolean; stopUnconfirmed?: boolean; createdAt: string; updatedAt: string; executionSnapshot: ExecutionSnapshot; probe: { status: "pending" | "passed"; testedAt?: string }; suggestions: RoleSuggestion[]; habits: { text: string; sourceIds: string[]; inferred: true }[]; error?: string };
+
+export type WorkspaceArtifact = { id: string; title: string; kind: 'document' | 'website'; status: string; headRevisionId: string | null; currentRevisionId: string | null; deliveredRevisionId?: string | null; acceptedRevisionId: string | null; materializationState: string; version: number; createdAt: string; updatedAt: string };
+export type ArtifactRevision = { id: string; artifactId: string; parentRevisionId: string | null; state: string; files: Record<string, { sha256: string; size: number }>; createdAt: string };
+export type ArtifactLink = { version?: number; id: string; artifactId: string; threadId: string; revisionId: string; follow: boolean; paths: string[]; audienceIds: string[]; state: string };
+export type CreationProposal = { id: string; title: string; kind: string; goal: string; artifactId: string | null; baseRevisionId: string | null; messageId: string; state: string; version: number; error?: string; workId?: string; audienceIds: string[]; sourceNames: string[]; readPaths: string[]; publishPaths: string[]; participants: { contactId: string; localAgentId: string; contactSnapshot: { name: string }; executionSnapshot: ExecutionSnapshot }[]; contributors: { contactId: string; task: string; notes: string; writePaths: string[]; dependsOnContacts: string[] }[] };
+export type Collaboration = { id: string; title: string; status: string; threadId: string; artifactId: string | null; finalRevisionId?: string; error?: string; finalChecks?: { passed: boolean; errors: string[]; scope: string }; previewChecks?: { passed: boolean; errors: string[] }; steps: { id: string; runIds?: string[]; contributionId?: string; contactId: string; task: string; status: string; error?: string; submittedRevisionId?: string; summary?: string }[] };
+export type CapabilityRequest = { workId?: string; id: string; capability: string; reason: string; state: string; version: number; artifactId: string | null; revisionId: string | null; paths: string[]; contactId: string; requestedBy: string; audienceIds: string[] };
+export type CreationState = { proposals: CreationProposal[]; collaborations: Collaboration[]; links: ArtifactLink[]; permissionRequests: CapabilityRequest[]; toolActivity: { id: string; name: string; contactId: string; state: string; ok?: boolean; createdAt: string }[] };
+export type ArtifactDetail = { artifact: WorkspaceArtifact; revisions: ArtifactRevision[]; links: ArtifactLink[]; contributions: { id: string; contactId: string; runId: string; revisionId?: string; state: string; summary?: string; createdAt: string }[]; collaborations: Collaboration[]; permissions: CapabilityRequest[]; ownerOperations: { id: string; action: string; state: string }[] };
+
+export type OwnerCollaboration = Collaboration & { messages?: { text: string; fromContactId?: string; kind?: string }[]; runs: Run[] };

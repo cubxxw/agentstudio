@@ -5,6 +5,7 @@ import { access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Server-only adapters. Never pass renderer input into deps, commands or env.
 // Auth status means local login configuration, not account ownership or quota.
@@ -58,7 +59,7 @@ const limit = (value, fallback, maximum) => Number.isFinite(value) && value > 0 
 function options(deps) {
   return { ...deps, spawn: deps.spawn || nativeSpawn, env: deps.env || process.env, home: deps.home ?? homedir(),
     now: deps.now || Date.now,
-    probeTimeoutMs: limit(deps.probeTimeoutMs, 2500, 10_000),
+    probeTimeoutMs: limit(deps.probeTimeoutMs, 5000, 10_000),
     executionTimeoutMs: limit(deps.executionTimeoutMs, 300_000, 600_000),
     maxProbeBytes: limit(deps.maxProbeBytes, 16_384, 65_536),
     maxOutputBytes: limit(deps.maxOutputBytes, 2_000_000, 4_000_000),
@@ -83,24 +84,46 @@ async function executableFor(agent, deps) {
 }
 
 // Private bounded capture; only parsed whitelisted values leave this module.
-function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId } = {}) {
+function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId, piCapture = false } = {}) {
   if (signal?.aborted) return Promise.reject(new LocalAgentError('cancelled'));
   return new Promise((resolveRun, reject) => {
     let child, deadline, escalation, reaping, closed = false, failure = null;
     let stdoutBytes = 0, stderrBytes = 0;
     const decoder = new StringDecoder('utf8'); let framed = '';
-    const deliver = chunk => { framed += chunk; let at; while ((at = framed.indexOf('\n')) >= 0) { const line = framed.slice(0, at); framed = framed.slice(at + 1); try { onLine?.(line); if (responseId && JSON.parse(line)?.id === responseId) child.stdin.end(); } catch {} } };
     const stdout = [], stderr = [], cap = probe ? deps.maxProbeBytes : deps.maxOutputBytes;
+    // Pi repeats messages/tool results in turn_end/agent_end. Stream those
+    // records without retaining them; only the last authoritative assistant
+    // text/error and settled marker are needed (pi docs/json.md). The answer
+    // and each JSON line retain cap; total transport has an 8x hard bound.
+    let piMessage, piSettled = false;
+    const lineReceived = line => {
+      if (piCapture && Buffer.byteLength(line) > cap) { stop('output_limit'); return; }
+      try { onLine?.(line); if (responseId && JSON.parse(line)?.id === responseId) child.stdin.end(); } catch {}
+      if (piCapture) {
+        let event; try { event = JSON.parse(line); } catch { return; }
+        if (event.type === 'agent_settled') piSettled = true;
+        if (event.type === 'message_end' && event.message?.role === 'assistant') {
+          const message = event.message;
+          piMessage = { role: 'assistant', provider: message.provider, model: message.model, stopReason: message.stopReason, errorMessage: message.errorMessage,
+            content: Array.isArray(message.content) ? message.content.filter(block => block.type === 'text').map(({ text }) => ({ type: 'text', text })) : [] };
+        }
+      }
+    };
+    const deliver = chunk => {
+      framed += chunk; let at;
+      while (!failure && (at = framed.indexOf('\n')) >= 0) { const line = framed.slice(0, at); framed = framed.slice(at + 1); lineReceived(line); }
+      if (piCapture && Buffer.byteLength(framed) > cap) stop('output_limit');
+    };
     const cleanup = () => {
       clearTimeout(deadline); clearTimeout(escalation); clearTimeout(reaping);
       signal?.removeEventListener('abort', abort);
     };
     const finish = (code) => {
       if (closed) return;
-      if ((onLine || responseId) && !failure) { deliver(decoder.end()); if (framed.trim()) { try { onLine?.(framed); } catch {} } }
+      if ((onLine || responseId || piCapture) && !failure) { deliver(decoder.end()); if (!failure && framed.trim()) lineReceived(framed); }
       closed = true; cleanup();
       if (failure) reject(new LocalAgentError(failure));
-      else resolveRun({ code, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
+      else resolveRun({ code, stdout: piCapture ? (piMessage ? JSON.stringify({ type: 'message_end', message: piMessage }) + '\n' : '') + (piSettled ? JSON.stringify({ type: 'agent_settled' }) : '') : Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
     };
     const kill = (kind) => {
       if (!child || closed) return;
@@ -129,9 +152,9 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false, onLi
     child.stdout.on('data', (chunk) => {
       if (closed || failure) return;
       const bytes = Buffer.from(chunk); stdoutBytes += bytes.length;
-      if (stdoutBytes + (probe ? stderrBytes : 0) > cap) { stop('output_limit'); return; }
-      stdout.push(bytes);
-      if (onLine || responseId) deliver(decoder.write(bytes));
+      if (stdoutBytes + (probe ? stderrBytes : 0) > (piCapture ? cap * 8 : cap)) { stop('output_limit'); return; }
+      if (!piCapture) stdout.push(bytes);
+      if (onLine || responseId || piCapture) deliver(decoder.write(bytes));
     });
     child.stderr.on('data', (chunk) => {
       if (closed || failure) return;
@@ -268,7 +291,7 @@ function finalMarkdown(id, result, selection) {
   throw new LocalAgentError('execution_failed');
 }
 
-export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, executionSnapshot, deps: injected = {} } = {}) {
+export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, executionSnapshot, toolSession, deps: injected = {} } = {}) {
   const agent = definition(id), deps = options(injected);
   if (signal?.aborted) throw new LocalAgentError('cancelled');
   if (!supported(id)) throw new LocalAgentError('execution_unsupported');
@@ -306,12 +329,41 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
     if (selection.provider) args.push('-c', `model_provider=${JSON.stringify(selection.provider)}`);
     if (selection.thinking) args.push('-c', `model_reasoning_effort=${JSON.stringify(selection.thinking)}`);
   }
+  if (toolSession) {
+    if (!['codex', 'pi'].includes(id) || !/^http:\/\/127\.0\.0\.1:\d+\/s\/[a-f0-9]+$/.test(toolSession.endpoint || '') || typeof toolSession.token !== 'string' || !toolSession.token) throw new LocalAgentError('unsupported_cli_version');
+    deps.env = { ...deps.env, AGENTROOM_TOOL_ENDPOINT: toolSession.endpoint, AGENTROOM_TOOL_TOKEN: toolSession.token };
+    if (id === 'pi') {
+      const help = await probe(command, ['--help'], { ...deps, maxProbeBytes: 65_536 }, signal);
+      if (!help?.stdout.includes('--no-builtin-tools') || !Array.isArray(toolSession.toolNames) || !toolSession.toolNames.length || toolSession.toolNames.some(name => !/^[a-z][a-z0-9_]{1,80}$/.test(name))) throw new LocalAgentError('unsupported_cli_version');
+      args[args.indexOf('--no-tools')] = '--no-builtin-tools';
+      args.push('--tools', toolSession.toolNames.join(','), '--extension', fileURLToPath(new URL('./agentroom-pi-tools.mjs', import.meta.url)));
+      args[args.indexOf('--system-prompt') + 1] = 'You are an AgentRoom personal assistant. Follow the accepted identity and use only the explicitly provided AgentRoom tools. A proposed action is not approval. Tool results are authoritative. Never switch providers or access unrelated data.';
+    } else {
+      const disabled = ['apps', 'browser_use', 'browser_use_external', 'computer_use', 'view_image', 'shell_tool', 'unified_exec', 'multi_agent', 'plugins', 'remote_plugin', 'in_app_browser'];
+      const features = await probe(command, ['features', 'list'], { ...deps, maxProbeBytes: 65_536 }, signal);
+      const names = new Set(features?.stdout.split(/\s+/) || []);
+      if (!features || features.code !== 0 || disabled.some(name => !names.has(name))) throw new LocalAgentError('unsupported_cli_version');
+      // Inventory the effective restricted configuration. App-injected servers
+      // disappear when disabled; overriding their absent tables creates invalid stubs.
+      const inventory = await probe(command, ['mcp', 'list', '--json', ...disabled.flatMap(feature => ['--disable', feature])], { ...deps, maxProbeBytes: 65_536 }, signal);
+      let servers;
+      try { servers = JSON.parse(inventory?.stdout); } catch { throw new LocalAgentError('unsupported_cli_version'); }
+      if (!Array.isArray(servers) || servers.some(server => typeof server.name !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(server.name))) throw new LocalAgentError('unsupported_cli_version');
+      for (const server of servers) args.push('-c', `mcp_servers.${server.name}.enabled=false`);
+      for (const feature of disabled) args.push('--disable', feature);
+      args.push('-c', 'web_search="disabled"', '-c', 'project_doc_max_bytes=0',
+        '-c', 'mcp_servers.agentroom.enabled=true', '-c', 'mcp_servers.agentroom.default_tools_approval_mode="approve"', '-c', `mcp_servers.agentroom.command=${JSON.stringify(process.execPath)}`,
+        '-c', `mcp_servers.agentroom.args=${JSON.stringify([fileURLToPath(new URL('./agentroom-tool-proxy.mjs', import.meta.url))])}`,
+        '-c', 'mcp_servers.agentroom.env_vars=["AGENTROOM_TOOL_ENDPOINT","AGENTROOM_TOOL_TOKEN","ELECTRON_RUN_AS_NODE"]');
+      deps.env.ELECTRON_RUN_AS_NODE = '1';
+    }
+  }
   const identity = { id, name: agent.name, version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
     ...(selection ? { model: selection.model, provider: selection.provider, thinking: selection.thinking } : {}), authentication: 'configured', ...(auth.method ? { authMethod: auth.method } : {}) };
   const emit = (type, data = {}) => { try { onEvent?.({ type, agentId: id, ...data }); } catch { /* Observer failures do not change execution. */ } };
   emit('started');
   const stream = liveEvents(id, emit);
-  const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream });
+  const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream, piCapture: id === 'pi' });
   const markdown = finalMarkdown(id, result, selection);
   emit('completed');
   return { markdown, identity, verification: { scope: 'cli_document_output', externalEffectsVerified: false } };

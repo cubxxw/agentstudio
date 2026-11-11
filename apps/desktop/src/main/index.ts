@@ -38,9 +38,14 @@ import { LocalLoginHost, localExecutionEnv } from "./local-login";
 import { resolveWorkspaceProfile, testWorkspaceArgs, type TestWorkspaceAction } from "./workspace-profile";
 import type { NativeIntegrationReply } from "@agentstudio/personal/desktop-contract";
 import { PERSONAL_IPC, isTrustedDocument, personalCsp, readNativeIntegration, type PersonalCommand } from "../shared/personal-api";
+import { ArtifactPreviewChecker } from "./artifact-preview-check";
+import { artifactFileAction, readArtifactFileAction } from "./artifact-files";
+import { artifactPreviewResponse } from "./artifact-preview";
 
 declare const __APP_VERSION__: string;
 declare const __APP_REVISION__: string;
+
+protocol.registerSchemesAsPrivileged([{ scheme: "agentroom-artifact", privileges: { standard: true, secure: true, supportFetchAPI: false, allowServiceWorkers: false } }]);
 
 // ---- profile isolation (must happen before "ready") ----------------------------
 
@@ -70,6 +75,7 @@ let quitting = false;
 let personalHost: PersonalHost | undefined;
 let personalServices: PersonalServices | undefined;
 let localLogin: LocalLoginHost | undefined;
+let artifactPreviewChecker: ArtifactPreviewChecker | undefined;
 let personalStartup = Promise.resolve();
 let personalStartupFailed = false;
 const nativeConnections = new Map<string, string>();
@@ -111,6 +117,10 @@ function documentCsp(): string { return personalMode ? personalCsp(devServerUrl)
 // ---- CSP ---------------------------------------------------------------------------
 
 function installCsp() {
+  protocol.handle("agentroom-artifact", request => {
+    if (!personalMode || !personalHost || switchingWorkspace || request.method !== "GET") return new Response("Preview unavailable", { status: 404 });
+    return artifactPreviewResponse(request.url, input => personalHost!.request(input));
+  });
   if (devServerUrl) {
     // Dev: the renderer comes from the Vite server over http; add the header there.
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -351,6 +361,17 @@ function registerPersonalIpc() {
     if (!fromPersonal(event) || !personalHost || typeof id !== "string") throw new Error("forbidden");
     return personalHost.saveArtifact(id);
   });
+  ipcMain.handle(PERSONAL_IPC.artifactAction, async (event, input: unknown) => {
+    if (!fromPersonal(event) || !personalHost || switchingWorkspace) throw new Error("forbidden");
+    const action = readArtifactFileAction(input); nativeOperations++;
+    try {
+      return await artifactFileAction(action, { dataDir: workspaceProfile.personalData, request: input => personalHost!.request(input),
+        reveal: path => shell.showItemInFolder(path), chooseDirectory: async () => {
+          const result = await dialog.showOpenDialog(mainWindow!, { title: "导出所选作品版本", properties: ["openDirectory", "createDirectory"] });
+          return result.canceled ? null : result.filePaths[0] || null;
+        } });
+    } finally { nativeOperations--; }
+  });
   ipcMain.handle(PERSONAL_IPC.restart, async (event) => {
     if (!fromPersonal(event) || !personalHost || switchingWorkspace) throw new Error("forbidden");
     if (personalStartupFailed) {
@@ -561,7 +582,7 @@ if (!gotLock) {
         },
         buildRef: process.env.PERSONAL_BUILD_REF || __APP_REVISION__, codexCommand: process.env.AGENTSTUDIO_CODEX_BIN,
         testExportDir: process.env.AGENTSTUDIO_PERSONAL_EXPORT_DIR,
-        onChanged: (event) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(PERSONAL_IPC.changed, event); },
+        onChanged: (event) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(PERSONAL_IPC.changed, event); if (event.previewCheck) artifactPreviewChecker?.enqueue(event.previewCheck); },
         chooseSavePath: async (name) => {
           const options = { defaultPath: join(app.getPath("downloads"), name), filters: [{ name: "Markdown", extensions: ["md"] }] };
           const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
@@ -569,6 +590,7 @@ if (!gotLock) {
         },
       });
     }
+    if (personalHost) artifactPreviewChecker = new ArtifactPreviewChecker(input => personalHost!.request(input), (target, checks) => personalHost!.reportArtifactPreview(target.workId, target.revisionId, checks));
     // Deny every permission request (camera, mic, geolocation, ...) except notifications.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(!personalMode && permission === "notifications"));
     installCsp();
@@ -597,7 +619,7 @@ if (!gotLock) {
     quitting = true;
     if (shutdownComplete) return;
     event.preventDefault();
-    if (!shutdownPromise) shutdownPromise = (async () => { localLogin?.stop(); await personalHost?.stop(); await personalServices?.stop(); await connectors?.stop(); })()
+    if (!shutdownPromise) shutdownPromise = (async () => { artifactPreviewChecker?.close(); localLogin?.stop(); await personalHost?.stop(); await personalServices?.stop(); await connectors?.stop(); })()
       .finally(() => { shutdownComplete = true; app.quit(); });
   });
 }

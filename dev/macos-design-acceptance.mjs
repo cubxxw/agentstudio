@@ -104,6 +104,10 @@ try {
   for (const chat of [first, group, direct]) {
     await page.getByTestId(`im-chat-${chat.id}`).hover();
     await page.getByTestId(`im-pin-${chat.id}`).click();
+    // Pinning restores row focus on the next animation frame. Settle that
+    // documented transition before sending a key to a different shortcut.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    await expect(page.getByTestId(`im-pin-${chat.id}`)).toBeFocused();
   }
   const pinnedOrder = () => page.getByTestId('im-pinned').evaluate(node => [...node.querySelectorAll('button')].map(item => item.dataset.testid));
   await expect.poll(pinnedOrder).toEqual([first, group, direct].map(chat => `im-pinned-${chat.id}`));

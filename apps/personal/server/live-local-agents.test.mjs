@@ -17,10 +17,12 @@ const fs=require('node:fs');const args=process.argv.slice(2);const write=x=>proc
 if(args.includes('--version'))console.log('pi 0.85.1');
 else if(args.includes('rpc')){process.stdin.setEncoding('utf8');process.stdin.on('data',line=>{const c=JSON.parse(line);write({id:c.id,success:true,data:{models:['model-a','model-b',...(${JSON.stringify(mode)}==='catalog'?Array.from({length:500},(_,i)=>'catalog-'+i):[])].map(id=>({provider:'fixture',id,reasoning:true,headers:{Authorization:'SYNTHETIC_SECRET'},transportPadding:'x'.repeat(${mode === 'catalog' ? 500 : 0}),thinkingLevelMap:{minimal:null,xhigh:'high'}}))}});});}
 else { let prompt='';process.stdin.setEncoding('utf8');process.stdin.on('data',x=>prompt+=x);process.stdin.on('end',()=>{
-fs.writeFileSync(${JSON.stringify(trace)},JSON.stringify({args,prompt}));write({type:'agent_start'});write({type:'message_start',message:{role:'assistant'}});
+fs.writeFileSync(${JSON.stringify(trace)},JSON.stringify({args,prompt}));
+if (${JSON.stringify(mode)} === 'lifecycle-noise') for(let n=0;n<100;n++)write({type:'turn_end',message:{role:'toolResult',content:[{type:'text',text:'PRIVATE_TOOL_RESULT'.repeat(1700)}]}});
+write({type:'agent_start'});write({type:'message_start',message:{role:'assistant'}});
 const bytes=Buffer.from(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',contentIndex:0,delta:'hello 🌿'}})+'\\n');const at=bytes.indexOf(Buffer.from('🌿'))+1;process.stdout.write(bytes.subarray(0,at));
 setTimeout(()=>{process.stdout.write(bytes.subarray(at));write({type:'message_update',assistantMessageEvent:{type:'thinking_delta',delta:'PRIVATE_REASONING_NOT_FOR_UI'}});},20);
-setTimeout(()=>{write({type:'message_end',message:{role:'assistant',provider:'fixture',model:'model-a',stopReason:${JSON.stringify(['error', 'auth'].includes(mode) ? 'error' : 'stop')},errorMessage:${JSON.stringify(mode === 'auth' ? '401 Invalid API Key SYNTHETIC_PRIVATE_VALUE' : '')},content:[{type:'text',text:'authoritative final reply'}]}});write({type:'agent_end'});write({type:'agent_settled'});},90);
+setTimeout(()=>{write({type:'message_end',message:{role:'assistant',provider:'fixture',model:'model-a',stopReason:${JSON.stringify(['error', 'auth'].includes(mode) ? 'error' : 'stop')},errorMessage:${JSON.stringify(mode === 'auth' ? '401 Invalid API Key SYNTHETIC_PRIVATE_VALUE' : '')},content:[{type:'text',text:${JSON.stringify(mode === 'oversized-final' ? 'x'.repeat(10000) : 'authoritative final reply')}}]}});write({type:'agent_end'});write({type:'agent_settled'});},90);
 }); }
 `, { mode: 0o700 });
   const deps = { home, env: { ...process.env, PATH: '/usr/bin:/bin' }, commands: { pi: command, codex: '/missing-codex', claude: '/missing-claude', gemini: '/missing-gemini', opencode: '/missing-opencode' }, spawn: (cmd, args, options) => spawn(process.execPath, [cmd, ...args], options) };
@@ -74,4 +76,16 @@ test('Pi metadata supports a large provider catalog without exporting transport 
   const pi = (await discoverLocalAgents({ deps: f.deps })).agents.find(agent => agent.id === 'pi');
   assert.equal(pi.auth.status, 'configured'); assert.equal(pi.profile.models.length, 502);
   assert.ok(!JSON.stringify(pi).includes('SYNTHETIC_SECRET')); assert.ok(!JSON.stringify(pi).includes('transportPadding'));
+});
+
+
+test('Pi lifecycle/tool-result duplication does not consume the final answer memory budget', async t => {
+  const f = await fixture(t, 'lifecycle-noise'), events = [];
+  const result = await executeLocalAgent({ id: 'pi', prompt: 'synthetic only', workspace: f.work, deps: f.deps, executionSnapshot: { agentId: 'pi', provider: 'fixture', model: 'model-a', thinking: 'high' }, onEvent: event => events.push(event) });
+  assert.equal(result.markdown, 'authoritative final reply'); assert.ok(!JSON.stringify({ result, events }).includes('PRIVATE_TOOL_RESULT'));
+});
+
+test('Pi still rejects an oversized final message with bounded streaming capture', async t => {
+  const f = await fixture(t, 'oversized-final');
+  await assert.rejects(executeLocalAgent({ id: 'pi', prompt: 'synthetic only', workspace: f.work, deps: { ...f.deps, maxOutputBytes: 4096 }, executionSnapshot: { agentId: 'pi', provider: 'fixture', model: 'model-a', thinking: 'high' } }), error => error.code === 'output_limit');
 });

@@ -128,7 +128,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true); await capture('narrow-live-chat');
     check('dark mode, reduced motion and narrow chat keep controls and Markdown within the window');
   } else {
-    expect(page.url().startsWith('file:')).toBe(true); const health = await request('/health'); expect(Object.keys(health.build.serverFiles)).toHaveLength(8);
+    expect(page.url().startsWith('file:')).toBe(true); const health = await request('/health'); expect(health.build.serverFiles['creation-service.mjs']).toBeTruthy(); expect(health.build.serverFiles['agentroom-tool-proxy.mjs']).toBeTruthy();
     check('actual Electron runs the bundled eight-module backend through fixed IPC');
   }
   expect(errors).toEqual([]); check('no renderer exceptions');

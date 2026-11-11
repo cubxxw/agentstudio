@@ -22,6 +22,8 @@ if (args[0] === '--version') later(() => {
   write('Synthetic ' + id + ' 2.1.123\n' + secret); process.exitCode = 0;
 });
 else if (args.includes('rpc')) { process.stdin.setEncoding('utf8'); process.stdin.on('data', line => { const c = JSON.parse(line); write(JSON.stringify({ id:c.id, success:true, data:{models:[{provider:'synthetic',id:'model-a',reasoning:true}]} }) + '\n'); }); }
+else if (args[0] === 'mcp' && args[1] === 'list') write([{name:'unrelated-service',enabled:true},...(args.includes('--disable') && args.includes('apps') ? [] : [{name:'codex_app',enabled:true}])]);
+else if (args[0] === 'features' && args[1] === 'list') write(mode === 'missing-tool-control' ? 'shell_tool stable true' : 'apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin code_mode_host in_app_browser');
 else if ((args[0] === 'login' || args[0] === 'auth') && args[1] === 'status') later(() => {
   if (mode === 'auth-timeout') { setInterval(() => {}, 1000); return; }
   if (id === 'codex') {
@@ -34,7 +36,7 @@ else if ((args[0] === 'login' || args[0] === 'auth') && args[1] === 'status') la
   }
 });
 else if (args[0] === '--help') {
-  write(mode === 'old-cli' ? '--print --output-format' : '--safe-mode --print --input-format --output-format --tools --strict-mcp-config --mcp-config --disallowedTools --permission-mode --disable-slash-commands --no-session-persistence --settings');
+  setTimeout(() => write(mode === 'old-cli' ? '--print --output-format' : '--safe-mode --print --input-format --output-format --tools --strict-mcp-config --mcp-config --disallowedTools --permission-mode --disable-slash-commands --no-session-persistence --settings'), fixture.helpDelayMs || 0);
 } else {
   let input = '';
   process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => input += chunk);
@@ -74,7 +76,7 @@ async function fixture(t, value = {}) {
       calls.push({ command, args, options }); active++; maximum = Math.max(active, maximum);
       // Execute synthetic scripts with the trusted interpreter. Fresh executable
       // shebang files can spend >3s in macOS launch checks before Node even starts;
-      // that is unrelated to the adapter's 2.5s protocol probe being tested.
+      // that is unrelated to the adapter's bounded protocol probe being tested.
       const child = spawn(process.execPath, [command, ...args], options);
       child.once('close', () => { active--; if (child.pid) closed.add(child.pid); }); return child;
     },
@@ -87,6 +89,27 @@ async function fixture(t, value = {}) {
 function safeError(code) {
   return error => error instanceof LocalAgentError && error.code === code && !JSON.stringify(error).includes(SECRET) && !error.message.includes(SECRET);
 }
+
+test('native tool mode disables inherited capabilities and passes the scoped credential only through child environment', async t => {
+  const f = await fixture(t);
+  const token = 'SYNTHETIC_SCOPED_SESSION_NEVER_IN_ARGUMENTS';
+  const result = await f.execute('codex', { toolSession: { endpoint: 'http://127.0.0.1:12345/s/abcdef', token } });
+  const call = f.calls.find(item => item.args[0] === 'exec');
+  // Codex's -c key parser treats quotes as literal name characters, unlike TOML tables.
+  assert.ok(call.args.some(arg => arg === 'mcp_servers.unrelated-service.enabled=false'));
+  assert.ok(!call.args.some(arg => arg.startsWith('mcp_servers.codex_app.')));
+  assert.ok(call.args.includes('shell_tool')); assert.ok(call.args.includes('apps'));
+  assert.ok(!call.args.includes('code_mode_host'), 'the scoped MCP router must remain available');
+  assert.ok(call.args.includes('mcp_servers.agentroom.default_tools_approval_mode="approve"'));
+  assert.equal(call.options.env.AGENTROOM_TOOL_TOKEN, token);
+  assert.ok(!JSON.stringify(call.args).includes(token)); assert.ok(!JSON.stringify(result).includes(token));
+});
+
+test('unsupported native tool control fails before execution instead of falling back to unrestricted chat', async t => {
+  const f = await fixture(t, { mode: 'missing-tool-control' });
+  await assert.rejects(f.execute('codex', { toolSession: { endpoint: 'http://127.0.0.1:12345/s/abcdef', token: 'synthetic' } }), safeError('unsupported_cli_version'));
+  assert.ok(!f.calls.some(item => item.args[0] === 'exec'));
+});
 async function until(predicate, timeout = 3000) {
   const deadline = Date.now() + timeout;
   while (!(await predicate())) {
@@ -252,4 +275,9 @@ test('spawn failures remain safe errors without leaking native stderr or executa
   assert.equal(state.agents[0].installed, true); assert.equal(state.agents[0].auth.status, 'unknown');
   await assert.rejects(f.execute(), safeError('authentication_unknown'));
   assert.ok(!JSON.stringify(state).includes(SECRET));
+});
+
+test('a slow but bounded CLI help probe is not mistaken for an unsupported version', async t => {
+  const f = await fixture(t, { helpDelayMs: 3000 });
+  const result = await f.execute('claude'); assert.match(result.markdown, /Actual fixture result/);
 });

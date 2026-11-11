@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ArrowRight, Check, MessageCircle, Pin, PinOff, Plus, RefreshCw, Search, Settings2, ShieldCheck, SlidersHorizontal, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, FolderOpen, MessageCircle, Pin, PinOff, Plus, RefreshCw, Search, Settings2, ShieldCheck, SlidersHorizontal, Users } from "lucide-react";
 import { Avatar } from "./ContactAvatar";
 import { movePin, normalizePins, togglePin } from "./conversation-pins";
 import type { Contact, ThreadSummary } from "./types";
 
-export type MessengerScreen = "chats" | "contacts" | "approvals";
+export type MessengerScreen = "chats" | "contacts" | "approvals" | "library";
 
 export function NavigationRail({ screen, owner, pending, onScreen, onSettings, onRefresh }: {
   screen: MessengerScreen; owner: string; pending: number;
@@ -14,7 +14,7 @@ export function NavigationRail({ screen, owner, pending, onScreen, onSettings, o
   return <nav className="im-rail" aria-label="主导航" data-testid="im-rail">
     <div className="im-rail-drag" />
     <button className="im-owner" aria-label="个人与设置" title={owner || "个人与设置"} data-testid="im-profile" onClick={onSettings}><Avatar contact={{ name: owner || "我", kind: "human", color: "teal" }} /><span className="im-owner-dot" /></button>
-    <div className="im-rail-pages">{([["chats", MessageCircle, "聊天"], ["contacts", Users, "联系人"], ["approvals", ShieldCheck, "审批"]] as const).map(([id, Icon, label]) => <button key={id} className={`im-nav-item ${screen === id ? "selected" : ""}`} aria-label={label} title={label} aria-current={screen === id ? "page" : undefined} data-testid={`im-nav-${id}`} onClick={() => onScreen(id)}><span><Icon size={21} strokeWidth={1.7} />{id === "approvals" && pending > 0 && <b>{pending}</b>}</span></button>)}</div>
+    <div className="im-rail-pages">{([["chats", MessageCircle, "聊天"], ["contacts", Users, "联系人"], ["approvals", ShieldCheck, "审批"], ["library", FolderOpen, "作品"]] as const).map(([id, Icon, label]) => <button key={id} className={`im-nav-item ${screen === id ? "selected" : ""}`} aria-label={label} title={label} aria-current={screen === id ? "page" : undefined} data-testid={`im-nav-${id}`} onClick={() => onScreen(id)}><span><Icon size={21} strokeWidth={1.7} />{id === "approvals" && pending > 0 && <b>{pending}</b>}</span></button>)}</div>
     <div className="im-rail-bottom"><button className="im-icon" aria-label="刷新联系人和会话" title="刷新联系人和会话" data-testid="im-refresh" onClick={onRefresh}><RefreshCw size={18} /></button><button className="im-icon" aria-label="连接与设置" title="连接与设置" data-testid="im-settings" onClick={onSettings}><Settings2 size={21} strokeWidth={1.7} /></button></div>
   </nav>;
 }
@@ -29,13 +29,13 @@ export function ListToolbar({ screen, search, filter, pending, inputRef, onSearc
   useEffect(() => { if (disclosure.current) disclosure.current.open = false; }, [screen]);
   return <div className="im-list-toolbar" data-testid="im-list-toolbar">
     <div className="im-search-group" data-testid="im-search-group">
-      <label className="im-search"><Search size={16} aria-hidden="true" /><input type="search" ref={inputRef} value={search} onChange={e => onSearch(e.target.value)} placeholder={screen === "chats" ? "搜索" : screen === "contacts" ? "搜索联系人" : "搜索审批"} aria-label="搜索" data-testid="im-search" /></label>
-      <details className="im-filter" ref={disclosure} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) e.currentTarget.open = false; }} onKeyDown={e => { if (e.key === "Escape") { e.currentTarget.open = false; e.currentTarget.querySelector("summary")?.focus(); } }}>
+      <label className="im-search"><Search size={16} aria-hidden="true" /><input type="search" ref={inputRef} value={search} onChange={e => onSearch(e.target.value)} placeholder={screen === "chats" ? "搜索" : screen === "contacts" ? "搜索联系人" : screen === "library" ? "搜索作品" : "搜索审批"} aria-label="搜索" data-testid="im-search" /></label>
+      {screen !== "library" && <details className="im-filter" ref={disclosure} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) e.currentTarget.open = false; }} onKeyDown={e => { if (e.key === "Escape") { e.currentTarget.open = false; e.currentTarget.querySelector("summary")?.focus(); } }}>
         <summary aria-label={`筛选：${activeLabel}`} title={`筛选：${activeLabel}`} data-testid="im-filter-toggle"><SlidersHorizontal size={16} />{filter !== "all" && <span className="im-filter-active" />}</summary>
         <div className="im-filter-options" aria-label="列表筛选" data-testid="im-filter-options">{options.map(([id, label]) => <button key={id} aria-pressed={filter === id} data-testid={`im-filter-${id}`} onClick={() => { onFilter(id!); if (disclosure.current) { disclosure.current.open = false; disclosure.current.querySelector("summary")?.focus(); } }}><span>{label}</span>{filter === id && <Check size={15} />}</button>)}</div>
-      </details>
+      </details>}
     </div>
-    <button className="im-new-button" aria-label={screen === "contacts" ? "添加联系人" : "发起聊天"} title={screen === "contacts" ? "添加联系人" : "发起聊天 (⌘N)"} data-testid="im-new" onClick={onNew}><Plus size={21} strokeWidth={1.7} /></button>
+    {screen !== "library" && <button className="im-new-button" aria-label={screen === "contacts" ? "添加联系人" : "发起聊天"} title={screen === "contacts" ? "添加联系人" : "发起聊天 (⌘N)"} data-testid="im-new" onClick={onNew}><Plus size={21} strokeWidth={1.7} /></button>}
   </div>;
 }
 

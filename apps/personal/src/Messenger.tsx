@@ -9,18 +9,22 @@ import { AgentCard } from "./AgentCard";
 import { AgentOnboarding } from "./AgentOnboarding";
 import { AgentProfile } from "./AgentProfile";
 import { HostDiscovery } from "./HostDiscovery";
+import { CreationCards } from "./CreationCard";
+import { ArtifactLibrary } from "./ArtifactLibrary";
+import { ArtifactWorkspace } from "./ArtifactWorkspace";
+import "./artifacts.css";
 import { ConversationTimeline } from "./ConversationTimeline";
 import { ConversationDetails } from "./ConversationDetails";
 import { ConversationList, ListToolbar, NavigationRail } from "./MessengerNavigation";
 import { emptyDraft, restoreDraft, settleCreatedDraft, type ConversationDraft as Draft } from "./conversation-state";
 import { RichText } from "./Markdown";
 import { Avatar, availabilityText, ContactEditor, GroupEditor } from "./MessengerDialogs";
-import type { Approval, Artifact, Attachment, Bootstrap, Contact, Message, Run, Thread, ThreadSummary } from "./types";
+import type { Approval, Artifact, Attachment, Bootstrap, Contact, Message, Run, Thread, ThreadSummary, WorkspaceArtifact } from "./types";
 import type { PersonalServiceId } from "./desktop-contract";
 import "./messenger.css";
 import "./messenger-navigation.css";
 
-type Screen = "chats" | "contacts" | "approvals";
+type Screen = "chats" | "contacts" | "approvals" | "library";
 const draftCache = new Map<string, Draft>();
 const read = <T,>(name: string, fallback: T): T => {
   try { return JSON.parse(localStorage.getItem(`agentstudio.messenger.${name}`) || "null") ?? fallback; } catch { return fallback; }
@@ -54,7 +58,7 @@ const unresolvedApproval = (decision: { state: string }) => ["pending", "sending
 
 function Messenger() {
   const desktop = desktopBridge();
-  const [screen, setScreen] = useState<Screen>("chats");
+  const [screen, setScreen] = useState<Screen>(() => new URL(location.href).searchParams.has("artifact") ? "library" : "chats");
   const [data, setData] = useState<Bootstrap | null>(read("bootstrap", null));
   const [contactRecords, setContacts] = useState<Contact[]>(read("contacts", []));
   const [serviceAvatars, setServiceAvatars] = useState<Record<string, PersonalServiceId>>({});
@@ -64,6 +68,9 @@ function Messenger() {
     const service = connectionId ? serviceAvatars[connectionId] : undefined;
     return service && connectionId ? { ...contact, avatarService: service, avatarDataUrl: serviceImages[connectionId] } : contact;
   }), [contactRecords, serviceAvatars, serviceImages]);
+  const [library, setLibrary] = useState<WorkspaceArtifact[]>([]);
+  const [artifactRevision, setArtifactRevision] = useState<string | null>(() => new URL(location.href).searchParams.get("revision"));
+  const [artifactId, setArtifactId] = useState<string | null>(() => new URL(location.href).searchParams.get("artifact"));
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<string | null>(selectedId);
   const currentId = useRef(selected); currentId.current = selected;
@@ -74,7 +81,7 @@ function Messenger() {
   const [error, setError] = useState(""), [draftWarning, setDraftWarning] = useState(false);
   const [search, setSearch] = useState(""), [filter, setFilter] = useState("all");
   const [contactId, setContactId] = useState<string | null>(null), [approvalId, setApprovalId] = useState<string | null>(null);
-  const [mobileDetail, setMobileDetail] = useState(() => Boolean(selectedId()));
+  const [mobileDetail, setMobileDetail] = useState(() => Boolean(selectedId() || new URL(location.href).searchParams.get("artifact")));
   const [listHidden, setListHidden] = useState(() => read<unknown>("listHidden", false) === true);
   const [preferences, setPreferences] = useState(false), [newChat, setNewChat] = useState(false);
   const [details, setDetails] = useState(false);
@@ -134,7 +141,7 @@ function Messenger() {
       setServiceAvatars(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && instance.service ? [[instance.connectionId, instance.service]] : [])));
       setServiceImages(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && instance.avatarDataUrl ? [[instance.connectionId, instance.avatarDataUrl]] : [])));
     }).catch(() => { /* Keep the last known icons; core refresh works independently. */ });
-    const results = await Promise.allSettled([api<Bootstrap>("/bootstrap"), api<{ contacts: Contact[] }>("/contacts"), api<{ approvals: Approval[] }>("/approvals")]);
+    const results = await Promise.allSettled([api<Bootstrap>("/bootstrap"), api<{ contacts: Contact[] }>("/contacts"), api<{ approvals: Approval[] }>("/approvals"), api<{ artifacts: WorkspaceArtifact[] }>("/library/artifacts")]);
     if (!mounted.current || sequence !== syncing.current) return;
     if (results[0].status === "fulfilled") { setData(results[0].value); write("bootstrap", results[0].value); setConnected(true); }
     else { setConnected(false); setError(errorText(results[0].reason)); }
@@ -142,6 +149,7 @@ function Messenger() {
     else setError(errorText(results[1].reason));
     if (results[2].status === "fulfilled") setApprovals(results[2].value.approvals);
     else setError(errorText(results[2].reason));
+    if (results[3].status === "fulfilled") setLibrary(results[3].value.artifacts);
     setLoading(false);
     if (currentId.current && currentId.current !== "new") await loadThread(currentId.current);
   }, [desktop, loadThread]);
@@ -152,9 +160,14 @@ function Messenger() {
     if (screen !== "chats") { setFilter("all"); setSearch(""); }
     setThread(read(`thread.${id}`, null)); setDraftState(savedDraft(id));
     draftRef.current = savedDraft(id); setError(""); setReading(null); setDetails(false); setMessageLimit(80); nearBottom.current = true; setNewMessages(false);
-    if (push) { const url = new URL(location.href); url.hash = ""; url.searchParams.delete("workspace"); url.searchParams.set("thread", id); history.pushState(null, "", url); }
+    if (push) { const url = new URL(location.href); url.hash = ""; url.searchParams.delete("workspace"); url.searchParams.delete("artifact"); url.searchParams.delete("revision"); url.searchParams.set("thread", id); history.pushState(null, "", url); }
     if (id !== "new") void loadThread(id).catch(e => { if (currentId.current === id) setError(errorText(e)); });
   }, [loadThread, screen]);
+
+  const openArtifact = (id: string, revisionId?: string) => {
+    setArtifactRevision(revisionId || null); setArtifactId(id); setScreen("library"); setMobileDetail(true); setError("");
+    const url = new URL(location.href); url.hash = ""; url.searchParams.delete("thread"); url.searchParams.set("artifact", id); if (revisionId) url.searchParams.set("revision", revisionId); else url.searchParams.delete("revision"); history.pushState(null, "", url);
+  };
 
   useEffect(() => {
     mounted.current = true; refreshSafely();
@@ -172,7 +185,7 @@ function Messenger() {
     return () => { mounted.current = false; clearTimeout(timer); clearTimeout(fullTimer); clearInterval(interval); events?.close(); unsubscribe?.(); document.removeEventListener("visibilitychange", visible); window.removeEventListener("online", invalidate); window.removeEventListener("offline", offline); };
   }, [desktop, refreshSafely, loadThread]);
   useEffect(() => {
-    const navigate = () => { const id = selectedId(); if (id) openThread(id, false); else { viewEpoch.current += 1; currentId.current = null; setSelected(null); setThread(null); setMobileDetail(false); } };
+    const navigate = () => { const artifact = new URL(location.href).searchParams.get("artifact"); if (artifact) { setArtifactRevision(new URL(location.href).searchParams.get("revision")); setArtifactId(artifact); setScreen("library"); setMobileDetail(true); return; } const id = selectedId(); if (id) openThread(id, false); else { viewEpoch.current += 1; currentId.current = null; setSelected(null); setThread(null); setMobileDetail(false); } };
     window.addEventListener("popstate", navigate); return () => window.removeEventListener("popstate", navigate);
   }, [openThread]);
   useEffect(() => {
@@ -287,14 +300,15 @@ function Messenger() {
     <a className="skip-link" data-testid="im-skip" href="#im-main">跳到聊天内容</a>
 
     <NavigationRail screen={screen} owner={data?.workspace?.displayName || contacts.find(c => c.id === "self")?.name || "我"} pending={pending.length} onScreen={switchScreen} onSettings={() => setPreferences(true)} onRefresh={() => void refreshContacts()} />
-    <aside className="im-list-panel" id="im-list" data-testid="im-list-panel" aria-label={screen === "chats" ? "会话列表" : screen === "contacts" ? "联系人列表" : "审批列表"}>
+    <aside className="im-list-panel" id="im-list" data-testid="im-list-panel" aria-label={screen === "chats" ? "会话列表" : screen === "contacts" ? "联系人列表" : screen === "library" ? "作品列表" : "审批列表"}>
       <ListToolbar screen={screen} search={search} filter={filter} pending={pending.length} inputRef={searchInput} onSearch={setSearch} onFilter={setFilter} onNew={() => screen === "contacts" ? setContactEditor("new") : setNewChat(true)} />
       <div className="im-list-scroll">
         {loading && !data && <p className="im-list-note"><Loader2 size={16} className="working" />正在打开…</p>}
+        {screen === "library" && <ArtifactLibrary artifacts={library.filter(item => matches(item.title))} selected={artifactId} onOpen={openArtifact} />}
         {screen === "chats" && <ConversationList threads={data?.threads || []} contacts={contacts} search={search} filter={filter} selected={selected} loading={loading} onOpen={openThread} onNew={() => setNewChat(true)} />}
         {screen === "contacts" && people.map(person => <button className={`im-chat-row ${contactId === person.id ? "selected" : ""}`} key={person.id} data-testid={`im-contact-${person.id}`} onClick={() => { setContactId(person.id); setMobileDetail(true); }} onDoubleClick={() => void startChat(person)}><Avatar contact={person} /><span className="im-row-copy"><strong>{person.name}</strong><small>{person.kind === "agent" ? person.availability === "ready" ? person.description || person.providerName : availabilityText[person.availability] : "本地联系人"}</small></span><ChevronRight size={16} className="im-muted" /></button>)}
         {screen === "approvals" && shownApprovals.map(item => <button key={item.id} className={`im-chat-row ${selectedApproval?.id === item.id ? "selected" : ""}`} data-testid={`im-approval-${item.id}`} onClick={() => { setApprovalId(item.id); setMobileDetail(true); }}><Avatar contact={item.contact || undefined} /><span className="im-row-copy"><strong>{item.title}</strong><small>{item.threadTitle} · {item.state === "pending" ? "等待决定" : item.state === "sending" ? "正在同步选择" : item.state === "unknown" ? "结果待核查" : item.state === "cancelled" ? "已失效" : "已记录选择"}</small></span></button>)}
-        {!loading && screen !== "chats" && (screen === "contacts" ? people.length === 0 : shownApprovals.length === 0) && <div className="im-list-empty"><span>{search ? "没有找到匹配的内容" : screen === "contacts" ? "还没有这类联系人" : filter === "history" ? "还没有审批记录" : "暂无待处理审批"}</span>{screen === "contacts" && !search && <button onClick={() => setContactEditor("new")}>添加联系人</button>}</div>}
+        {!loading && screen !== "chats" && screen !== "library" && (screen === "contacts" ? people.length === 0 : shownApprovals.length === 0) && <div className="im-list-empty"><span>{search ? "没有找到匹配的内容" : screen === "contacts" ? "还没有这类联系人" : filter === "history" ? "还没有审批记录" : "暂无待处理审批"}</span>{screen === "contacts" && !search && <button onClick={() => setContactEditor("new")}>添加联系人</button>}</div>}
       </div>
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-local-add-entry" onClick={() => setLocalPickerOpen(true)}><Plus size={18} /><span>快速添加本机助手<small>选择常用 Agent，添加后开始聊天</small></span><ChevronRight size={16} /></button>}
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-discovery-entry" onClick={() => setDiscoveryOpen(true)}><Search size={18} /><span>发现本机助手<small>使用已安装或已连接的伙伴</small></span><ChevronRight size={16} /></button>}
@@ -303,7 +317,7 @@ function Messenger() {
     <main className="im-main" id="im-main" data-testid="im-main">
       {(!connected && !loading) && <div className="im-connection-warning" role="status"><WifiOff size={16} />连接中断，草稿和已加载的消息仍保留。<button disabled={busy === "reconnect"} onClick={() => void reconnect()}>{busy === "reconnect" ? "正在恢复…" : "重新连接"}</button></div>}
       {error && <div className="im-error-banner" role="alert">{error}<IconButton label="关闭提示" onClick={() => setError("")}><X size={16} /></IconButton></div>}
-      {screen === "contacts" && contact ? <>
+      {screen === "library" && artifactId ? <ArtifactWorkspace key={`${artifactId}:${artifactRevision || "head"}`} artifactId={artifactId} initialRevisionId={artifactRevision || undefined} contacts={contacts} threads={data?.threads || []} toolbar={focusControl} onBack={() => setMobileDetail(false)} onOpenThread={openThread} onChanged={refresh} /> : screen === "contacts" && contact ? <>
         <header className="im-header"><IconButton label="返回联系人" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<strong>联系人信息</strong></header>
         <div className="im-contact-detail" data-testid="im-contact-detail"><Avatar contact={contact} size="hero" /><h2>{contact.name}</h2><span className="im-handle">@{contact.handle}</span><p>{contact.description || (contact.kind === "agent" ? "你的 Agent 伙伴" : "保存在这台 Mac 的联系人")}</p><div className="im-contact-status"><span className={contact.availability === "ready" ? "im-online-dot" : "im-offline-dot"} />{availabilityText[contact.availability]}</div>
           <div className="im-profile-actions"><button className="im-primary" onClick={() => void startChat(contact)} disabled={busy === contact.id} data-testid="im-start-chat"><MessageCircle size={18} />{contact.kind === "human" ? "打开本地对话" : "发送消息"}</button><button className="im-secondary" onClick={() => setContactEditor(contact)} data-testid="im-edit-contact">编辑身份</button>{contact.kind === "agent" && <button className="im-text-button" onClick={() => setProfileId(contact.id)} data-testid="im-agent-profile-open">目标与运行安排<ChevronRight size={15} /></button>}</div>
@@ -319,7 +333,8 @@ function Messenger() {
         {thread?.decisions.some(d => unresolvedApproval(d)) && <button className="im-pending-bar" data-testid="im-pending-bar" onClick={() => { setApprovalId(thread.decisions.find(d => unresolvedApproval(d))!.id); setScreen("approvals"); }}><ShieldCheck size={17} /><span>{thread.decisions.filter(d => unresolvedApproval(d)).length} 项审批需要你处理</span><ChevronRight size={17} /></button>}
         <div className="im-timeline" ref={timeline} data-testid="im-timeline" onScroll={e => { const node = e.currentTarget; nearBottom.current = node.scrollHeight - node.clientHeight - node.scrollTop < 100; if (nearBottom.current) setNewMessages(false); }}>
           {thread && thread.messages.length === 0 && <div className="im-conversation-start"><Avatar contact={directContact} group={thread.kind === "group"} size="large" /><h2>{thread.kind === "group" ? "伙伴到齐，开始聊吧。" : `和 ${directContact?.name || thread.title} 聊聊`}</h2><p>{thread.kind === "group" ? "成员会结合自己的角色选择回应；也可以 @ 指定一位伙伴。" : directContact?.instructions || directContact?.description || "发一条消息，开始这段对话。"}</p></div>}
-          {thread && <ConversationTimeline thread={thread} contacts={contacts} serviceAvatars={serviceAvatars} serviceImages={serviceImages} limit={messageLimit} onMore={() => setMessageLimit(value => value + 80)} onReply={message => { editDraft({ replyTo: message.id }); input.current?.focus(); }} onContact={id => { setContactId(id); setScreen("contacts"); setMobileDetail(true); }} onSource={setSource} onRun={(run, action) => void mutateRun(run, action)} onError={setError} busy={busy} />}
+          {thread && <ConversationTimeline thread={{ ...thread, runs: thread.runs.filter(run => !run.collaboration) }} contacts={contacts} serviceAvatars={serviceAvatars} serviceImages={serviceImages} limit={messageLimit} onMore={() => setMessageLimit(value => value + 80)} onReply={message => { editDraft({ replyTo: message.id }); input.current?.focus(); }} onContact={id => { setContactId(id); setScreen("contacts"); setMobileDetail(true); }} onSource={setSource} onRun={(run, action) => void mutateRun(run, action)} onError={setError} busy={busy} />}
+          {thread && <CreationCards state={thread.creation} contacts={contacts} refresh={refresh} onOpen={openArtifact} onError={setError} />}
 
         </div>
         {newMessages && <button className="im-new-messages" onClick={() => { if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; nearBottom.current = true; setNewMessages(false); }}><ArrowDown size={16} />回到最新</button>}

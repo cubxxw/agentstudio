@@ -45,6 +45,7 @@ export interface PersonalDesktopBridge {
     path?: string;
     sha256?: string;
   }>;
+  artifactAction?(input: { kind: "reveal" | "export"; artifactId: string; revisionId?: string }): Promise<{ cancelled: boolean; path?: string }>;
   restart(): Promise<void>;
   nativeIntegration?(request: NativeIntegrationRequest): Promise<NativeIntegrationReply>;
 }

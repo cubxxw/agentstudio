@@ -4,7 +4,7 @@ export type { PersonalDesktopBridge as AgentStudioPersonal, DesktopMethod } from
 export type PersonalCommand = DesktopCommand;
 export type PersonalRequest = Parameters<PersonalDesktopBridge["request"]>[0];
 export type PersonalResponse = Awaited<ReturnType<PersonalDesktopBridge["request"]>>;
-export type PersonalChange = { threadId?: string };
+export type PersonalChange = { threadId?: string; previewCheck?: { workId: string; artifactId: string; revisionId: string } };
 export type PersonalSaveResult = Awaited<ReturnType<PersonalDesktopBridge["saveArtifact"]>>;
 
 export const PERSONAL_IPC = {
@@ -13,6 +13,7 @@ export const PERSONAL_IPC = {
   changed: "agentstudio:personal:changed",
   command: "agentstudio:personal:command",
   saveArtifact: "agentstudio:personal:save-artifact",
+  artifactAction: "agentstudio:personal:artifact-action",
   restart: "agentstudio:personal:restart",
   integration: "agentstudio:personal:integration",
   testWorkspace: "agentstudio:personal:test-workspace",
@@ -21,6 +22,11 @@ export const PERSONAL_IPC = {
 const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
+    /^\/api\/library\/artifacts$/,
+    new RegExp(`^/api/(collaborations|capability-requests)/${opaqueId}$`),
+    new RegExp(`^/api/library/artifacts/${opaqueId}$`),
+    new RegExp(`^/api/library/previews/${opaqueId}(?:/files/${opaqueId})?$`),
+    new RegExp(`^/api/threads/${opaqueId}/creation$`),
     /^\/api\/workspace\/status$/,
     /^\/api\/(health|bootstrap|connections|memories)$/,
     /^\/api\/integrations$/,
@@ -34,6 +40,11 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
+    new RegExp(`^/api/library/artifacts/${opaqueId}/(files|preview|share|resolve-local|change)$`),
+    new RegExp(`^/api/(creation-proposals|capability-requests)/${opaqueId}/decision$`),
+    new RegExp(`^/api/creation-proposals/${opaqueId}/change$`),
+    new RegExp(`^/api/capability-requests/${opaqueId}/revoke$`),
+    new RegExp(`^/api/collaborations/${opaqueId}/control$`),
     /^\/api\/workspace\/onboarding$/,
     /^\/api\/(threads|connections|memories)$/,
     /^\/api\/agent-onboarding$/,
@@ -104,5 +115,5 @@ export function personalCsp(developmentUrl?: string): string {
     script.push("'unsafe-inline'");
     connect.splice(0, 1, dev.origin, `${dev.protocol === "https:" ? "wss:" : "ws:"}//${dev.host}`);
   }
-  return ["default-src 'none'", `script-src ${script.join(" ")}`, "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self' data:", `connect-src ${connect.join(" ")}`, "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'", "object-src 'none'"].join("; ");
+  return ["default-src 'none'", `script-src ${script.join(" ")}`, "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self' data:", `connect-src ${connect.join(" ")}`, "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'", "object-src 'none'", "frame-src agentroom-artifact:"].join("; ");
 }
