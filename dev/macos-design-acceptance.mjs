@@ -126,7 +126,7 @@ try {
 
   if (native) await application.evaluate(({ nativeTheme }) => { nativeTheme.themeSource = 'dark'; });
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
-  await expect.poll(() => page.getByTestId('im-main').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(23, 23, 25)');
+  await expect.poll(() => page.getByTestId('im-main').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(29, 35, 42)');
   await expect.poll(() => page.getByTestId('im-send').evaluate(node => getComputedStyle(node).transitionDuration)).toBe('0s');
   await shot('conversation-dark');
   await page.getByTestId('im-new').click();
@@ -146,6 +146,10 @@ try {
   await expect(page.getByTestId('im-back')).toBeVisible();
   await expect(page.getByTestId('im-focus-toggle')).toBeHidden();
   await expect(page.getByTestId('im-message-input')).toHaveValue(draft);
+  await expect.poll(() => page.getByTestId('im-composer').evaluate(node => {
+    const bounds = node.getBoundingClientRect();
+    return bounds.top >= 0 && bounds.bottom <= innerHeight;
+  })).toBe(true);
   await shot('narrow-conversation');
   await page.getByTestId('im-back').click();
   await expect(page.getByTestId('im-list-panel')).toBeVisible();
