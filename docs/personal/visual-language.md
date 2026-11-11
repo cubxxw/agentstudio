@@ -8,11 +8,12 @@ The native window places its system traffic lights in a shallow, uninterrupted t
 
 Feishu informs pinned conversation shortcuts: round portraits, short names and a subtle selection ring, in a horizontally scrollable row. These shortcuts deliberately use circles for people, agents and groups; ordinary agent portraits retain their rounded square shape. Pinning and order are saved per local profile. The contact header belongs to the toolbar instead of reproducing Messages' centered avatar stack.
 
-Agent replies sit directly on the reading surface. They have no repeated identity, timestamp, model label, document link or surrounding gray panel. The owner's messages use a deep slate-blue bubble with white text and an even radius. Group portraits align with the beginning of their reply. Failure, incomplete delivery and approvals remain explicit.
+Agent replies use rounded gray chat bubbles, with Grok as the reference for the neutral incoming surface. Direct chats, group chats and streaming replies share the same bubble treatment. They have no repeated identity, timestamp, model label or document link. The owner's messages use a deep slate-blue bubble with white text and the same even radius. Group portraits align with the beginning of their reply. Failure, incomplete delivery and approvals remain explicit.
 
 | Token | Light | Role |
 | --- | --- | --- |
-| Reading surface | `#ffffff` | Opaque, uninterrupted reply text |
+| Reading surface | `#ffffff` | Opaque conversation background |
+| Agent message | `#f2f2f2` | Neutral incoming chat bubble |
 | Sidebar | `#f3f5f7` | Quiet navigation material |
 | Ink | `#27343e` | Main text and identity |
 | Secondary ink | `#5d6b77` | Supporting text |
@@ -21,4 +22,4 @@ Agent replies sit directly on the reading surface. They have no repeated identit
 
 Use the system SF/PingFang stack. Body text is 15 px with 1.85 line height; restrained headings and paragraph space support longer Markdown replies. Portrait shape scales with size. Avoid gradients, ornamental dividers and repeated labels. Empty states use one plain symbol and useful next actions.
 
-Dark mode uses blue-gray surfaces with light ink, retaining the same reading hierarchy. Keyboard focus, narrow navigation, reduced motion, increased contrast and persistent test-mode identification remain part of the design.
+Dark mode uses blue-gray surfaces with light ink and neutral `#343434` Agent bubbles, retaining the same reading hierarchy. Keyboard focus, narrow navigation, reduced motion, increased contrast and persistent test-mode identification remain part of the design.
