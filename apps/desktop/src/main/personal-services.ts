@@ -356,6 +356,14 @@ export class PersonalServices {
       // A read-only provider refresh may omit turn metadata. Its established
       // private binding belongs to this card and must survive that refresh.
       if (index >= 0 && approvals[index]!.replyTo) card.replyTo = approvals[index]!.replyTo;
+      const prior = index >= 0 ? approvals[index] : undefined;
+      // A restored connector infers "original" without its former in-memory
+      // cards. Keep a proven local answer only for the same unambiguous choice.
+      if (prior?.state === "resolved" && prior.source === "agentroom" && card.state === "resolved"
+        && card.choiceLabel?.trim() && card.choiceLabel === prior.choiceLabel
+        && prior.choices.filter(choice => choice.label === card.choiceLabel).length === 1
+        && card.choices.filter(choice => choice.label === card.choiceLabel).length === 1
+        && this.manifest.responses?.some(response => response.instanceId === instanceId && response.cardId === card.id && response.state === "accepted")) card.source = "agentroom";
       if (index < 0) approvals.push({ ...card, instanceId }); else approvals[index] = { ...card, instanceId };
       const related = this.manifest.tasks.find(item => item.instanceId === instanceId && item.messageId === card.replyTo && (unresolved(item) || index < 0 && item.state === "completed"));
       if (related?.state === "completed" && index < 0) {

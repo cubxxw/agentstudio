@@ -608,6 +608,35 @@ it("syncs independent approvals and durably deduplicates responses across restar
   expect((await (await restored.rpc("agentstudio/approvals/respond", params)).json() as any).result.state).toBe("unknown");
   expect(restored.manager().decisions).toHaveLength(0);
 });
+it.each([
+  { receipt: "accepted", incoming: "same", expected: "agentroom" },
+  { receipt: "unknown", incoming: "same", expected: "original" },
+  { receipt: "absent", incoming: "same", expected: "original" },
+  { receipt: "accepted", incoming: "changed", expected: "original" },
+  { receipt: "accepted", incoming: "duplicate", expected: "original" },
+  { receipt: "accepted", incoming: "pending", expected: undefined },
+])("keeps proven response provenance across restart ($receipt / $incoming)", async ({ receipt, incoming, expected }) => {
+  const f = await fixture(); await f.services.list();
+  const card = { id: "provenance_card", revision: "a".repeat(64), title: "QA?", choices: [{ key: "opaque", label: "Continue" }], state: "pending" as const };
+  const emitter = f.manager().emitters.get("fake_grok")!; emitter.approval!(card);
+  if (receipt !== "absent") {
+    if (receipt === "unknown") f.manager().onDecide = async () => { throw new Error("lost receipt"); };
+    await f.rpc("agentstudio/approvals/respond", { id: card.id, revision: card.revision, choice: "opaque", requestId: "provenance_answer" });
+  }
+  emitter.approval!({ ...card, state: "resolved", source: "agentroom", choiceLabel: "Continue" });
+  await f.services.stop();
+  const restored = await fixture(f.directory); await restored.services.restore();
+  // Readback advances the provider revision and infers original by default.
+  const refreshed = { ...card, revision: "b".repeat(64), state: "resolved" as "resolved" | "pending", source: "original" as "original" | undefined, choiceLabel: "Continue" as string | undefined };
+  if (incoming === "changed") refreshed.choiceLabel = "Other";
+  if (incoming === "duplicate") refreshed.choices.push({ key: "second", label: "Continue" });
+  if (incoming === "pending") { refreshed.state = "pending"; refreshed.source = undefined; refreshed.choiceLabel = undefined; }
+  restored.manager().emitters.get("fake_grok")!.approval!(refreshed);
+  const result: any = await (await restored.rpc("agentstudio/approvals/list", {})).json();
+  expect(result.result.approvals[0].source).toBe(expected);
+  expect(restored.manager().decisions).toHaveLength(0);
+  expect(restored.manager().sends).toHaveLength(0);
+});
 it("restores a proven approval wait and requires fresh post-approval text to complete", async () => {
  const f=await fixture();const sent=await f.send();await expect.poll(async()=>(await f.get(sent.result.id)).result.status.state).toBe("working");
  const card={id:"approval",revision:"a".repeat(64),state:"pending" as const,title:"QA?",choices:[{key:"opaque",label:"Continue"}],replyTo:"message_1"};
