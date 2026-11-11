@@ -14,7 +14,7 @@
 | 最新原生合成主流程 | 9 个检查点通过，`synthetic-30PkSJ/acceptance.json` |
 | 原生运行错误负例 | 5 个检查点通过，`synthetic-zwmZKL/acceptance.json`；错误详情仅所有者可见 |
 | 旧聊天设置界面回归 | 8 个检查点通过，`agent-profile-ui-final/` |
-| CI | `3767e1b` 的 Go 与 TypeScript 完整 CI 通过；最终文档/验收提交另行核查 |
+| CI | `3767e1b` 的 Go 与 TypeScript 完整 CI 通过；最终交付门禁以 PR 当前提交检查页为准，不能从本机结果推断远端状态 |
 
 正式证据根为 `/private/tmp/ai-test-artifact-coauthoring.cpLUvJ`。最终检查日志与决策 ledger 归档到其 `implementation-evidence/`。所有验收使用独立 profile 与合成阅读产品需求，没有使用真实业务资料或第三方聊天内容。
 
@@ -61,4 +61,4 @@
 
 支持文档和无构建依赖的静态 HTML/CSS/JS；远端人类身份/消息网络、依赖安装、任意 shell、常驻服务、生产部署和分发不在本版。这里的应用授权不等于同 OS 对手隔离或任意 CLI 扩展安全沙箱。自动预览不代表全交互、无障碍或真实后端通过；用户接受版本仍需明确选择。
 
-PR：[#18](https://github.com/cubxxw/agentstudio/pull/18)。Linear MCP 持续返回工具不可用，已登录的原生工作区仍停在加载页，尚未建立 issue 关联；不能据此声称 Linear 已完成。独立 worktree、真实作品、历史失败和唯一证据保留，未写入用户的日常 profile。
+PR：[#18](https://github.com/cubxxw/agentstudio/pull/18)。Linear MCP 持续返回工具不可用，已登录的原生工作区仍停在加载页，尚未建立 issue 关联；不能据此声称 Linear 已完成。本机 GitHub CLI 对主仓库为 READ；连接器不可用，网页扩展与原生 Chrome 控制均超时，未能核实另一具备合并权限的网页登录。PR 保留待合并。独立 worktree、真实作品、历史失败和唯一证据保留，未写入用户的日常 profile。
