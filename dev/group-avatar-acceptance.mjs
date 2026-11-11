@@ -100,7 +100,10 @@ try{
   const c=document.createElement('canvas');c.width=c.height=1;c.getContext('2d').drawImage(image,0,0,1,1);
   return {width:image.naturalWidth,height:image.naturalHeight,pixel:[...c.getContext('2d').getImageData(0,0,1,1).data]};
  });
- expect(crop.width).toBe(crop.height);expect(crop.width).toBeLessThanOrEqual(256);expect(crop.pixel.slice(0,3)).toEqual([228,170,83]);
+ expect(crop.width).toBe(crop.height);expect(crop.width).toBeLessThanOrEqual(256);
+ // Chromium's raster backends can round a channel by one; the central gold band
+ // is still clearly distinguishable from either cropped-away side band.
+ crop.pixel.slice(0,3).forEach((value,index)=>expect(Math.abs(value-[228,170,83][index])).toBeLessThanOrEqual(2));expect(crop.pixel[3]).toBe(255);
  await capture('group-picture-preview');await save();
  for(const avatar of surfaces())await expect(avatar).toHaveAttribute('data-group-avatar-kind','image');
  const stored=(await request('/threads/'+id)).groupAvatar;
