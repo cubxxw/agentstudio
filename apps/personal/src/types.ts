@@ -123,6 +123,7 @@ export type Decision = {
   actionState: string | null;
   verificationState: string | null;
 };
+export type GroupAvatar = { kind: "preset"; icon: "room" | "spark" | "code" | "compass" | "leaf" | "coffee"; color: "teal" | "blue" | "violet" | "orange" | "rose" } | { kind: "image"; dataUrl: string };
 export type ThreadSummary = {
   id: string;
   title: string;
@@ -131,6 +132,7 @@ export type ThreadSummary = {
   updatedAt: string;
   kind?: "direct" | "group";
   memberIds?: string[];
+  groupAvatar?: GroupAvatar | null;
   version?: number;
   lastMessage?: { text: string; contactId?: string } | null;
   pendingApprovals?: number;
