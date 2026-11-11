@@ -462,7 +462,7 @@ export class GrokBotConnector implements Connector {
   private personalReply: PersonalTurn | null = null;
   private nativeCards = new Map<string, { card: NativeApproval; options: { value: string; label: string }[]; updated: number }>();
   private widgets = new Set<string>();
-  private widgetAnswers = new Set<string>();
+  private widgetAnswers = new Map<string, number>();
   private timer: NodeJS.Timeout | null = null;
 
   private avatarCache: { mime: string; data: Buffer } | null = null;
@@ -607,6 +607,7 @@ export class GrokBotConnector implements Connector {
   /** Read-only card sync is independent of chat seq/history and the active task. */
   private syncCards(entries: ProtoMessage[]) {
     const observed = new Set<string>();
+    let relatedAnswer = false;
     for (const entry of entries) {
       if (entry.body_omitted || !entry.body) continue; // absence is never an answer
       let body: Record<string, unknown>;
@@ -636,12 +637,19 @@ export class GrokBotConnector implements Connector {
       if (related && !answered) { reply.waiting = true; reply.resumeAfter = Math.max(reply.resumeAfter ?? 0, ...entries.map(item => Number(item.seq ?? 0))); if (!reply.cards.includes(id)) reply.cards.push(id); this.persistTurn(); }
       this.nativeCards.set(id, { card, options, updated: Number(entry.updated_seq ?? 0) }); observed.add(id);
       if (JSON.stringify(prior?.card) !== JSON.stringify(card)) this.emitter?.approval?.(card);
-      if (answered && related && reply.waiting && (prior?.card.state === "pending" || reply.cards.includes(id)) && !this.widgets.size) {
-        reply.waiting = false; if (typeof rawAnswer === "string") this.widgetAnswers.add(rawAnswer.trim()); this.persistTurn(); this.emitter?.emit({ type: "status", state: "working", text: "Decision answered" });
+      if (answered && related && (prior?.card.state === "pending" || (!prior && reply.cards.includes(id)))) {
+        relatedAnswer = true;
+        if (typeof rawAnswer === "string") this.rememberWidgetAnswer(rawAnswer);
       }
+    }
+    if (relatedAnswer && this.personalReply?.waiting && !this.widgets.size) {
+      this.personalReply.waiting = false; this.persistTurn(); this.emitter?.emit({ type: "status", state: "working", text: "Decision answered" });
     }
     return observed;
   }
+
+  private rememberWidgetAnswer(value: string) { const key = value.trim(); this.widgetAnswers.set(key, (this.widgetAnswers.get(key) ?? 0) + 1); }
+  private consumeWidgetAnswer(value: string) { const key = value.trim(), count = this.widgetAnswers.get(key) ?? 0; if (!count) return false; if (count === 1) this.widgetAnswers.delete(key); else this.widgetAnswers.set(key, count - 1); return true; }
 
   async decide(externalId: string, choice: string): Promise<void> {
     // Refresh first: another device may have answered or revised this exact card.
@@ -658,7 +666,7 @@ export class GrokBotConnector implements Connector {
     else {
       const res = await this.client.rpc("RespondGrokBotWidget", WidgetRequest, { ...base, value }, RespondWidgetResponse);
       if (res.accepted === false) throw new Error("Grok Bot didn't accept the answer");
-      this.ownTexts.add(value.trim()); this.widgetAnswers.add(value.trim());
+      this.ownTexts.add(value.trim()); this.rememberWidgetAnswer(value);
     }
     this.widgets.delete(externalId);
     current.card = { ...current.card, state: "resolved", source: "agentroom", choiceLabel: current.options.find(option => option.value === value)?.label || "已跳过" };
@@ -729,7 +737,7 @@ export class GrokBotConnector implements Connector {
         // What the user typed in Grok Bot itself (AgentRoom's own sends are skipped).
         let ours: boolean | string | undefined;
         if (this.personalReply) {
-          ours = this.personalReply.echoed && this.widgetAnswers.delete(parsed.text.trim());
+          ours = this.personalReply.echoed && this.consumeWidgetAnswer(parsed.text);
           ours ||= parsed.nonce ? parsed.nonce === this.personalReply.providerMessageId && this.ownMessageIds.delete(parsed.nonce)
             : parsed.text.trim() === this.personalReply.text && this.ownTexts.delete(parsed.text);
           if (ours) { this.ownTexts.delete(parsed.text); this.personalReply.echoed = true; this.persistTurn(); }

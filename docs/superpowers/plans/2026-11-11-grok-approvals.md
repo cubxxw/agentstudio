@@ -54,3 +54,11 @@ Files: Decision presentation, conversation approval affordances, shared types, A
 - [ ] Obtain independent diff review; fix confirmed important findings.
 - [ ] Install a clean reviewed bundle with rollback, verify the real account and both approval directions, restart and read back receipts.
 - [ ] Merge after gates, record exact evidence/revision, complete GET-496 after acceptance, and remove only owned disposable resources.
+
+## Execution ledger
+
+- Implemented exact opaque options, native card/readback ledger, independent watcher, private utility source registration and browser fallback.
+- Ruling: retain the native ledger in `personal-services.ts` alongside the existing manifest, rather than introduce a second native persistence owner.
+- Native permission cards synchronize state but require the original app to grant access.
+- Independent review fixes cover fresh-card absence, answer echoes, pending restart, partial text boundaries, removal guards, cross-revision unknown isolation and late snapshot regression.
+- Desktop suite: 158 passing before final UI status labels and multiple-card echo adjustment. Existing personal suite: 136 passing; three new watcher/API tests passing. Live acceptance and final CI remain open.
