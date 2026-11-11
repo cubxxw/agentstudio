@@ -85,16 +85,17 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
   };
   const reload = useCallback(async (force = false) => {
     const version = ++loadVersion.current;
-    const results = await Promise.allSettled([
-      api<Integrations>(force ? "/integrations/refresh" : "/integrations", force ? {} : undefined),
-      nativeAvailable ? native({ kind: "services" }) : Promise.resolve(null),
-    ]);
-    if (!mounted.current || version !== loadVersion.current) return;
-    if (results[0].status === "fulfilled") setIntegrations(results[0].value);
-    else setError(message(results[0].reason));
-    if (results[1].status === "fulfilled") setCatalog(results[1].value);
-    else setError(message(results[1].reason));
-    setLoading(false);
+    const current = () => mounted.current && version === loadVersion.current;
+    // Native service enumeration can wait on an unrelated provider. It must
+    // not hold local discovery, server nodes or a completed enrollment hostage.
+    if (nativeAvailable) void native({ kind: "services" }).then(value => {
+      if (current()) setCatalog(value);
+    }).catch(error => { if (current()) setError(message(error)); });
+    try {
+      const value = await api<Integrations>(force ? "/integrations/refresh" : "/integrations", force ? {} : undefined);
+      if (current()) setIntegrations(value);
+    } catch (error) { if (current()) setError(message(error)); }
+    finally { if (current()) setLoading(false); }
   }, [native, nativeAvailable]);
   useEffect(() => {
     mounted.current = true; void reload();
