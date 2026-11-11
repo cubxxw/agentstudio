@@ -29,6 +29,13 @@ pass improves scanning and reduces the scrolling needed to find configuration.
 6. Switching navigation sections starts the new list at its top. Switching contacts
    starts their detail at the top. Conversation drafts and stored history retain
    their existing ownership. Quick-start names cannot push their action offscreen.
+7. The library distinguishes no saved work from a search with no matches. Clearing
+   search returns keyboard focus to the search input. Its welcome surface explains
+   selecting existing work or creating a first work through group discussion. The
+   creation shortcut opens a new group without carrying over the last private
+   conversation's participant.
+   Long work titles keep the header compact, with the full title on hover. At
+   narrow widths the version selector gets its own row above Finder and export.
 
 ## Validation
 
@@ -45,6 +52,12 @@ continuity, list scroll reset, long handles, light/dark renderer media, 200% zoo
 and exactly 320 CSS px. PNGs include renderer and macOS window captures when the
 OS capture is available. The existing messenger and macOS design journeys remain
 the regression checks for chats, approvals and saved results.
+
+The library checks cover empty/search states and their group entry. After the
+isolated Electron process exits, the script seeds a committed Markdown document
+with the existing artifact store, then reopens the same isolated profile to check
+the populated library, search recovery and actual file readback. It does not seed
+or modify a workspace while its worker owns the database lock.
 
 These checks do not establish VoiceOver, real-provider login, physical input-device
 acceptance, signing/notarization or installation into the user's running app.

@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { PersonalStore } from '../apps/personal/server/store.mjs';
+import { ArtifactStore } from '../apps/personal/server/artifact-store.mjs';
 
 const requireDesktop = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { _electron, expect } = requireDesktop('@playwright/test');
@@ -21,8 +23,8 @@ process.exit(1);
 const env = { ...process.env, CODEX_HOME: codexHome, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, AGENTSTUDIO_CLAUDE_BIN: join(output, 'missing'), AGENTSTUDIO_PI_BIN: join(output, 'missing'), AGENTSTUDIO_MOCK_KEYCHAIN: '1' };
 cleanDesktopTestEnv(env);
 for (const name of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[name];
-const app = await _electron.launch({ executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
-const page = await app.firstWindow();
+let app = await _electron.launch({ executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
+let page = await app.firstWindow();
 const checks = [], errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const request = (path, body) => page.evaluate(async ({ path, body }) => {
@@ -70,6 +72,29 @@ try {
   await page.getByTestId(`im-chat-${local.id}`).click();
   await page.getByTestId('im-message-input').fill('合成草稿：回来后继续。');
   await shot('02-chat-light');
+  if (!baseline) {
+    const direct = await request('/chats', { kind: 'direct', memberIds: [contacts[0].id], clientId: 'craft-library-context' });
+    await page.getByTestId('im-refresh').click();
+    await page.getByTestId(`im-chat-${direct.id}`).click();
+    await page.getByTestId('im-nav-library').click();
+    await expect(page.getByTestId('library-empty')).toContainText('还没有作品');
+    await expect(page.getByTestId('library-welcome')).toContainText('一起做的作品');
+    await shot('02b-library-empty');
+    await page.getByTestId('library-start-group').click();
+    await expect(page.getByTestId('im-group-editor')).toBeVisible();
+    await expect(page.getByTestId(`im-member-${contacts[0].id}`)).not.toBeChecked();
+    await page.keyboard.press('Escape');
+    await page.getByTestId('im-search').fill('没有这件作品');
+    await expect(page.getByTestId('library-empty')).toContainText('没有找到匹配的作品');
+    await expect(page.getByTestId('library-start-group')).toHaveCount(0);
+    await shot('02c-library-no-results');
+    await page.getByTestId('library-clear-search').click();
+    await expect(page.getByTestId('im-search')).toHaveValue('');
+    await expect(page.getByTestId('im-search')).toBeFocused();
+    await page.getByTestId('im-nav-chats').click();
+    await page.getByTestId(`im-chat-${local.id}`).click();
+    check('library distinguishes empty from no results and creates groups without inheriting a previous private contact');
+  }
   // Replace only this isolated application's service enumeration; no provider/account is used.
   if (!baseline) await app.evaluate(({ ipcMain }) => {
     let instances = [
@@ -162,6 +187,48 @@ try {
   await shot('08-contact-accessibility');
   expect(errors).toEqual([]);
   check('light, dark, narrow, stronger contrast and reduced motion render without exceptions');
+  if (!baseline) {
+    // Seed a committed synthetic document only after this app has released its worker lock.
+    await app.close();
+    const store = new PersonalStore(join(output, 'profile', 'personal'));
+    let artifactId;
+    try {
+      const artifacts = new ArtifactStore(store, { authorize: context => { if (!context.synthetic) throw new Error('Synthetic fixture only'); } });
+      const actor = { contactId: 'self', runId: 'craft-library-seed', synthetic: true };
+      const artifact = artifacts.create({ title: '合成阅读方案 · '.repeat(8), kind: 'document' }, actor);
+      const stage = artifacts.stage(artifact.id, 'craft-library-seed', null, actor);
+      artifacts.write(stage.id, { path: 'brief.md', text: '# 两种阅读方案\n\n| 方案 | 时间 |\n| --- | --- |\n| A | 20 分钟 |\n| B | 30 分钟 |', expectedHash: null }, actor);
+      artifacts.integrate(artifacts.submit(stage.id, actor).id, actor);
+      artifactId = artifact.id;
+    } finally { store.close(); }
+    app = await _electron.launch({ executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
+    page = await app.firstWindow();
+    page.on('pageerror', error => errors.push(error.message));
+    await page.emulateMedia({ colorScheme: 'light' });
+    await bounds(1200, 780);
+    await page.getByTestId('im-nav-library').click();
+    await expect(page.getByTestId(`library-artifact-${artifactId}`)).toBeVisible();
+    await expect(page.getByTestId('library-welcome')).toContainText('选择一件作品');
+    await expect(page.getByTestId('library-welcome-start')).toHaveCount(0);
+    await shot('09-library-populated');
+    await page.getByTestId('im-search').fill('没有这件作品');
+    await expect(page.getByTestId('library-clear-search')).toBeVisible();
+    await page.getByTestId('library-clear-search').click();
+    await page.getByTestId(`library-artifact-${artifactId}`).click();
+    await expect(page.getByTestId('artifact-workspace')).toContainText('两种阅读方案');
+    await page.getByTestId('artifact-tab-files').click();
+    await expect(page.getByTestId('artifact-file-content')).toContainText('20 分钟');
+    await shot('10-library-files');
+    await bounds(640, 780);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2));
+    expect(await page.evaluate(() => innerWidth)).toBe(320);
+    expect(await page.getByTestId('artifact-workspace').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    expect(await page.getByTestId('artifact-revision-select').evaluate(node => node.parentElement.getBoundingClientRect().height)).toBeLessThanOrEqual(40);
+    await expect(page.getByTestId('artifact-tab-files')).toBeInViewport();
+    await shot('11-library-narrow');
+    expect(errors).toEqual([]);
+    check('a real committed document remains searchable and opens its persisted file from the populated library');
+  }
   await writeFile(join(output, 'results.json'), JSON.stringify({ baseline, output, checks, errors, synthetic: true }, null, 2));
   console.log(JSON.stringify({ output, checks }));
 } catch (error) {
