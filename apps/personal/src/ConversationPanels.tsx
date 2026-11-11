@@ -455,10 +455,11 @@ export function DecisionView({
     >
       <div className="decision-heading">
         <span className="decision-dot" />
-        <strong>{pending ? "这里需要你决定" : "已记录你的选择"}</strong>
+        <strong>{pending ? "这里需要你决定" : decision.state === "sending" ? "正在同步你的选择" : decision.state === "unknown" ? "选择结果待核查" : "已记录选择"}</strong>
       </div>
       <h3>{decision.title}</h3>
       <p>{decision.summary}</p>
+      {decision.kind === "provider_approval" && decision.providerSource && <p>{decision.providerSource === "original" ? "已在 Grok Bot 处理，状态已同步" : "从 AgentRoom 回传给 Grok Bot"}</p>}
       {readable && (
         <dl className="decision-scope">
           {decision.identity && (
@@ -532,7 +533,7 @@ export function DecisionView({
         <div className="decision-receipt">
           <span>
             选择：
-            {decision.decision?.choice === "approve"
+            {decision.kind === "provider_approval" ? decision.choiceLabel || "请在 Grok Bot 核查" : decision.decision?.choice === "approve"
               ? "同意"
               : decision.state === "cancelled"
                 ? "预览已失效"

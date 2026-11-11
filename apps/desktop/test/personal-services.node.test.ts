@@ -31,6 +31,8 @@ class FakeManager implements PersonalServicesManager {
   readonly chosen: string[] = [];
   readonly submitted: string[] = [];
   readonly cancelled: string[] = [];
+  decisions: { id: string; choice: string }[] = [];
+  onDecide: () => Promise<void> = async () => {};
   starts = 0;
   stops = 0;
   status: ConnectorSummary["status"] = "ready";
@@ -62,6 +64,7 @@ class FakeManager implements PersonalServicesManager {
   open(id: string) { this.opened.push(id); }
   async remove(id: string) { this.removed.push(id); const position = this.records.findIndex((entry) => entry.instanceId === id); if (position >= 0) this.records.splice(position, 1); this.host.remove(id); }
   handleLink(url: string) { return url === "cuedev://synthetic"; }
+  async decideDirect(_instance: string, id: string, choice: string) { this.decisions.push({ id, choice }); await this.onDecide(); }
   sendDirect(id: string, message: InboundMessage) { return this.host.sendDirect(id, message); }
 }
 async function fixture(existingDirectory?: string) {
@@ -302,8 +305,8 @@ describe("durable local A2A dispatch", () => {
     const events: DirectConnectorEvent[] = [];
     const harness = Object.create(WebChatConnector.prototype) as { process(snapshot: unknown): void };
     Object.assign(harness, {
-      cfg: { name: "Synthetic WebChat" }, emitter: { ...emitter, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); } },
-      ownTexts: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true }, seen: new Set(),
+      cfg: { name: "Synthetic WebChat" }, emitter: { ...emitter, approval: (card: any) => { events.push({ type: "native_approval", card }); emitter.approval!(card); }, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); } },
+      ownTexts: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true, startSeq: 0, cards: [] }, seen: new Set(),
       pending: new Map([["answer_1", { text: "First bubble", polls: 1 }], ...(secondPending ? [] : [["answer_2", { text: "Second bubble contains final result", polls: 1 }] as const])]),
       approvals: new Map(), pendingAsk: null,
     });
@@ -329,11 +332,11 @@ describe("durable local A2A dispatch", () => {
     const events: DirectConnectorEvent[] = [];
     const harness = Object.create(GrokBotConnector.prototype) as { process(entries: unknown[]): void };
     Object.assign(harness, {
-      cfg: {}, data: { lastSeq: 0 }, onChange() {},
-      emitter: { ...emitter, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); }, inputRequired: (messageId: string) => { events.push({ type: "input_required", messageId }); emitter.inputRequired!(messageId); } },
-      ownTexts: new Set(), ownMessageIds: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true }, seen: new Map(),
+      cfg: {}, data: { lastSeq: 0, agent: { id: "qa", sessionId: "qa" } }, nativeCards: new Map(), onChange() {},
+      emitter: { ...emitter, approval: (card: any) => { events.push({ type: "native_approval", card }); emitter.approval!(card); }, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); }, inputRequired: (messageId: string) => { events.push({ type: "input_required", messageId }); emitter.inputRequired!(messageId); } },
+      ownTexts: new Set(), ownMessageIds: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true, startSeq: 0, cards: [] }, seen: new Map(),
       pending: new Map([["entry_1", { updated: 1, text: "First Grok bubble", polls: 1 }], ...(scenario === "pending" ? [] : [["entry_2", { updated: 1, text: "Final Grok result", polls: 1 }] as const])]),
-      widgets: new Set(), pendingAsk: null,
+      widgets: new Set(), widgetAnswers: new Set(), pendingAsk: null,
     });
     const entry = (seq: number, body: unknown, kind = "message") => ({ seq, entry_id: `entry_${seq}`, updated_seq: 1, entry_kind: kind, body: new TextEncoder().encode(JSON.stringify(body)) });
     const entries = [entry(1, { role: "assistant", content: "First Grok bubble" }), entry(2, { role: "assistant", content: "Final Grok result" })];
@@ -348,14 +351,15 @@ describe("durable local A2A dispatch", () => {
     const result = (await f.get(first.result.id)).result;
     if (scenario === "approval" || scenario === "manual-step") {
       expect(result.status.state).toBe("input-required"); expect(result.artifacts).toBeUndefined();
-      const required = events.findIndex((event) => event.type === "approval_request" || event.type === "input_required");
-      expect(events.findIndex((event) => event.type === "status" && event.state === "idle")).toBeGreaterThan(required);
+      const required = events.findIndex((event) => event.type === "approval_request" || event.type === "input_required" || event.type === "native_approval");
+      expect(required).toBeGreaterThan(-1);
+      expect(events.filter((event) => event.type === "status" && event.state === "idle")).toHaveLength(["approval", "manual-step"].includes(scenario) ? 0 : 1);
     } else {
       expect(result.status.state).toBe("completed");
       expect(result.artifacts[0].parts[0].text).toBe("First Grok bubble\n\nFinal Grok result");
     }
     expect(events.filter((event) => event.type === "message" && event.reply_to === "message_1")).toHaveLength(2);
-    expect(events.filter((event) => event.type === "status" && event.state === "idle")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "status" && event.state === "idle")).toHaveLength(["approval", "manual-step"].includes(scenario) ? 0 : 1);
   });
 
   it("coalesces stop and rejects late writes from a previous manager after the next launch", async () => {
@@ -574,4 +578,23 @@ describe("workspace switch readiness", () => {
     await f.send(); expect(f.services.hasUnresolvedTasks()).toBe(true);
     await finish(f); expect(f.services.hasUnresolvedTasks()).toBe(false);
   });
+});
+
+it("syncs independent approvals and durably deduplicates responses across restart", async () => {
+  const f = await fixture(); await f.services.list();
+  const card = { id: "provider_card", revision: "a".repeat(64), title: "QA?", choices: [{ key: "opaque", label: "Reject QA" }], state: "pending" as const };
+  f.manager().emitters.get("fake_grok")!.approval!(card); await eventTurn();
+  const list: any = await (await f.rpc("agentstudio/approvals/list", {})).json();
+  expect(list.result.approvals).toMatchObject([card]);
+  const params = { id: card.id, revision: card.revision, choice: "opaque", requestId: "response_1" };
+  f.manager().onDecide = async () => { throw new Error("lost response"); };
+  expect((await (await f.rpc("agentstudio/approvals/respond", params)).json() as any).result.state).toBe("unknown");
+  await f.rpc("agentstudio/approvals/respond", params); expect(f.manager().decisions).toHaveLength(1);
+  const revised = { ...card, revision: "b".repeat(64) }; f.manager().emitters.get("fake_grok")!.approval!(revised);
+  const retry: any = await (await f.rpc("agentstudio/approvals/respond", { ...params, revision: revised.revision, requestId: "response_2" })).json();
+  expect(retry.error).toBeTruthy(); expect(f.manager().decisions).toHaveLength(1);
+  const conflict: any = await (await f.rpc("agentstudio/approvals/respond", { ...params, choice: "changed" })).json(); expect(conflict.error).toBeTruthy();
+  await f.services.stop(); const restored = await fixture(f.directory); await restored.services.restore();
+  expect((await (await restored.rpc("agentstudio/approvals/respond", params)).json() as any).result.state).toBe("unknown");
+  expect(restored.manager().decisions).toHaveLength(0);
 });

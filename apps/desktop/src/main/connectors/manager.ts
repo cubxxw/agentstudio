@@ -12,6 +12,7 @@ import { ConnectorStore, type InstanceRecord } from "./store";
 import { GROK_DEFAULTS, GrokBotConnector, GrokClient, grokLogin, type GrokConfig, type GrokData, type GrokLoginResult } from "./grokbot";
 import { WebChatConnector, snapshotOf, type WebChatConfig, type WebChatData } from "./webchat";
 import { DOTS_DRIVER, MUSE_DRIVER, MUSE_LOGIN_STATE } from "./drivers";
+import { openSystemBrowser } from "./system-browser";
 import { grokAvatar } from "./grokavatar";
 import { cueWebSignIn, createCueApiKey, handleCueLink, type CueWebConfig } from "./cueweb";
 import { CUE_DEFAULTS, CueAuthError, CueClient, CueConnector, cueAccountKey, type CueConfig, type CueData } from "./cue";
@@ -193,7 +194,7 @@ export class ConnectorManager {
 
   /** Private main-process registration only; never expose this to a renderer. */
   registrations() {
-    return [...this.running.values()].map(({ record }) => ({ instanceId: record.id, name: record.name, token: record.token }));
+    return [...this.running.values()].map(({ record }) => ({ instanceId: record.id, name: record.name, token: record.token, service: record.service }));
   }
 
   sendDirect(id: string, message: InboundMessage) { return this.host.sendDirect(id, message); }
@@ -286,7 +287,7 @@ export class ConnectorManager {
       await w.loadURL(url).catch(() => {});
       return;
     }
-    await shell.openExternal(url);
+    await openSystemBrowser(url);
   };
 
   private webConfig(service: "muse" | "dots"): WebChatConfig {

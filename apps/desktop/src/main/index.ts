@@ -438,7 +438,7 @@ function registerPersonalIpc() {
   });
 }
 
-async function registerNativeInstance(instance: { instanceId: string; name: string; url: string; token: string }, recoveringRemoval = false): Promise<string> {
+async function registerNativeInstance(instance: { instanceId: string; name: string; url: string; token: string; service?: string }, recoveringRemoval = false): Promise<string> {
   if ((nativeRemovals.has(instance.instanceId) && !recoveringRemoval) || quitting) throw new Error("Native instance is being removed");
   const registering = nativeInstanceRegistration.get(instance.instanceId);
   if (registering) return registering;
@@ -452,6 +452,7 @@ async function registerNativeInstance(instance: { instanceId: string; name: stri
     } });
     const connection = response.body as { id?: string };
     if (response.status >= 300 || !connection.id) throw new Error("Native registration failed");
+    await personalHost!.registerNativeSource({ connectionId: connection.id, instanceId: instance.instanceId, service: instance.service });
     nativeConnections.set(instance.instanceId, connection.id);
     mainWindow?.webContents.send(PERSONAL_IPC.changed, {});
     return connection.id;

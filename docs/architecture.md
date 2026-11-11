@@ -135,3 +135,5 @@ dev/                      local stack: stack manager (stack.mjs), config templat
 - **Determinism for tests.** The `demo` bridge and the `concierge` agent behave deterministically, so e2e runs without real accounts.
 
 Historical personal tasks and current direct/group chats use the same Messenger renderer. `workspace=tasks` is a compatible old URL parameter, not a separate UI. Shared conversation tools own reading, connection preferences and precise approval; history keeps its existing thread IDs and protocols.
+
+Personal Grok approvals use the existing main-owned adapter plus an independent utility watcher (`server/provider-approvals.mjs`). Only owner-bound utility IPC registers native sources. Main owns raw provider choices and a durable response ledger; the utility projects public cards into existing Decisions, with optional original-run correlation. Waiting does not hold the model worker. Known pending approvals resume by readback; uncertain writes are retained without replay. See [connector boundaries](connectors.md#personal-grok-bot-approval-synchronization).
