@@ -25,7 +25,7 @@ The default personal mode needs no Go, Postgres, Synapse or Matrix bridge startu
 | --- | --- |
 | `pnpm dev:desktop` | Native Electron development entry; personal mode by default |
 | `pnpm --filter @agentstudio/desktop build` / `start` | Build `out/`, then run the bundled local-file renderer |
-| `pnpm package:mac` | Build a local ad-hoc Mac bundle; acceptance and distribution remain separate |
+| `pnpm package:mac` | Build a local Mac bundle using machine-local signing settings, or ad-hoc when unconfigured |
 | `pnpm --filter @agentstudio/desktop typecheck` / `test` | TypeScript checks and desktop unit tests |
 | `pnpm --filter @agentstudio/desktop e2e:smoke` | Retained Matrix smoke suite; explicitly selects Matrix mode and needs the old stack |
 
@@ -60,7 +60,22 @@ pnpm package:mac
 
 `package-mac.mjs` stages only built files and a minimal package descriptor, then invokes the pinned packager for the current Mac architecture. It targets `apps/desktop/dist` by default, prints the bundle path, verifies its local signature and writes `build-receipt.json`. `AGENTSTUDIO_MAC_OUTPUT` selects a separate output directory. `ELECTRON_ZIP_DIR` may point to a directory containing the pinned official Electron archive; the script checks its SHA-256 before reuse.
 
-Signing uses the ad-hoc identity `-`, without Hardened Runtime and with only the JIT entitlement. The script reads the resulting signature flags and entitlements back. It does not discover a Developer ID identity, notarize, publish or claim Gatekeeper distribution acceptance. The local `.app` has been launched and checked for package-owned runtime, saved CLI/MCP history and export hashes; the packaged native smoke also passed. Exact versions, retry history and limits are in the [macOS acceptance ledger](../../docs/personal/macos-acceptance.md). A successful build alone is not that acceptance.
+Signing defaults to the ad-hoc identity `-` on an unconfigured machine. For repeated local installations, pin one certificate in `~/.config/agentstudio/macos-signing.json` so every checkout uses the same system identity:
+
+```json
+{
+  "identity": "REPLACE_WITH_THE_CERTIFICATE_40_CHARACTER_SHA1",
+  "teamId": "TEAMID1234"
+}
+```
+
+Find certificate fingerprints with `security find-identity -v -p codesigning`. Read the Team ID from the certificate's subject OU; the suffix of an Apple Development certificate's display name may instead be a member ID. Keep this file local. It contains public certificate identifiers, never the private key or a password. The packager does not select the first available identity or change Keychain permissions. `AGENTSTUDIO_MAC_SIGN_CONFIG` selects another config file. `AGENTSTUDIO_MAC_SIGN_IDENTITY` plus `AGENTSTUDIO_MAC_SIGN_TEAM` override the file; `AGENTSTUDIO_MAC_SIGN_IDENTITY=-` explicitly restores ad-hoc signing. A missing explicitly selected file, invalid pin, unavailable certificate or mismatched signed identity fails the build instead of falling back.
+
+Both modes retain the local profile without Hardened Runtime and with only the JIT entitlement. The script verifies the deep signature, bundle identifier, flags and entitlements. Certificate mode additionally verifies the exact leaf certificate fingerprint, expected Team ID and a designated requirement that is not tied to a changing code hash; the receipt records these fields. It does not notarize, publish or claim Gatekeeper distribution acceptance. An Apple Development certificate is suitable for this local workflow; public distribution needs its own Developer ID/notarization profile.
+
+This addresses repeated **Safe Storage** prompts after rebuilds: [Electron documents](https://www.electronjs.org/docs/latest/tutorial/code-signing#macos-apis-that-require-code-signing) that unsigned/ad-hoc identities can cause Keychain to ask again after each update. Preserve the existing `AgentStudio` safeStorage name, bundle ID and user-data directory. Moving from ad-hoc to certificate signing can still require one Keychain authorization; select **Always Allow** for this app's own Safe Storage item after checking the request. Unlocking a locked login keychain or authorizing codesign's signing private key is a separate prompt. Do not use the mock keychain with real login data or delete an existing Safe Storage item to suppress the dialog.
+
+The local `.app` has previously been launched and checked for package-owned runtime, saved CLI/MCP history and export hashes; the packaged native smoke also passed. Exact versions, retry history and limits are in the [macOS acceptance ledger](../../docs/personal/macos-acceptance.md). A successful build alone is not that acceptance. During UI development, `pnpm dev:desktop` avoids repeatedly replacing the packaged binary.
 
 Vite embeds the Git HEAD with `-dirty` when there are uncommitted files; an unavailable Git identity is `unknown-source`. The native health response includes that build reference, nine backend module hashes and the bundled personal UI-entry hash. `PERSONAL_BUILD_REF` is an explicit test override. A clean merged-source rebuild is required before labeling a bundle with the merge revision.
 
@@ -86,6 +101,8 @@ Cancellation waits for the owned CLI to exit. An unconfirmed stop (`stop_unconfi
 | `PERSONAL_BUILD_REF` | Explicit runtime provenance override for controlled tests |
 | `AGENTSTUDIO_SERVER_URL` | Matrix mode only: server URL before the saved setting, default `http://127.0.0.1:18090` |
 | `AGENTSTUDIO_MOCK_KEYCHAIN=1` | Isolated legacy tests use Chromium's mock keychain |
+| `AGENTSTUDIO_MAC_SIGN_CONFIG` | Packaging only: explicit machine-local signing JSON path; otherwise `~/.config/agentstudio/macos-signing.json` |
+| `AGENTSTUDIO_MAC_SIGN_IDENTITY` / `AGENTSTUDIO_MAC_SIGN_TEAM` | Packaging only: pinned certificate SHA-1 and expected Team ID; identity `-` explicitly selects ad-hoc |
 | `AGENTSTUDIO_TEST_NOTIFICATIONS=1` | Legacy tests record notifications instead of showing them |
 
 The `PERSONAL_PORT`/`PERSONAL_DATA_DIR` settings belong to the standalone web server, not the native host's automatic port/profile selection.

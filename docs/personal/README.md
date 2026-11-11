@@ -25,7 +25,7 @@ pnpm --filter @agentstudio/desktop start
 
 数据默认在 `~/Library/Application Support/AgentStudio/personal`。后台自动选择回环端口，校验自有子进程和工作区，不附着现有 18740 服务，也不自动读取或迁移旧 Matrix 会话、Web 工作区或浏览器账号。`AGENTSTUDIO_USER_DATA_DIR` 可隔离整个 Electron profile；`AGENTSTUDIO_PERSONAL_DATA_DIR` 可明确指定个人工作区。一个工作区只允许一个后台工作者。
 
-`pnpm package:mac` 是本机 ad-hoc 打包入口，默认输出在 `apps/desktop/dist`，附构建和签名回执。实际 `.app` 的包内页面、独立 utility、结果导出及长文/深色/缩放已在本机检查，见 [macOS 验收](macos-acceptance.md)。它不使用 Developer ID，也不做 Notarization 或发布。安装、环境变量及包内路径见[桌面说明](../../apps/desktop/README.md)。
+`pnpm package:mac` 是本机打包入口，默认输出在 `apps/desktop/dist`，附构建和签名回执。未配置时使用 ad-hoc；可在本机固定证书，减少重编译后 Safe Storage 反复授权，配置与首次切换说明见[桌面说明](../../apps/desktop/README.md#local-macos-packaging)。实际 `.app` 的包内页面、独立 utility、结果导出及长文/深色/缩放已有本机检查记录，见 [macOS 验收](macos-acceptance.md)。本地签名不表示已完成 Notarization 或发布。
 
 普通任务使用已安装、已登录的 `codex` CLI，沿用本机提供商配置。没有 CLI、登录失效或额度不足时保留任务、说明阻塞，不生成假结果或切换提供商。CLI 版本检查不代表账号、额度或某个任务已经验收。
 

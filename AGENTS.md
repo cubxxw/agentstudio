@@ -24,7 +24,7 @@ When code and these docs disagree, fix whichever one is wrong in the same change
 | `pnpm dev:reset` | stop and wipe `.local/` |
 | `pnpm dev:desktop` | run the Electron personal workspace by default; no Matrix stack required |
 | `AGENTSTUDIO_WORKSPACE=matrix pnpm dev:desktop` | run the retained Matrix inbox against the local stack |
-| `pnpm package:mac` | build a local ad-hoc Mac bundle; launch acceptance and notarized distribution are separate |
+| `pnpm package:mac` | build a local Mac bundle (machine-local certificate pin, otherwise ad-hoc); launch acceptance and notarized distribution are separate |
 | `pnpm dev:mobile` | run Expo (web) against the local stack on http://localhost:18300 |
 | `pnpm test` | unit tests: stack manager (`node --test dev/stack.test.mjs`), Go (`cd server && go test -tags nocrypto ./...`) and TS (vitest) |
 | `AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e` | retained Matrix e2e (Playwright projects `desktop` and `mobile-web`) against the local stack; starts it if needed and builds both apps. See `e2e/README.md` |
