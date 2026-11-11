@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { SERVICES, type ConnectorSummary, type DirectConnectorEvent, type LoginProgress, type ServiceId, type NativeApproval } from "./connectors/types";
+import { NotSentError, SERVICES, type ConnectorSummary, type DirectConnectorEvent, type LoginProgress, type ServiceId, type NativeApproval } from "./connectors/types";
 import type { InboundMessage } from "./connectors/protocol";
 import type { ConnectorsEnv } from "./connectors/manager";
 
@@ -157,7 +157,7 @@ export class PersonalServices {
     this.stopping = true;
     await this.initializing?.catch(() => {});
     if (this.server && !this.storageFault) {
-      for (const task of this.manifest.tasks) if (unresolved(task) && !task.approvalWait) { task.state = "unknown"; task.uncertain = true; task.updatedAt = now(); task.explanation = "应用已关闭，原服务执行尚未确认；不会自动重发。"; }
+      for (const task of this.manifest.tasks) if (unresolved(task) && !task.approvalWait && !this.manifest.approvals?.some(card => card.instanceId === task.instanceId && card.replyTo === task.messageId)) { task.state = "unknown"; task.uncertain = true; task.updatedAt = now(); task.explanation = "应用已关闭，原服务执行尚未确认；不会自动重发。"; }
       try { this.save(); } catch { /* durable prior records remain for restart reconciliation */ }
     }
     try { if (this.manager) await this.manager.stop(); }
@@ -208,7 +208,10 @@ export class PersonalServices {
       this.manifest = input;
       for (const response of input.responses ?? []) if (response.state === "sending") response.state = "unknown";
       for (const task of input.tasks) if (unresolved(task)) {
-        if (task.approvalWait && task.state === "input-required") { this.sends.set(task.id, { accepted: true, completionReady: false, buffered: [] }); continue; }
+        const knownApproval = input.approvals?.some(card => card.instanceId === task.instanceId && card.replyTo === task.messageId);
+        if (!task.uncertain && ["working", "input-required"].includes(task.state) && (task.approvalWait || knownApproval)) {
+          this.sends.set(task.id, { accepted: true, completionReady: task.state === "working" && task.text.length > 0, buffered: [] }); continue;
+        }
         task.state = "unknown"; task.uncertain = true; task.updatedAt = now(); task.explanation = "应用已重启。原服务可能已收到内容；只保留查询，不自动重发。";
       }
     }
@@ -334,8 +337,12 @@ export class PersonalServices {
       send.accepted = true;
       if (task.state === "submitted") { task.state = "working"; task.updatedAt = now(); this.save(); }
       for (const event of send.buffered.splice(0)) this.event(task.instanceId, event);
-    } catch {
+    } catch (error) {
       if (this.stopping) return;
+      if (error instanceof NotSentError) {
+        this.sends.delete(task.id); task.state = "failed"; task.uncertain = false; task.updatedAt = now();
+        task.explanation = "原服务还有待处理的对话，本次新消息未发送。请先处理原任务。"; this.save(); return;
+      }
       this.sends.delete(task.id); task.state = "unknown"; task.uncertain = true; task.updatedAt = now();
       task.explanation = "发送响应未能确认，原服务可能已收到。请在原服务核查；不会自动重发。"; this.save();
     }
@@ -347,7 +354,10 @@ export class PersonalServices {
       const approvals = this.manifest.approvals ??= [];
       const index = approvals.findIndex(item => item.instanceId === instanceId && item.id === card.id);
       if (index < 0) approvals.push({ ...card, instanceId }); else approvals[index] = { ...card, instanceId };
-      const related = this.manifest.tasks.find(item => item.instanceId === instanceId && item.messageId === card.replyTo && unresolved(item));
+      const related = this.manifest.tasks.find(item => item.instanceId === instanceId && item.messageId === card.replyTo && (unresolved(item) || index < 0 && item.state === "completed"));
+      if (related?.state === "completed" && index < 0) {
+        this.sends.set(related.id, { accepted: true, completionReady: false, buffered: [] }); related.state = "working";
+      }
       const relatedSend = related && this.sends.get(related.id);
       if (relatedSend && !relatedSend.accepted) { relatedSend.buffered.push(raw); this.save(); return; }
       if (related && card.state === "pending" && relatedSend?.accepted) {

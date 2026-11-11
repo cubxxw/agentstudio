@@ -52,6 +52,8 @@ export class UnknownApprovalError extends Error {
     super("unknown approval");
   }
 }
+/** A connector proved that a local preflight stopped before provider mutation. */
+export class NotSentError extends Error { override name = "NotSentError"; }
 
 /** Progress of a connect flow, polled by the renderer. */
 export type LoginProgress =

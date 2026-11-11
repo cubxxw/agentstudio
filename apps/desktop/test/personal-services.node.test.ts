@@ -8,6 +8,7 @@ import { PersonalServices, type PersonalServicesManager } from "../src/main/pers
 import { ConnectorHost } from "../src/main/connectors/host";
 import type { AgentEvent, InboundMessage } from "../src/main/connectors/protocol";
 import type { Connector, ConnectorSummary, DirectConnectorEvent, Emitter, LoginProgress, ServiceId } from "../src/main/connectors/types";
+import { NotSentError } from "../src/main/connectors/types";
 import { GrokBotConnector, GROK_DEFAULTS, type GrokClient } from "../src/main/connectors/grokbot";
 import { CueConnector, type CueClient, type CueEvent } from "../src/main/connectors/cue";
 import { WebChatConnector } from "../src/main/connectors/webchat";
@@ -216,6 +217,11 @@ describe("durable local A2A dispatch", () => {
     expect((await f.get(first.result.id)).result.artifacts).toBeUndefined();
     await finish(f); expect((await f.get(first.result.id)).result.status.state).toBe("unknown");
     expect((await f.send()).result.id).toBe(first.result.id); expect(f.manager().sends).toHaveLength(1);
+  });
+  it("records a proved preflight rejection as not sent rather than uncertain", async () => {
+    const f=await fixture();await f.services.list();f.manager().onSend=async()=>{throw new NotSentError("known preflight");};const sent=await f.send();
+    await expect.poll(async()=>(await f.get(sent.result.id)).result.status.state).toBe("failed");
+    expect((await f.get(sent.result.id)).result.metadata.uncertain).toBe(false);
   });
 
   it("returns input-required for agent decisions, offers original service and never auto-answers", async () => {
@@ -613,6 +619,16 @@ it("restores a proven approval wait and requires fresh post-approval text to com
  expect((await restored.get(sent.result.id)).result.status.state).toBe("working");
  emitter.emit({type:"message",reply_to:"message_1",text:"fresh final"});emitter.emit({type:"status",state:"idle"});await eventTurn();
  expect((await restored.get(sent.result.id)).result.status.state).toBe("completed");expect(restored.manager().sends).toHaveLength(0);
+});
+it("restores a correlated approval continuation after text arrived but before terminal readback", async () => {
+ const f=await fixture(),sent=await f.send();await expect.poll(()=>f.manager().sends.length).toBe(1);
+ const card={id:"approval",revision:"a".repeat(64),state:"pending" as const,title:"QA?",choices:[{key:"opaque",label:"Continue"}],replyTo:"message_1"};
+ const e=f.manager().emitters.get("fake_grok")!;e.approval!(card);e.approval!({...card,state:"resolved",source:"original"});e.emit({type:"status",state:"working"});e.emit({type:"message",reply_to:"message_1",text:"verified continuation"});await eventTurn();await f.services.stop();
+ const restored=await fixture(f.directory);await restored.services.restore();expect((await restored.get(sent.result.id)).result.status.state).toBe("working");
+ restored.manager().emitters.get("fake_grok")!.emit({type:"status",state:"idle"});await eventTurn();
+ const result=(await restored.get(sent.result.id)).result;expect(result.status.state).toBe("completed");expect(result.artifacts[0].parts[0].text).toBe("verified continuation");expect(restored.manager().sends).toHaveLength(0);
+ restored.manager().emitters.get("fake_grok")!.approval!({...card,id:"later_approval"});await eventTurn();
+ expect((await restored.get(sent.result.id)).result.status.state).toBe("input-required");expect(restored.manager().sends).toHaveLength(0);
 });
 it("exposes only the original public Grok start link and distinguishes an expired login", async()=>{
  const f=await fixture();await f.services.list();

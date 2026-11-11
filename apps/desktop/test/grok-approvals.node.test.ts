@@ -4,7 +4,7 @@ vi.mock("electron", () => ({ shell: {}, app: {} }));
 const stops: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const stop of stops.splice(0)) await stop(); });
 const entry = (answer?: string, updated = 1, options = [{ label: "Approve QA", value: "a" }, { label: "Reject QA", value: "r" }]) => ({ entry_id: "card", seq: 2, updated_seq: updated, entry_kind: "send-message", body: Buffer.from(JSON.stringify({ kind: "send-message", message: { type: "widget", widget: { prompt: "QA?", options } }, ...(answer ? { widgetAnswered: true, answer } : {}) })) });
-async function fixture(personalTurn?: any, harness?: string) {
+async function fixture(personalTurn?: any, harness?: string, lastSeq = personalTurn ? 4 : 10) {
   let entries = [entry()]; const calls: any[] = [], cards: any[] = [], events: any[] = [];
   let live: any = { session_id: "session", last_turn_settlement: { turn_id: personalTurn?.providerMessageId, outcome: "success" } };
   let status: any;
@@ -13,7 +13,7 @@ async function fixture(personalTurn?: any, harness?: string) {
     calls.push({ method, params });
     return method === "ListGrokBotTranscriptEntries" ? { entries } : method === "ListGrokBotAgentStatuses" ? { statuses: [status ?? { agent_id: "qa", live }] } : { accepted: true };
   } } as unknown as GrokClient;
-  const connector = new GrokBotConnector({ ...GROK_DEFAULTS, pollActiveMs: 1_000_000, pollIdleMs: 1_000_000 }, { agent, machineId: "qa", accessToken: "fake", refreshToken: "fake", lastSeq: personalTurn ? 4 : 10, personalTurn }, client, () => {}, async () => null);
+  const connector = new GrokBotConnector({ ...GROK_DEFAULTS, pollActiveMs: 1_000_000, pollIdleMs: 1_000_000 }, { agent, machineId: "qa", accessToken: "fake", refreshToken: "fake", lastSeq, personalTurn }, client, () => {}, async () => null);
   stops.push(() => connector.stop());
   await connector.start({ emit: e => events.push(e), profileChanged: () => {}, approval: c => cards.push(c) });
   return { connector, cards, calls, events, setStatus: (value: any) => { status = value; }, setLive: (value: any) => { live = value; }, set: (value: typeof entries) => { entries = value; }, poll: () => (connector as any).tick() };
@@ -25,7 +25,7 @@ it("requires a known temporal running phase before idle can complete a stable re
   f.setStatus({agent_id:"qa"});await f.poll();await f.poll();expect(f.events).not.toContainEqual({type:"status",state:"idle"});
   f.setStatus({agent_id:"qa",is_running:true});await f.poll();expect(f.events).not.toContainEqual({type:"status",state:"idle"});
   f.setStatus({agent_id:"different"});await f.poll();expect(f.events).not.toContainEqual({type:"status",state:"idle"});
-  f.setStatus({agent_id:"qa"});await f.poll();expect(f.events).toContainEqual({type:"status",state:"idle"});
+  f.setStatus({agent_id:"qa"});await f.poll();await f.poll();expect(f.events).toContainEqual({type:"status",state:"idle"});
 });
 it("keeps a turn open when a stable preamble arrives before its native approval card", async () => {
   const f = await fixture(); f.set([]);
@@ -114,8 +114,23 @@ it("reconciles a closed-app answer only from a new request in the same temporal 
  const pre={entry_id:"t1s2",seq:5,updated_seq:5,entry_kind:"send-message",body:Buffer.from(JSON.stringify({kind:"send-message",requestId:"before",message:{text:"Wait for choice"}}))};
  const user={entry_id:"t1u",seq:2,updated_seq:2,entry_kind:"user-message",body:Buffer.from(JSON.stringify({kind:"user-message",clientNonce:"nonce",text:"QA"}))};
  f.set([user,card,pre]);await f.poll();await f.poll();expect(f.events).not.toContainEqual({type:"status",state:"idle"});
- f.set([user,card,pre,{...pre,entry_id:"t1s3",seq:6,updated_seq:6,body:Buffer.from(JSON.stringify({kind:"send-message",requestId:"after",message:{text:"Selected Reject QA"}}))}]);await f.poll();await f.poll();
+ f.set([user,card,pre,{...pre,entry_id:"t1s3",seq:6,updated_seq:6,body:Buffer.from(JSON.stringify({kind:"send-message",requestId:"after",message:{text:"Selected Reject QA"}}))}]);await f.poll();await f.poll();await f.poll();
  expect(f.events).toContainEqual({type:"status",state:"idle"});expect(f.calls.some(c=>c.method==="SendGrokBotUserMessage")).toBe(false);
+});
+it("finishes an already-read approval continuation after restart without replaying its text", async () => {
+ const turn={messageId:"original",providerMessageId:"nonce",text:"QA",echoed:true,startSeq:1,sessionId:"session",waiting:false,cards:[],resumeAfter:4,resumeUpdated:4,temporalTurn:"t1",approvalRequests:["before"],lastCardSeq:4,responseSeq:6,responseUpdated:6,responseTurn:"t1",responseRequest:"after"};
+ const f=await fixture(turn,"temporal",6);f.setStatus({agent_id:"qa"});
+ const p=entry("r",8);f.set([{...p,entry_id:"t1s1",seq:4,body:Buffer.from(JSON.stringify({...JSON.parse(p.body.toString()),requestId:"before"}))},{entry_id:"t1s2",seq:6,updated_seq:6,entry_kind:"send-message",body:Buffer.from(JSON.stringify({kind:"send-message",requestId:"after",message:{text:"Selected Reject QA"}}))}]);await f.poll();await f.poll();
+ expect(f.events).toContainEqual({type:"status",state:"idle"});expect(f.events.some(e=>e.type==="message")).toBe(false);
+ expect(f.calls.some(c=>c.method==="SendGrokBotUserMessage")).toBe(false);
+ const later=entry();f.set([{...later,entry_id:"t1s3",seq:7,updated_seq:9,body:Buffer.from(JSON.stringify({...JSON.parse(later.body.toString()),requestId:"after"}))}]);await f.poll();
+ expect(f.cards.at(-1)).toMatchObject({state:"pending",replyTo:"original"});expect((f.connector as any).personalReply.settled).toBe(false);
+});
+it("does not send a new prompt when preflight discovers an answered late card for the settled turn", async () => {
+ const turn={messageId:"original",providerMessageId:"nonce",text:"QA",echoed:true,startSeq:1,sessionId:"session",waiting:false,cards:[],resumeAfter:4,temporalTurn:"t1",settled:true};
+ const f=await fixture(turn,"temporal",6),p=entry("r",8);f.set([{...p,entry_id:"t1s3",seq:7}]);
+ await expect(f.connector.send({session_id:"personal:next",message_id:"next",text:"next",sent_at:new Date().toISOString()})).rejects.toMatchObject({name:"NotSentError"});
+ expect(f.calls.some(c=>c.method==="SendGrokBotUserMessage")).toBe(false);expect((f.connector as any).personalReply.messageId).toBe("original");
 });
 it("keeps the original turn while two cards are answered separately in Grok Bot", async () => {
  const turn={messageId:"original",providerMessageId:"nonce",text:"QA",echoed:true,startSeq:1,sessionId:"session",waiting:true,cards:["card","card2"],resumeAfter:4};

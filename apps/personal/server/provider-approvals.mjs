@@ -99,6 +99,10 @@ export class ProviderApprovals {
       if (prior) thread.decisions[thread.decisions.indexOf(prior)] = decision; else thread.decisions.push(decision);
       thread.updatedAt = now(); this.store.put('thread', thread); this.notify({ threadId: thread.id });
     }
+    if (!prior && run && run.status === 'completed') {
+      run.status = 'blocked'; run.remoteStatus = 'input-required'; run.requiresReconciliation = true; run.phase = 'reconcile';
+      thread.status = 'blocked'; thread.summary = '原任务又收到一项审批，正在核查接续状态'; this.store.put('thread', thread); this.notify({ threadId: thread.id });
+    }
     if (card.state === 'resolved' && run && run.externalTaskId && ['blocked','unknown'].includes(run.status) && !run.stopUnconfirmed && !thread.decisions.some(item => item.kind === 'provider_approval' && item.runId === run.id && ['pending','sending','unknown'].includes(item.state))) {
       run.status = 'queued'; run.phase = 'reconcile'; run.requiresReconciliation = false; run.error = null;
       thread.status = 'queued'; thread.summary = '审批已处理，正在查询原任务的后续结果'; this.store.put('thread', thread); this.kick(); this.notify({ threadId: thread.id });
