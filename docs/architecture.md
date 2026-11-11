@@ -30,6 +30,12 @@ Closing the Mac window hides it while the utility continues. Quitting closes onl
 
 The shared `apps/personal` UI and backend can also run as an auxiliary web service on 18740 (Vite development UI 18741), with separate `.local/personal` data. This is not the native default. Personal Bearer credentials use an AES-256-GCM file vault, not Keychain; prompts and CLI read-only shell policy do not enforce all configured plugin permissions. Account and packaging acceptance remain separately scoped in the [macOS ledger](personal/macos-acceptance.md).
 
+## Local Agent identity and staged sharing
+
+Local discovery retains backend inventory without adding every new system contact to the address book. An explicit local adoption updates the relationship on the stable contact, reusing existing chats and model configuration. Legacy records retain their visibility. The card and quick-add UI use the existing personal worker/SQLite/fixed IPC; they do not introduce another process, listener or model call. Model defaults describe configuration; current adapters provide no quota receipt.
+
+The confirmed longer-term direction is friends calling an Agent on its owner's computer. Same-owner multi-device identity/pairing/routing comes in phase two; real friend relationships and revocable grants with independent sessions/usage limits come in phase three. Those phases require actual authenticated transport and adapter-level delegated-use capability. The local personal workspace does not currently provide either. See the [phase-one design](superpowers/specs/2026-11-11-local-agent-cards-design.md).
+
 ## Retained Matrix architecture (v0.1)
 
 Set `AGENTSTUDIO_WORKSPACE=matrix` to select the original renderer, preload, sessions and connectors. The remaining sections describe that path and keep its contracts intact.

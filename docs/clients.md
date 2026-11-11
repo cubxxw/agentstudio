@@ -14,6 +14,19 @@ The empty chats home offers onboarding without blocking sidebar navigation or le
 
 `node dev/agentroom-acceptance.mjs` and `--native` cover welcome persistence, reopen, profile isolation and recovery using synthetic data. Details: [testing](personal/testing.md).
 
+## Local quick add and Agent cards (GET-498)
+
+Welcome's primary action opens the shared local picker; skipping still enters the existing new-chat flow. Contacts expose the same picker. Installed candidates show actual configuration/login status, selection and an explicit add action. Unsupported adapters cannot be selected. Adding does not send a greeting or start a model; success offers a chat. Existing added contacts remain visible; new unadopted backends only appear in discovery and backend configuration.
+
+| Surface | `data-testid` |
+| --- | --- |
+| Welcome / contacts entry | `workspace-welcome-local`, `im-local-add-entry` |
+| Picker / fresh check / selection | `im-local-picker`, `im-local-refresh`, `im-local-select-<agentId>` |
+| Add / saved result / open chat / empty | `im-local-add`, `im-local-result`, `im-local-chat`, `im-local-empty` |
+| Shared contact/profile card | `im-agent-card`, `im-agent-card-model`, `im-agent-card-quota`, `im-agent-card-capabilities` |
+
+The card is shared by contact details and the chat-header profile. It describes next-message configuration and adapter capabilities, not a verified execution or cross-model intelligence score. Unknown quota is “暂不可获取”; common accounts may share quota. Multi-computer pairing and friend sharing are future phases, with no active controls in this release. Isolated synthetic acceptance: `node dev/local-agent-cards-acceptance.mjs` (or `--native`), output selected through `AGENTROOM_CARDS_EVIDENCE_DIR`.
+
 ## Personal conversation workspace
 
 The Mac Electron app opens the personal workspace by default. Its renderer shares `apps/personal` UI, uses the dedicated `window.agentStudioPersonal` preload and fixed IPC, and leaves API HTTP to its owned utility. It does not read the old session or start legacy connectors. Personal data belongs to the Electron profile's `personal` directory; the auxiliary web build has separate `.local/personal` data. See [setup](personal/README.md) and [the IPC contract](api.md#default-personal-desktop-ipc).

@@ -22,7 +22,7 @@ describe("personal IPC capabilities", () => {
 
   it("allows fixed messenger capabilities without arbitrary identities or URL syntax", () => {
     for (const path of ["/api/contacts", "/api/contacts/agent_codex", "/api/approvals"]) expect(readPersonalRequest({ path, method: "GET" }).path).toBe(path);
-    for (const path of ["/api/contacts", "/api/contacts/contact_owned", "/api/chats", "/api/chats/thr_owned"]) expect(readPersonalRequest({ path, method: "POST", body: { clientId: "owned-request" } }).path).toBe(path);
+    for (const path of ["/api/contacts", "/api/contacts/local", "/api/contacts/contact_owned", "/api/chats", "/api/chats/thr_owned"]) expect(readPersonalRequest({ path, method: "POST", body: { clientId: "owned-request" } }).path).toBe(path);
     for (const path of ["/api/contacts/../../connection", "/api/contacts/contact_owned?account=other", "/api/chats/https://example.com", "/api/chats/thr_owned/members", "/api/approvals/bulk"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
   });
 
