@@ -71,7 +71,7 @@ try {
   expect((await request(`/threads/${id}`)).artifacts).toHaveLength(0);
   await page.getByTestId('im-message-input').fill('第二问 SECOND：也考虑一下排队。'); await expect(page.getByTestId('im-send')).toBeEnabled();
   await page.getByTestId('im-send').click();
-  await expect(page.getByTestId('im-run-status')).toHaveCount(2); await expect(page.getByTestId('im-timeline')).toContainText('已排队');
+  await expect(page.getByTestId('im-run-status')).toHaveCount(2); await expect(page.getByTestId('im-timeline')).toContainText('等待助手处理');
   await capture('live-follow-up');
   check('partial reply is real text, send stays available and the follow-up has its own queued slot');
   await defaults('beta');

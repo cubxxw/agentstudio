@@ -95,6 +95,7 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
   const [title, setTitle] = useState(thread?.title || "");
   const [members, setMembers] = useState(thread?.memberIds?.filter(x => x !== "self") || initialMembers);
   const [search, setSearch] = useState("");
+  const [silence, setSilence] = useState(thread?.allowSilence === undefined || thread.allowSilence === null ? "inherit" : thread.allowSilence ? "allow" : "require");
   const [responsePolicies, setPolicies] = useState<Record<string, ResponsePolicy>>(thread?.responsePolicies || {});
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const request = useRef<{ signature: string; clientId: string } | null>(null);
@@ -102,7 +103,7 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
     <form className="im-form" data-testid="im-group-editor" onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError("");
       try {
-        const fields = { kind: "group", title, memberIds: members, ...(thread ? { version: thread.version, responsePolicies: Object.fromEntries(Object.entries(responsePolicies).filter(([id]) => members.includes(id))) } : {}) };
+        const fields = { kind: "group", title, memberIds: members, allowSilence: silence === "inherit" ? null : silence === "allow", ...(thread ? { version: thread.version, responsePolicies: Object.fromEntries(Object.entries(responsePolicies).filter(([id]) => members.includes(id))) } : {}) };
         const signature = JSON.stringify(fields);
         if (request.current?.signature !== signature) request.current = { signature, clientId: key() };
         const saved = await api<Thread>(thread ? `/chats/${thread.id}` : "/chats", { ...fields, clientId: request.current.clientId });
@@ -112,13 +113,14 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
     }}>
       <div className="im-identity-preview"><Avatar group size="large" /><span>{thread ? "管理这段群聊" : "把伙伴聚在一起"}<small>你 + {members.length} 位联系人</small></span></div>
       <label>群名称<input autoFocus required maxLength={80} placeholder="例如：产品讨论" value={title} onChange={e => setTitle(e.target.value)} data-testid="im-group-name" /></label>
+      <label>允许静默<select data-testid="im-group-silence" value={silence} onChange={event => setSilence(event.target.value)}><option value="inherit">跟随 IM 设置</option><option value="allow">允许：按角色选择回复、表情或保持安静</option><option value="require">关闭：需要文字或表情回应</option></select></label>
       <label>选择联系人<input type="search" placeholder="搜索名称或用户名" value={search} onChange={e => setSearch(e.target.value)} data-testid="im-group-search" /></label>
       <div className="im-member-picker">{contacts.filter(c => c.id !== "self" && `${c.name} ${c.handle}`.toLowerCase().includes(search.toLowerCase())).map(c => <div className="im-member-choice" key={c.id}>
         <label><input type="checkbox" checked={members.includes(c.id)} data-testid={`im-member-${c.id}`} onChange={e => setMembers(current => e.target.checked ? [...current, c.id] : current.filter(x => x !== c.id))} /><Avatar contact={c} /><span>{c.name}<small>{c.kind === "agent" ? c.providerName : "本地联系人"}</small></span></label>
         {thread && members.includes(c.id) && onOpenProfile && <button type="button" className="im-member-profile" aria-label={`查看${c.name}的设置`} title="联系人设置" data-testid={`im-member-profile-${c.id}`} onClick={() => onOpenProfile(c)}><Settings2 size={16} /></button>}
         {thread && members.includes(c.id) && c.kind === "agent" && <select aria-label={`${c.name}的响应策略`} data-testid={`im-policy-${c.id}`} value={responsePolicies[c.id] || "auto"} onChange={e => setPolicies(p => ({ ...p, [c.id]: e.target.value as ResponsePolicy }))}><option value="auto">按角色判断，可保持安静</option><option value="mention">仅提及或回复时</option><option value="always">每条消息</option><option value="manual">暂停回应</option></select>}
       </div>)}</div>
-      <p className="im-field-hint">默认所有可用 Agent 收到消息后按角色判断是否回应，可保持安静；@ 表示明确找它。新成员只收到加入后的内容；已接受的运行保持原身份。人类成员当前仅保存在本机。</p>
+      <p className="im-field-hint">默认所有可用 Agent 独立读取消息，按自己的风格回复文字、回应表情，或在允许时保持安静；@ 表示明确找它。新成员只收到加入后的内容；已接受的运行保持原身份。人类成员当前仅保存在本机。</p>
       {error && <p role="alert" className="im-error">{error}</p>}
       <button className="im-primary" disabled={busy || !members.length} data-testid="im-group-save">{busy ? "正在保存…" : thread ? "保存群信息" : <><Plus size={17} />创建群聊</>}</button>
     </form>

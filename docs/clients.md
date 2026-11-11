@@ -315,9 +315,11 @@ Approval cards from connectors use the choice keys the connector sends:
 | Start/progress/cancel | `im-onboarding-start`, `im-onboarding-status`, `im-onboarding-cancel`, `im-onboarding-result` |
 | Suggestions/adoption | `im-role-suggestion`, `im-adopt-role` |
 
-The default member policy is `auto`; completed silent runs create no chat bubble. Their reasons remain in execution details, and model failure is never displayed as a silence decision. Explicit member policies remain selectable through `im-policy-<contactId>`.
+The default member policy is `auto`; each available member reads independently and can answer in its own style with text, a message reaction or silence. Group queued/running runs have no promised reply bubble; the header reports aggregate activity and execution details retain precise stop/error controls. Completed silent/reaction runs create no chat bubble. Their reasons remain in execution details, and model failure is never displayed as a silence decision. Explicit member policies remain selectable through `im-policy-<contactId>`.
 
 ### Contact profiles, goals, schedules and local discovery
+
+IM preferences use `personal-tab-im`, `im-preferences`, and `im-allow-silence`; silence defaults on and the versioned setting affects subsequent accepted messages. Group information uses `im-group-silence` for inherit/allow/require response. Each message exposes `im-react-<messageId>` and `im-react-choice-<messageId>-<emoji>`; reaction chips use `im-reactions-<messageId>` / `im-reaction-<messageId>-<emoji>`, actor names in their accessible label/title, and `aria-pressed` for the owner's reaction. Group owner messages show acknowledged reader counts in `im-read-<messageId>`; no reader count is fabricated before a valid completion. Reactions and reader counts survive reload. Reaction controls are keyboard accessible and remain within narrow layouts.
 
 The quiet `im-chat-info` header displays the peer/group and status (`im-header-status`), without model metadata. Clicking a peer opens an in-place profile; clicking a group opens group information. Inspecting member configuration does not change membership. Profile/basic editors preserve the underlying chat, draft and reading position.
 

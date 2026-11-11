@@ -141,7 +141,7 @@ test('HTTP cancel handles queued and running jobs atomically and preserves an un
  const installed = structuredClone(detected);
  installed.agents.push({ ...installed.agents[0], id: 'claude', name: 'Claude', profile: { ...profile, agentId: 'claude', defaults: { ...profile.defaults, provider: 'anthropic' }, providers: ['anthropic'] } });
  const calls = [];
- const app = await createPersonalServer({ dataDir: dir, port: 0, codexCommand: process.execPath, discoverLocalAgents: async () => installed, onChange: () => changes.emit('change'), executeLocalAgent: request => {
+ const app = await createPersonalServer({ dataDir: dir, port: 0, maxConcurrentRuns: 1, codexCommand: process.execPath, discoverLocalAgents: async () => installed, onChange: () => changes.emit('change'), executeLocalAgent: request => {
   calls.push(request.id);
   return new Promise((_resolve, reject) => request.signal.addEventListener('abort', () => { const error = new Error('合成停止未确认'); error.code = 'stop_unconfirmed'; reject(error); }, { once: true }));
  }});

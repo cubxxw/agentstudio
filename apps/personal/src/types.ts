@@ -40,7 +40,10 @@ export type Attachment = {
   text: string;
   size?: number;
 };
+export type Reaction = { emoji: string; contactId: string; contactSnapshot?: Contact; runId?: string; createdAt: string };
+export type IMSettings = { version: number; allowSilence: boolean };
 export type Message = {
+  reactions?: Reaction[];
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
@@ -77,7 +80,9 @@ export type Run = {
   contactId?: string;
   contactSnapshot?: Contact;
   messageId: string;
-  participation?: { action: "reply" | "silence"; reason?: string };
+  participation?: { action: "reply" | "silence" | "reaction"; reason?: string; emoji?: string };
+  imPolicy?: { allowSilence: boolean; allowReactions: boolean };
+  inputReceipt?: { state: "supplied" | "acknowledged"; messageIds: string[]; suppliedAt: string; acknowledgedAt?: string };
   progress?: { phase: "preparing" | "thinking" | "writing"; text: string; updatedAt: string };
   executionSnapshot?: ExecutionSnapshot;
 };
@@ -134,6 +139,7 @@ export type Thread = ThreadSummary & {
   decisions: Decision[];
   events: { id: string; type: string; text: string; createdAt: string }[];
   responsePolicies?: Record<string, ResponsePolicy>;
+  allowSilence?: boolean | null;
 };
 export type Connection = {
   id: string;
@@ -168,7 +174,7 @@ export type Bootstrap = {
   threads: ThreadSummary[];
   connections: Connection[];
   memories: Memory[];
-  settings: { defaultMode: Mode; codexAvailable: boolean; localAgentId?: LocalAgentId };
+  settings: { im?: IMSettings; defaultMode: Mode; codexAvailable: boolean; localAgentId?: LocalAgentId };
   runtime?: Record<string, unknown>;
 };
 

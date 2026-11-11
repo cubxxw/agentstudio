@@ -243,13 +243,14 @@ export function Preferences({
   data: Bootstrap;
   onRefresh: () => Promise<void>;
   onClose: () => void;
-  initialTab?: "connections" | "memory" | "about" | "testing";
+  initialTab?: "connections" | "im" | "memory" | "about" | "testing";
   onWelcome?: () => void;
 }) {
-  const [tab, setTab] = useState<"connections" | "memory" | "about" | "testing">(
+  const [tab, setTab] = useState<"connections" | "im" | "memory" | "about" | "testing">(
     initialTab,
   );
   const [memory, setMemory] = useState("");
+  const [allowSilence, setAllowSilence] = useState(data.settings.im?.allowSilence ?? true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const mutate = async (work: () => Promise<unknown>) => {
@@ -271,6 +272,7 @@ export function Preferences({
         {(
           [
             ["connections", "连接"],
+            ["im", "IM"],
             ["memory", "记忆"],
             ["about", "运行说明"],
             ["testing", "测试与引导"],
@@ -291,6 +293,7 @@ export function Preferences({
         ))}
       </div>
       <div className="preferences-content">
+        {tab === "im" && <section className="im-preferences" data-testid="im-preferences"><h3>聊天回应</h3><label className="im-silence-toggle"><input type="checkbox" data-testid="im-allow-silence" checked={allowSilence} disabled={busy} onChange={event => { const next = event.target.checked; setAllowSilence(next); void mutate(async () => { try { return await api("/im/settings", { version: data.settings.im?.version ?? 0, allowSilence: next, clientId: key() }); } catch (error) { setAllowSilence(data.settings.im?.allowSilence ?? true); throw error; } }); }} /><span>允许静默</span></label><p className="section-intro">Agent 读取消息后，按自己的角色和风格选择文字回复、表情回应或保持安静。关闭后需要文字或表情回应；群聊可以单独设置。更改用于之后发送的消息。</p><p className="im-field-hint">各成员独立处理，不等待所有人发言。当前接入不支持的回应方式仍以普通文字显示。</p></section>}
         {tab === "testing" && <WorkspaceTools onRefresh={onRefresh} onWelcome={onWelcome} />}
         {tab === "connections" && (
           <Connections data={data} onRefresh={onRefresh} />

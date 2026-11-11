@@ -1,5 +1,6 @@
 import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
 import { APIError, id, now } from './store.mjs';
+import { imSettings, addReaction, REACTIONS } from './im-participation.mjs';
 
 const SELF = 'self';
 const policies = ['auto', 'mention', 'always', 'manual'];
@@ -125,6 +126,7 @@ export class Messenger {
     return ids;
   }
   createChat(body) {
+    if (body.allowSilence !== undefined && body.allowSilence !== null && typeof body.allowSilence !== 'boolean') fail('允许静默必须是开关或跟随 IM 设置');
     if (!['direct', 'group'].includes(body.kind)) fail('请选择私聊或群聊');
     const memberIds = this.members(body.memberIds);
     if (body.kind === 'direct' && memberIds.length !== 2) fail('私聊只能有你和一位联系人');
@@ -137,7 +139,7 @@ export class Messenger {
     const title = body.kind === 'direct' ? this.store.require('contact', memberIds.find(x => x !== SELF)).name : text(body.title, 80);
     if (!title) fail('请填写群名称');
     const thread = { id: id('thr'), kind: body.kind, title, memberIds, version: 1,
-      members: memberIds.map(contactId => ({ contactId, visibleAfterMessageId: null })), responsePolicies: {},
+      members: memberIds.map(contactId => ({ contactId, membershipId: id('membership'), visibleAfterMessageId: null })), responsePolicies: {}, allowSilence: body.allowSilence ?? null,
       status: 'completed', summary: '', createdAt: now(), updatedAt: now(), messages: [], runs: [], artifacts: [], decisions: [], events: [], memoryIds: [] };
     return this.store.put('thread', thread);
   }
@@ -148,7 +150,7 @@ export class Messenger {
     if (body.version !== thread.version) fail('群信息已更新，请重新打开后编辑', 409, 'version_conflict');
     const memberIds = body.memberIds === undefined ? thread.memberIds : this.members(body.memberIds);
     // Ordinary accepted replies retain snapshots; artifact grants are rechecked below.
-    const members = memberIds.map(contactId => thread.members.find(m => m.contactId === contactId) || { contactId, visibleAfterMessageId: thread.messages.at(-1)?.id || null });
+    const members = memberIds.map(contactId => thread.members.find(m => m.contactId === contactId) || { contactId, membershipId: id('membership'), visibleAfterMessageId: thread.messages.at(-1)?.id || null });
     const responsePolicies = { ...thread.responsePolicies };
     if (body.responsePolicies !== undefined) {
       if (!body.responsePolicies || typeof body.responsePolicies !== 'object' || Array.isArray(body.responsePolicies)) fail('响应策略必须是对象');
@@ -157,9 +159,11 @@ export class Messenger {
         responsePolicies[contactId] = policy;
       }
     }
+    if (body.allowSilence !== undefined && body.allowSilence !== null && typeof body.allowSilence !== 'boolean') fail('允许静默必须是开关或跟随 IM 设置');
+    const allowSilence = body.allowSilence === undefined ? thread.allowSilence ?? null : body.allowSilence;
     const title = body.title === undefined ? thread.title : text(body.title, 80);
     if (!title) fail('请填写群名称');
-    Object.assign(thread, { title, memberIds, members, responsePolicies, version: thread.version + 1, updatedAt: now() });
+    Object.assign(thread, { title, memberIds, members, responsePolicies, allowSilence, version: thread.version + 1, updatedAt: now() });
     const saved = this.store.put('thread', thread);
     this.options.onGroupChanged?.(threadId);
     return saved;
@@ -190,6 +194,8 @@ export class Messenger {
         localAgentId: binding.localAgentId || contact.chatBackend?.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
       const goal = this.store.get('agent_control', contact.id)?.goal;
       return [{ ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
+        imPolicy: { allowSilence: (thread.responsePolicies[contact.id] !== 'always') && (thread.allowSilence ?? imSettings(this.store).allowSilence), allowReactions: true },
+        participantMemberships: structuredClone(thread.members),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
         conversationSnapshot: { kind: thread.kind, title: thread.title, version: thread.version,
           attention: { addressedContactIds: thread.memberIds.filter(contactId => {
@@ -214,6 +220,23 @@ export class Messenger {
     if (!inputs.length) thread.summary = basic.text.slice(0, 120);
     thread.updatedAt = now();
     return this.store.put('thread', thread);
+  }
+
+  settings() { return imSettings(this.store); }
+  saveSettings(body) {
+    const previous = this.settings();
+    if (body.version !== previous.version) fail('IM 设置已更新，请刷新后重试', 409, 'version_conflict');
+    if (typeof body.allowSilence !== 'boolean') fail('允许静默必须是开关');
+    return this.store.put('setting', { id: 'im', version: previous.version + 1, allowSilence: body.allowSilence, updatedAt: now() });
+  }
+  react(threadId, body) {
+    const thread = this.store.require('thread', threadId);
+    if (!thread.kind || !REACTIONS.includes(body.emoji) || typeof body.active !== 'boolean') fail('请选择有效的消息表情和操作');
+    const message = thread.messages.find(item => item.id === body.messageId && item.role !== 'system');
+    if (!message) fail('找不到这条聊天消息', 404, 'not_found');
+    if (body.active) addReaction(message, { emoji: body.emoji, contactId: SELF, contactSnapshot: identity(this.store.require('contact', SELF)), createdAt: now(), recipientIds: [...thread.memberIds] });
+    else message.reactions = (message.reactions || []).filter(reaction => reaction.contactId !== SELF || reaction.emoji !== body.emoji);
+    thread.updatedAt = now(); return this.store.put('thread', thread);
   }
 
   approvals() {

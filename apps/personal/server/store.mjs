@@ -143,9 +143,9 @@ export class PersonalStore {
     return run.status === 'unknown' || run.cancelPending || (run.requiresReconciliation && !['queued', 'running', 'verifying'].includes(run.status));
   }
 
-  nextQueuedRun(thread) {
+  nextQueuedRun(thread, eligible = () => true) {
     if (thread.kind === 'group') {
-      return thread.runs.find((run, index) => run.status === 'queued' && !thread.runs.slice(0, index).some(previous =>
+      return thread.runs.find((run, index) => run.status === 'queued' && eligible(run) && !thread.runs.slice(0, index).some(previous =>
         previous.contactId === run.contactId && (['queued', 'running', 'verifying', 'needs_input'].includes(previous.status) || this.unresolved(previous)))) || null;
     }
     let index = thread.runs.findIndex((run) => run.status === 'queued');
@@ -153,7 +153,7 @@ export class PersonalStore {
     const ownerIndex = thread.runs.findIndex(run => run.status === 'queued' && !run.agentSchedule);
     if (ownerIndex >= 0 && !thread.runs.slice(0, ownerIndex).some(run => ['running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run) || (run.status === 'queued' && !run.agentSchedule))) index = ownerIndex;
     if (index < 0 || thread.runs.slice(0, index).some((run) => ['running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run) || (run.status === 'queued' && (!run.agentSchedule || thread.runs[index].agentSchedule)))) return null;
-    return thread.runs[index];
+    return eligible(thread.runs[index]) ? thread.runs[index] : null;
   }
 
   refreshThread(thread) {
@@ -211,7 +211,7 @@ export class PersonalStore {
       ...(input.executionSnapshot ? { executionSnapshot: structuredClone(input.executionSnapshot) } : {}),
       ...(input.contactId ? { contactId: input.contactId, contactSnapshot: input.contactSnapshot,
         participantSnapshot: input.participantSnapshot, conversationSnapshot: input.conversationSnapshot, visibleAfterMessageId: input.visibleAfterMessageId,
-        responsePolicy: input.responsePolicy } : {}),
+        responsePolicy: input.responsePolicy, imPolicy: input.imPolicy, participantMemberships: input.participantMemberships } : {}),
       messageId: message.id, memoryIds: input.memoryIds || thread.memoryIds || [], createdAt: now(),
       action: input.action || null, phase: 'prepare', deliveryState: 'not_sent', actionState: 'not_started', verificationState: 'not_started' };
     if (input.contactId && input.contactSnapshot && run.mode === 'connection') {

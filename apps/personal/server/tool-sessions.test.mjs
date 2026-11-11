@@ -4,6 +4,18 @@ import { spawn } from 'node:child_process';
 import { ToolSessions } from './tool-sessions.mjs';
 
 const tools = [{ name: 'artifact_probe', description: 'Read the synthetic probe.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }];
+test('concurrent first tool sessions share one listener and close during startup leaves no server', async t => {
+  const broker = new ToolSessions(); t.after(() => broker.close());
+  await Promise.all([broker.listen(), broker.listen(), broker.listen()]);
+  assert.equal(broker.server.listening, true);
+  assert.equal(broker.server.listenerCount('error'), 0);
+  await broker.close();
+  const closing = new ToolSessions();
+  const starting = closing.listen();
+  await closing.close(); await starting;
+  assert.equal(closing.server.listening, false);
+  await assert.rejects(closing.listen(), /closed|关闭/);
+});
 async function fixture(t) {
   const broker = new ToolSessions(); await broker.listen(); t.after(() => broker.close());
   const calls = [];
