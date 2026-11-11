@@ -43,7 +43,7 @@ The shared reader, connection preferences and decision cards retain these IDs:
 | Optional Bearer disclosure / password field | `personal-connection-auth-toggle`, `personal-connection-token` |
 | Memory / save | `personal-memory-input`, `personal-memory-save` |
 
-`node dev/messenger-acceptance.mjs` tests contacts, direct/group replies and approval. `node dev/conversation-acceptance.mjs` tests legacy links, exact pending-request migration, creation-response races and historical tools. Both accept `--native` after desktop build, use isolated profiles and synthetic data; the history fixture uses the existing mock keychain switch only for its fresh test profile. The complete reading/connection/browser edge checks use the same Messenger IDs.
+`node dev/messenger-acceptance.mjs` tests contacts and direct/group replies, including remote chat without per-message approvals. `node dev/conversation-acceptance.mjs` tests legacy links, exact pending-request migration, creation-response races and historical tools. Both accept `--native` after desktop build, use isolated profiles and synthetic data; the history fixture uses the existing mock keychain switch only for its fresh test profile. `node dev/personal-connect-synthetic.mjs --synthetic` also exercises two direct Muse chat turns through the real native connector against the existing fake service, while retaining an explicit Cue task approval. The complete reading/connection/browser edge checks use the same Messenger IDs.
 
 ## Retained Matrix clients
 

@@ -7,6 +7,8 @@ import { CredentialVault } from './vault.mjs';
 export const now = () => new Date().toISOString();
 export const id = (prefix) => `${prefix}_${randomUUID()}`;
 export const digest = (text) => createHash('sha256').update(text).digest('hex');
+export const connectionIdentity = connection => ({ connectionId: connection.id, url: connection.url,
+  credentialRef: connection.credentialRef || null, credentialVersion: connection.credentialVersion || 0 });
 
 export class APIError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -190,6 +192,15 @@ export class PersonalStore {
         responsePolicy: input.responsePolicy } : {}),
       messageId: message.id, memoryIds: input.memoryIds || thread.memoryIds || [], createdAt: now(),
       action: input.action || null, phase: 'prepare', deliveryState: 'not_sent', actionState: 'not_started', verificationState: 'not_started' };
+    if (input.contactId && input.contactSnapshot && run.mode === 'connection') {
+      const connection = this.require('connection', run.connectionId);
+      if (connection.type === 'a2a') {
+        // This record is private: accepting Send binds chat to this exact transport,
+        // without inventing an approval or exposing credential references to the UI.
+        const binding = input.connectionIdentityId ? this.get('message_identity', input.connectionIdentityId) : connectionIdentity(connection);
+        if (binding) this.put('message_identity', { ...binding, id: run.id });
+      }
+    }
     thread.runs.push(run);
     thread.status = 'queued'; thread.summary = '等待开始'; thread.updatedAt = now();
     this.event(thread, 'queued', run.mode === 'local' ? '已排队：本地整理，无需模型' : '任务已排队', { runId: run.id });

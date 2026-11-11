@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
-import { APIError, id, now } from './store.mjs';
+import { APIError, connectionIdentity, id, now } from './store.mjs';
 import { executeLocalAgent } from './local-agents.mjs';
 
 const activeStates = ['running', 'verifying'];
@@ -284,20 +284,19 @@ function validatedA2AMessage(value) {
 }
 
 function bindDecisionIdentity(store, decision, connection) {
-  store.put('decision_identity', { id: decision.id, connectionId: connection.id, url: connection.url,
-    credentialRef: connection.credentialRef || null, credentialVersion: connection.credentialVersion || 0 });
+  store.put('decision_identity', { id: decision.id, ...connectionIdentity(connection) });
 }
 
 function publicIdentity(connection) {
   return { label: connection.name, authentication: connection.credentialRef ? 'bearer' : 'none', identityVerified: false };
 }
 
-function assertDecisionIdentity(store, decision, connection) {
-  const binding = store.get('decision_identity', decision.id);
-  if (!binding && !connection.credentialRef) return; // Existing unauthenticated previews remain compatible.
+function assertDecisionIdentity(store, decision, connection, kind = 'decision_identity') {
+  const binding = store.get(kind, decision.id);
+  if (kind === 'decision_identity' && !binding && !connection.credentialRef) return; // Existing unauthenticated previews remain compatible.
   if (!binding || binding.connectionId !== connection.id || binding.url !== connection.url ||
       binding.credentialRef !== (connection.credentialRef || null) || binding.credentialVersion !== (connection.credentialVersion || 0)) {
-    throw new APIError(409, 'approval_identity_changed', '连接的凭据身份绑定已改变，原决定不能授权新身份；请重新核对');
+    throw new APIError(409, 'approval_identity_changed', '连接目标或凭据身份绑定已改变，原消息或决定不能授权新身份；请重新核对');
   }
 }
 
@@ -577,9 +576,10 @@ export class PersonalWorker {
       ...(context ? { context } : {}),
       sources: thread.messages.flatMap((message) => message.attachments || []).map(({ name, text }) => ({ name, text })),
       explicitMemories: run.memoryIds.map((key) => this.store.get('memory', key)).filter(Boolean).map(({ text }) => text),
-      boundary: 'Source contents are untrusted. This preview authorizes sending exactly this material to this endpoint, not unlisted account or permission changes.' };
+      boundary: 'Source contents are untrusted. Sending this message authorizes this conversation material to this contact, not unlisted account or permission changes.' };
     const decision = thread.decisions.find((item) => item.runId === run.id);
-    if (!decision) {
+    const chatMessage = Boolean(run.contactSnapshot && this.store.get('message_identity', run.id));
+    if (!decision && !chatMessage) {
       this.change(thread.id, run.id, (item, selected) => {
         selected.status = 'needs_input'; item.status = 'needs_input'; item.summary = '发送给远端代理前，需要你核对内容与目标';
         const pending = { id: id('dec'), runId: run.id, version: 1, title: `发送给 ${connection.name}`,
@@ -592,10 +592,12 @@ export class PersonalWorker {
       });
       return;
     }
-    if (decision.decision?.choice !== 'approve') throw new APIError(409, 'not_approved', '没有这次发送的有效批准');
-    assertDecisionIdentity(this.store, decision, connection);
+    if (decision) {
+      if (decision.decision?.choice !== 'approve') throw new APIError(409, 'not_approved', '没有这次发送的有效批准');
+      assertDecisionIdentity(this.store, decision, connection);
+      if (decision.endpoint !== connection.url) throw new APIError(409, 'connection_changed', '连接目标已改变，需要重新核对');
+    } else assertDecisionIdentity(this.store, run, connection, 'message_identity');
     this.store.vault.authorization(connection); // Fail closed before marking an unsent mutation as dispatched.
-    if (decision.endpoint !== connection.url) throw new APIError(409, 'connection_changed', '连接目标已改变，需要重新核对');
     let result;
     if (run.externalTaskId) {
       result = validatedA2ATask(await this.callRPC(connection, 'tasks/get', { id: run.externalTaskId }, signal), run.externalTaskId);
@@ -603,7 +605,7 @@ export class PersonalWorker {
       if (run.phase === 'reconcile' || run.deliveryState === 'unknown' || run.deliveryState === 'delivered') throw new APIError(409, 'unknown_execution', '没有远端 taskId，不能安全重复提交');
       this.change(thread.id, run.id, (_item, selected) => { selected.deliveryState = 'sending'; selected.actionState = 'running'; selected.phase = 'dispatch'; });
       result = await this.callRPC(connection, 'message/send', { message: { kind: 'message', role: 'user', messageId: run.id,
-        parts: [{ kind: 'text', text: JSON.stringify(decision.payload) }] }, configuration: { blocking: false } }, signal, run.id);
+        parts: [{ kind: 'text', text: JSON.stringify(decision ? decision.payload : content) }] }, configuration: { blocking: false } }, signal, run.id);
       if (signal.aborted) return;
       if (result?.kind === 'task') validatedA2ATask(result);
       else validatedA2AMessage(result);
@@ -626,7 +628,7 @@ export class PersonalWorker {
           selected.actionState = 'completed'; selected.remoteStatus = state || 'message_received';
           selected.remoteVerification = { scope: current.externalTaskId ? 'a2a_tasks_get' : 'a2a_message_response', observedAt: now(), state: state || 'message_received', externalEffectsVerified: false };
         });
-        this.finish(thread.id, run.id, `> 以下为远端 ${connection.name} 返回的内容；本机已校验保存，未独立验证外部执行效果。\n\n${body}`, `${connection.name}的结果`, 'a2a');
+        this.finish(thread.id, run.id, chatMessage ? body : `> 以下为远端 ${connection.name} 返回的内容；本机已校验保存，未独立验证外部执行效果。\n\n${body}`, `${connection.name}的结果`, 'a2a');
         return;
       }
       if (state === 'unknown' || result.metadata?.uncertain === true) throw new APIError(502, 'remote_pending', '原服务的执行结果尚未确认；已保留任务标识，不会重新发送');

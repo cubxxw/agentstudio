@@ -367,7 +367,7 @@ export async function createPersonalServer(options = {}) {
               const message = thread.messages.find((item) => item.id === run.messageId);
               store.appendRun(thread, { ...message, mode: run.mode, localAgentId: run.localAgentId || 'codex', connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id,
                 executionSnapshot: run.executionSnapshot, contactId: run.contactId, contactSnapshot: run.contactSnapshot, participantSnapshot: run.participantSnapshot, conversationSnapshot: run.conversationSnapshot,
-                visibleAfterMessageId: run.visibleAfterMessageId, responsePolicy: run.responsePolicy });
+                visibleAfterMessageId: run.visibleAfterMessageId, responsePolicy: run.responsePolicy, connectionIdentityId: run.id });
             }
           }
           store.refreshThread(thread);

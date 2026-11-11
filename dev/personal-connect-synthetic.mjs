@@ -259,8 +259,26 @@ try {
   verify(!JSON.stringify(completed).includes('two-day Kyoto') && !JSON.stringify(completed).includes('Revenue was up 12%'), 'unrelated provider history is absent from task context and artifacts');
   await page.getByTestId('im-approval-open-chat').click();
   await page.getByTestId('im-results').click(); await page.getByTestId('im-artifact').last().click(); await page.getByTestId('personal-reader').waitFor(); await capture('cue-synthetic-result');
+  phase = 'muse-contact-chat';
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+  const muse = catalog.instances.find(instance => instance.service === 'muse');
+  const museContact = (await api('/contacts')).contacts.find(contact => contact.binding?.connectionId === muse.connectionId);
+  verify(Boolean(museContact), 'the synthetic Muse service appears as an ordinary chat contact');
+  await page.getByTestId('im-refresh').click(); await page.getByTestId('im-nav-contacts').click();
+  await page.getByTestId(`im-contact-${museContact.id}`).click(); await page.getByTestId('im-start-chat').click();
+  const museChatId = new URL(page.url()).searchParams.get('thread');
+  for (let turn = 1; turn <= 2; turn++) {
+    const turnMarker = `${marker}_TURN_${turn}`;
+    await page.getByTestId('im-message-input').fill(`合成 Muse 聊天 ${turn} / Synthetic Muse chat ${turnMarker}`);
+    await page.getByTestId('im-send').click();
+    let reply;
+    await expect.poll(async () => { reply = await api(`/threads/${museChatId}`); return reply.runs[turn - 1]?.status; }, { timeout: 60000 }).toBe('completed');
+    verify(reply.decisions.length === 0 && reply.messages.at(-1).text.startsWith('Muse echo:') && reply.messages.at(-1).text.includes(turnMarker), `Muse chat turn ${turn} returns its actual correlated synthetic reply without approval`);
+    await expect(page.getByTestId('im-pending-bar')).toHaveCount(0);
+  }
+  await capture('muse-contact-chat');
   const manifestBefore = JSON.parse(await readFile(join(profile, 'personal-services/manifest.json'), 'utf8'));
-  verify(manifestBefore.tasks.length === 1 && manifestBefore.tasks[0].state === 'completed', 'the main-process A2A receipt is durable before restart');
+  verify(manifestBefore.tasks.length === 3 && manifestBefore.tasks.every(task => task.state === 'completed') && manifestBefore.tasks.filter(task => task.instanceId === muse.id).length === 2, 'one Cue task and two Muse chat receipts are durable before restart');
   await application.close(); application = undefined;
   phase = 'restart-readback'; await launch();
   let restored;
@@ -270,12 +288,14 @@ try {
   const restoredThread = await api(`/threads/${threadId}`);
   verify(restoredThread.status === 'completed' && restoredThread.runs.length === 1 && restoredThread.artifacts[0].sha256 === artifact.sha256, 'restart preserves the original task, single run and exact artifact');
   const manifestAfter = JSON.parse(await readFile(join(profile, 'personal-services/manifest.json'), 'utf8'));
-  verify(manifestAfter.chosenPort === manifestBefore.chosenPort && manifestAfter.tasks.length === 1 && manifestAfter.tasks[0].id === manifestBefore.tasks[0].id, 'restart owns the same saved port and never creates another A2A task');
+  verify(manifestAfter.chosenPort === manifestBefore.chosenPort && manifestAfter.tasks.map(task => task.id).join() === manifestBefore.tasks.map(task => task.id).join(), 'restart owns the same saved port and never creates another A2A task');
+  const restoredMuse = await api(`/threads/${museChatId}`);
+  verify(restoredMuse.runs.length === 2 && restoredMuse.runs.every(run => run.status === 'completed') && restoredMuse.decisions.length === 0, 'restart preserves both direct Muse replies without replay or approval records');
   const afterRestart = await providerSnapshot(cue.id, [...publicSamples, restored, restoredThread]);
   verify(afterRestart.submitted === 1 && afterRestart.answers === 1 && afterRestart.publicSecretsAbsent, 'provider readback confirms no additional send after restarting the app');
   verify(errors.length === 0, 'the synthetic native connection journeys have no renderer exceptions');
   const healthReadback = await api('/health');
-  await writeFile(join(evidence, 'results.json'), JSON.stringify({ passed: true, profile, packaged: Boolean(packagedApp), checks, errors, captures, connectedServices, callbackDelivery: 'synthetic fake redirect -> owned test app open-url; no system handler change', providerReadback: { before, after, afterRestart }, health: healthReadback, artifact: { size: artifact.size, sha256: artifact.sha256 }, scope: 'four synthetic native service logins; one explicitly approved fake Cue task; no model execution or real accounts' }, null, 2));
+  await writeFile(join(evidence, 'results.json'), JSON.stringify({ passed: true, profile, packaged: Boolean(packagedApp), checks, errors, captures, connectedServices, callbackDelivery: 'synthetic fake redirect -> owned test app open-url; no system handler change', providerReadback: { before, after, afterRestart }, health: healthReadback, artifact: { size: artifact.size, sha256: artifact.sha256 }, scope: 'four synthetic native service logins; one explicitly approved fake Cue task; two direct fake Muse chat turns; no model execution or real accounts' }, null, 2));
   console.log(JSON.stringify({ evidence, checks: checks.length, passed: true }));
 } catch (error) {
   await page?.screenshot({ path: join(evidence, 'failure-renderer.png') }).catch(() => {});

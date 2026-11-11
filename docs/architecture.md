@@ -10,7 +10,8 @@ flowchart LR
   M -->|allowlisted requests, owned random loopback port| U[Owned utilityProcess]
   U --> DB[(Personal SQLite WAL and file vault)]
   U --> CLI[Existing configured Codex CLI]
-  U -->|exact preview and approval| REM[A2A or MCP endpoint]
+  U -->|addressed contact chat| A2A[A2A chat endpoint]
+  U -->|exact task or tool approval| REM[A2A task or MCP endpoint]
   U -->|change notifications| M
 ```
 

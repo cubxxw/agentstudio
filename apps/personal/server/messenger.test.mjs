@@ -114,13 +114,13 @@ test('new members cannot see earlier messages, identity and membership updates u
   assert.equal((await f.api('/chats', { kind: 'direct', memberIds: ['agent_codex', b.id], clientId: key() })).status, 400);
 });
 
-test('group approvals stay independent and remote previews include scoped identity and conversation', async t => {
-  const f = await fixture(t); let submissions = 0;
+test('addressed remote group chat sends immediately with scoped identity and a natural reply', async t => {
+  const f = await fixture(t); const submissions = [];
   const server = http.createServer(async (req, res) => {
     let text = ''; for await (const c of req) text += c;
-    const rpc = JSON.parse(text); submissions++;
+    const rpc = JSON.parse(text); submissions.push(rpc);
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { kind: 'message', role: 'agent', messageId: 'synthetic', parts: [{ kind: 'text', text: 'Synthetic approved reply' }] } }));
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { kind: 'message', role: 'agent', messageId: 'synthetic', parts: [{ kind: 'text', text: 'Synthetic chat reply' }] } }));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   t.after(() => new Promise(r => server.close(r)));
@@ -128,21 +128,149 @@ test('group approvals stay independent and remote previews include scoped identi
   const a = (await f.api('/contacts', { kind: 'agent', name: 'Remote A', handle: 'remote-a', binding: { type: 'connection', connectionId: connection.id }, clientId: key() })).body;
   const chat = await legacyGroup(f, { kind: 'group', title: 'Approvals', memberIds: [a.id, 'agent_codex'], clientId: key() });
   await f.api(`/threads/${chat.id}/messages`, { text: '@remote-a Please help', clientId: key() });
-  const pending = await f.wait(chat.id, x => x.decisions.length === 1);
-  const decision = pending.decisions[0];
-  assert.equal(submissions, 0);
-  assert.equal(JSON.parse(decision.preview).content.context.agentIdentity.name, a.name);
+  const done = await f.wait(chat.id, x => ['completed', 'needs_input'].includes(x.runs[0]?.status));
+  assert.equal(done.runs[0].status, 'completed', 'addressing a contact already authorizes ordinary chat');
+  assert.equal(done.decisions.length, 0);
+  const payload = JSON.parse(submissions[0].params.message.parts[0].text);
+  assert.equal(payload.context.agentIdentity.name, a.name);
+  assert.equal(payload.context.conversation.kind, 'group');
+  assert.equal(done.messages.at(-1).text, 'Synthetic chat reply');
+  assert.equal(done.messages.at(-1).contactId, a.id);
+  assert.equal(done.runs[0].remoteVerification.externalEffectsVerified, false);
   await f.api(`/threads/${chat.id}/messages`, { text: '@codex Local independent reply', clientId: key() });
   const independent = await f.wait(chat.id, x => x.runs.at(-1)?.status === 'completed');
-  assert.equal(independent.decisions[0].state, 'pending');
+  assert.equal(independent.decisions.length, 0);
   const approvals = (await f.api('/approvals')).body.approvals;
-  assert.equal(approvals[0].threadId, chat.id);
-  const body = { choice: 'approve', version: decision.version, clientId: key() };
-  assert.equal((await f.api(`/decisions/${decision.id}`, body)).status, 200);
-  await f.wait(chat.id, x => x.runs[0].status === 'completed');
-  await f.api(`/decisions/${decision.id}`, body);
-  assert.equal(submissions, 1);
-  assert.equal((await f.api(`/decisions/${decision.id}`, { ...body, clientId: key() })).status, 409);
+  assert.equal(approvals.length, 0);
+  assert.equal(submissions.length, 1);
+});
+
+test('remote direct chat followups send once per accepted message without approval', async t => {
+  const f = await fixture(t); const submissions = [];
+  const server = http.createServer(async (req, res) => {
+    let text = ''; for await (const chunk of req) text += chunk;
+    const rpc = JSON.parse(text); submissions.push(rpc);
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { kind: 'message', role: 'agent', messageId: `reply-${submissions.length}`, parts: [{ kind: 'text', text: `Synthetic reply ${submissions.length}` }] } }));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r)); t.after(() => new Promise(r => server.close(r)));
+  const connection = (await f.api('/connections', { name: 'Synthetic Muse', type: 'a2a', url: `http://127.0.0.1:${server.address().port}/rpc` })).body;
+  const contact = (await f.api('/contacts')).body.contacts.find(c => c.binding?.connectionId === connection.id);
+  const chat = (await f.api('/chats', { kind: 'direct', memberIds: [contact.id], clientId: key() })).body;
+  const body = { text: 'Hello', clientId: key(), mode: 'local', action: { toolName: 'untrusted', arguments: {} } };
+  await f.api(`/threads/${chat.id}/messages`, body);
+  const first = await f.wait(chat.id, x => ['completed', 'needs_input'].includes(x.runs[0]?.status));
+  assert.equal(first.runs[0].status, 'completed');
+  await f.api(`/threads/${chat.id}/messages`, body);
+  assert.equal(submissions.length, 1);
+  assert.equal(submissions[0].params.message.messageId, first.runs[0].id);
+  await f.api(`/threads/${chat.id}/messages`, { text: 'Follow up', clientId: key() });
+  const done = await f.wait(chat.id, x => ['completed', 'needs_input'].includes(x.runs[1]?.status));
+  assert.equal(done.runs[1].status, 'completed'); assert.equal(done.decisions.length, 0);
+  assert.deepEqual(done.messages.filter(m => m.role === 'assistant').map(m => m.text), ['Synthetic reply 1', 'Synthetic reply 2']);
+  const context = JSON.parse(submissions[1].params.message.parts[0].text).context;
+  assert.deepEqual(context.messages.map(m => m.text), ['Hello', 'Synthetic reply 1', 'Follow up']);
+  assert.equal(submissions.length, 2);
+});
+
+test('queued contact chat and retry keep the accepted endpoint and credential binding private', async t => {
+  for (const field of ['url', 'credentialRef', 'credentialVersion']) await t.test(field, async t => {
+    const f = await fixture(t); let sends = 0, release;
+    const gate = new Promise(resolve => { release = resolve; }); t.after(release);
+    const server = http.createServer(async (req, res) => {
+      let text = ''; for await (const chunk of req) text += chunk;
+      const rpc = JSON.parse(text); sends++;
+      await gate;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { kind: 'message', role: 'agent', messageId: 'synthetic', parts: [{ kind: 'text', text: 'Synthetic reply' }] } }));
+    });
+    await new Promise(r => server.listen(0, '127.0.0.1', r)); t.after(() => new Promise(r => server.close(r)));
+    const connection = (await f.api('/connections', { name: 'Bound contact', type: 'a2a', url: `http://127.0.0.1:${server.address().port}/rpc`, token: 'synthetic-chat-bearer' })).body;
+    const contact = (await f.api('/contacts')).body.contacts.find(c => c.binding?.connectionId === connection.id);
+    const chat = (await f.api('/chats', { kind: 'direct', memberIds: [contact.id], clientId: key() })).body;
+    await f.api(`/threads/${chat.id}/messages`, { text: 'First', clientId: key() });
+    await f.wait(chat.id, x => x.runs[0]?.deliveryState === 'sending');
+    const queued = await f.api(`/threads/${chat.id}/messages`, { text: 'Queued', clientId: key() });
+    assert.equal(queued.status, 200);
+    assert.ok(!JSON.stringify(queued.body).includes('credentialRef'));
+    assert.ok(!JSON.stringify(queued.body).includes('synthetic-chat-bearer'));
+    const stored = f.store.require('connection', connection.id);
+    f.store.put('connection', { ...stored, [field]: field === 'url' ? `${stored.url}/replacement` : field === 'credentialVersion' ? 2 : 'replacement-credential' });
+    release();
+    const blocked = await f.wait(chat.id, x => ['blocked', 'needs_input'].includes(x.runs[1]?.status));
+    assert.equal(blocked.runs[1].status, 'blocked');
+    assert.match(blocked.runs[1].error, /身份绑定已改变/);
+    assert.equal(sends, 1);
+    await f.restart();
+    const retried = await f.api(`/threads/${chat.id}/retry`, { runId: blocked.runs[1].id, clientId: key() });
+    assert.equal(retried.status, 200);
+    const again = await f.wait(chat.id, x => x.runs[2]?.status === 'blocked');
+    assert.match(again.runs[2].error, /身份绑定已改变/);
+    assert.equal(again.decisions.length, 0); assert.equal(sends, 1);
+  });
+});
+
+test('unknown contact sends cannot be repeated after restart, cancel or retry', async t => {
+  const f = await fixture(t); let sends = 0;
+  const server = http.createServer(async (req, res) => { for await (const _chunk of req) { /* consume synthetic request */ } sends++; res.destroy(); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r)); t.after(() => new Promise(r => server.close(r)));
+  const connection = (await f.api('/connections', { name: 'Uncertain', type: 'a2a', url: `http://127.0.0.1:${server.address().port}/rpc` })).body;
+  const contact = (await f.api('/contacts')).body.contacts.find(c => c.binding?.connectionId === connection.id);
+  const chat = (await f.api('/chats', { kind: 'direct', memberIds: [contact.id], clientId: key() })).body;
+  await f.api(`/threads/${chat.id}/messages`, { text: 'Send once', clientId: key() });
+  const unknown = await f.wait(chat.id, x => ['unknown', 'needs_input'].includes(x.runs[0]?.status));
+  assert.equal(unknown.runs[0].status, 'unknown'); assert.equal(unknown.decisions.length, 0);
+  await f.restart();
+  assert.equal((await f.api(`/threads/${chat.id}/retry`, { clientId: key() })).status, 409);
+  assert.equal((await f.api(`/threads/${chat.id}/reconcile`, { clientId: key() })).status, 409);
+  await f.api(`/threads/${chat.id}/cancel`, { clientId: key() });
+  assert.equal((await f.api(`/threads/${chat.id}/messages`, { text: 'Do not repeat', clientId: key() })).status, 409);
+  assert.equal(sends, 1);
+});
+
+test('contact task reconciliation after restart reads the original task without a message approval', async t => {
+  const f = await fixture(t); const methods = []; let completed = false;
+  const server = http.createServer(async (req, res) => {
+    let text = ''; for await (const chunk of req) text += chunk;
+    const rpc = JSON.parse(text); methods.push(rpc.method);
+    if (rpc.method === 'tasks/get') assert.equal(rpc.params.id, 'synthetic-task');
+    const result = { kind: 'task', id: 'synthetic-task', status: { state: completed ? 'completed' : 'input-required' },
+      ...(completed ? { artifacts: [{ parts: [{ kind: 'text', text: 'Recovered synthetic reply' }] }] } : {}) };
+    res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result }));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r)); t.after(() => new Promise(r => server.close(r)));
+  const connection = (await f.api('/connections', { name: 'Recoverable', type: 'a2a', url: `http://127.0.0.1:${server.address().port}/rpc` })).body;
+  const contact = (await f.api('/contacts')).body.contacts.find(c => c.binding?.connectionId === connection.id);
+  const chat = (await f.api('/chats', { kind: 'direct', memberIds: [contact.id], clientId: key() })).body;
+  await f.api(`/threads/${chat.id}/messages`, { text: 'Original request', clientId: key() });
+  const blocked = await f.wait(chat.id, x => ['blocked', 'needs_input'].includes(x.runs[0]?.status));
+  assert.equal(blocked.runs[0].status, 'blocked'); assert.equal(blocked.runs[0].externalTaskId, 'synthetic-task');
+  await f.restart(); completed = true;
+  assert.equal((await f.api(`/threads/${chat.id}/reconcile`, { clientId: key() })).status, 200);
+  const done = await f.wait(chat.id, x => x.runs[0]?.status === 'completed');
+  assert.equal(done.messages.at(-1).text, 'Recovered synthetic reply'); assert.equal(done.decisions.length, 0);
+  assert.deepEqual(methods, ['message/send', 'tasks/get', 'tasks/get']);
+});
+
+test('newly joined remote contacts only receive post-join group material', async t => {
+  const f = await fixture(t); let payload;
+  const server = http.createServer(async (req, res) => {
+    let text = ''; for await (const chunk of req) text += chunk;
+    const rpc = JSON.parse(text); payload = JSON.parse(rpc.params.message.parts[0].text);
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { kind: 'message', role: 'agent', messageId: 'synthetic', parts: [{ kind: 'text', text: 'Synthetic joined reply' }] } }));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r)); t.after(() => new Promise(r => server.close(r)));
+  const chat = (await f.api('/chats', { kind: 'group', title: 'Private group', memberIds: ['agent_codex'], clientId: key() })).body;
+  await f.api(`/threads/${chat.id}/messages`, { text: 'PRIVATE_BEFORE_JOIN', attachments: [{ name: 'private.txt', text: 'PRIVATE_ATTACHMENT' }], clientId: key() });
+  const connection = (await f.api('/connections', { name: 'Joined', type: 'a2a', url: `http://127.0.0.1:${server.address().port}/rpc` })).body;
+  const contact = (await f.api('/contacts')).body.contacts.find(c => c.binding?.connectionId === connection.id);
+  await f.api(`/chats/${chat.id}`, { version: chat.version, memberIds: ['agent_codex', contact.id], clientId: key() });
+  await f.api(`/threads/${chat.id}/messages`, { text: `@${contact.handle} Hello`, clientId: key() });
+  const done = await f.wait(chat.id, x => ['completed', 'needs_input'].includes(x.runs[0]?.status));
+  assert.equal(done.runs[0].status, 'completed');
+  assert.ok(!JSON.stringify(payload).includes('PRIVATE_BEFORE_JOIN')); assert.ok(!JSON.stringify(payload).includes('PRIVATE_ATTACHMENT'));
+  assert.equal(payload.context.messages.length, 1); assert.deepEqual(payload.sources, []);
 });
 
 test('broadcast skips unavailable members, but explicit unavailable targets reject without consuming the message', async t => {
