@@ -1,0 +1,33 @@
+/* Preferences keep navigation visible while the selected page scrolls. */
+.im-app .preferences-modal { width: min(840px, calc(100vw - 40px)); height: auto; margin: auto; overflow: hidden; }
+.im-app .preferences-modal .modal-inner { height: min(718px, calc(100dvh - 66px)); overflow: hidden; }
+.im-app .preferences-modal .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--im-line); }
+.preferences-layout { display: grid; grid-template-columns: 156px minmax(0, 1fr); flex: 1; min-height: 0; }
+.im-app .preferences-layout .preference-tabs { flex-direction: column; align-items: stretch; gap: 4px; padding: 16px 10px; margin: 0; border: 0; border-right: 1px solid var(--im-line); background: var(--im-sidebar); overflow: auto; }
+.im-app .preferences-layout .preference-tabs button { min-height: 38px; padding: 9px 12px; border-radius: 8px; text-align: left; font-size: 13px; white-space: nowrap; }
+.im-app .preferences-layout .preference-tabs button:hover { background: var(--im-hover); }
+.im-app .preferences-layout .preference-tabs button[aria-selected="true"] { background: var(--im-selection); color: var(--im-blue); box-shadow: var(--im-row-shadow); }
+.im-app .preferences-layout .preference-tabs button::after { display: none; }
+.im-app .preferences-layout .preferences-content { min-width: 0; min-height: 0; padding: 24px; overscroll-behavior: contain; }
+.im-app .preferences-layout .preferences-content:focus-visible { outline-offset: -4px; }
+.integration-jumps { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; padding: 14px 0; margin: -10px 0 16px; border-bottom: 1px solid var(--im-line); background: var(--im-paper); }
+.integration-jumps button { min-height: 32px; padding: 6px 10px; border-radius: 7px; color: var(--im-muted); background: var(--im-hover); font-size: 12px; }
+.integration-jumps button:hover { color: var(--im-blue); background: var(--im-blue-soft); }
+.connections h3 { scroll-margin-top: 70px; }
+.integration-instances { margin: 0 0 12px 48px; border-left: 1px solid var(--im-line); padding-left: 12px; }
+.integration-instances > summary { cursor: pointer; padding: 8px 0; color: var(--im-blue); font-size: 12px; line-height: 1.7; }
+.integration-instances > summary small { display: block; color: var(--attention); }
+.integration-instances .integration-instance { margin-left: 0; }
+.integration-instance > div:first-child { flex: 1; }
+.integration-instance strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.integration-instance .icon-button { color: var(--im-muted); }
+.integration-instance .icon-button:hover { color: var(--danger); background: var(--im-hover); }
+@media (max-width: 640px) {
+  .im-app .preferences-modal { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
+  .im-app .preferences-modal .modal-inner { height: calc(100dvh - 26px); max-height: none; }
+  .im-app .preferences-modal .modal-header { padding: 16px 18px; }
+  .preferences-layout { display: flex; flex-direction: column; }
+  .im-app .preferences-layout .preference-tabs { flex-direction: row; flex-shrink: 0; gap: 3px; padding: 8px; border: 0; border-bottom: 1px solid var(--im-line); }
+  .im-app .preferences-layout .preference-tabs button { padding: 8px 10px; font-size: 12px; }
+  .im-app .preferences-layout .preferences-content { padding: 18px; }
+}

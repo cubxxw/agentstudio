@@ -6,6 +6,7 @@ import { RichText } from "./Markdown";
 import { Connections } from "./Connections";
 import { WorkspaceTools } from "./WorkspaceTools";
 import type { Artifact, Attachment, Bootstrap, Decision } from "./types";
+import "./preferences.css";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : "暂时无法连接，内容已保留。";
 const storage = {
@@ -253,6 +254,13 @@ export function Preferences({
   const [allowSilence, setAllowSilence] = useState(data.settings.im?.allowSilence ?? true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [verticalTabs, setVerticalTabs] = useState(() => window.matchMedia("(min-width: 641px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 641px)");
+    const update = () => setVerticalTabs(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const mutate = async (work: () => Promise<unknown>) => {
     setBusy(true);
     setError("");
@@ -268,11 +276,20 @@ export function Preferences({
   };
   return (
     <Modal title="连接与偏好" onClose={onClose} className="preferences-modal">
-      <div className="preference-tabs" role="tablist" aria-label="设置分类">
+      <div className="preferences-layout">
+      <div className="preference-tabs" role="tablist" aria-label="设置分类" aria-orientation={verticalTabs ? "vertical" : "horizontal"} onKeyDown={event => {
+        if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (["ArrowDown", "ArrowRight"].includes(event.key) ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+        buttons[next]?.click();
+      }}>
         {(
           [
             ["connections", "连接"],
-            ["im", "IM"],
+            ["im", "聊天回应"],
             ["memory", "记忆"],
             ["about", "运行说明"],
             ["testing", "测试与引导"],
@@ -282,7 +299,10 @@ export function Preferences({
             key={id}
             data-testid={`personal-tab-${id}`}
             role="tab"
+            id={`preference-tab-${id}`}
+            aria-controls="preference-panel"
             aria-selected={tab === id}
+            tabIndex={tab === id ? 0 : -1}
             onClick={() => {
               setTab(id);
               setError("");
@@ -292,7 +312,7 @@ export function Preferences({
           </button>
         ))}
       </div>
-      <div className="preferences-content">
+      <div className="preferences-content" key={tab} id="preference-panel" role="tabpanel" aria-labelledby={`preference-tab-${tab}`} tabIndex={0} data-testid="personal-preference-panel">
         {tab === "im" && <section className="im-preferences" data-testid="im-preferences"><h3>聊天回应</h3><label className="im-silence-toggle"><input type="checkbox" data-testid="im-allow-silence" checked={allowSilence} disabled={busy} onChange={event => { const next = event.target.checked; setAllowSilence(next); void mutate(async () => { try { return await api("/im/settings", { version: data.settings.im?.version ?? 0, allowSilence: next, clientId: key() }); } catch (error) { setAllowSilence(data.settings.im?.allowSilence ?? true); throw error; } }); }} /><span>允许静默</span></label><p className="section-intro">Agent 读取消息后，按自己的角色和风格选择文字回复、表情回应或保持安静。关闭后需要文字或表情回应；群聊可以单独设置。更改用于之后发送的消息。</p><p className="im-field-hint">各成员独立处理，不等待所有人发言。当前接入不支持的回应方式仍以普通文字显示。</p></section>}
         {tab === "testing" && <WorkspaceTools onRefresh={onRefresh} onWelcome={onWelcome} />}
         {tab === "connections" && (
@@ -390,6 +410,7 @@ export function Preferences({
             {error}
           </p>
         )}
+      </div>
       </div>
     </Modal>
   );
