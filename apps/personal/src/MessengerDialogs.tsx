@@ -62,7 +62,7 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
         <button type="button" aria-pressed={kind === "agent"} data-testid="im-kind-agent" onClick={() => setKind("agent")}><Bot size={16} />Agent</button>
         <button type="button" aria-pressed={kind === "human"} data-testid="im-kind-human" onClick={() => setKind("human")}><UserRound size={16} />人</button>
       </div>}
-      <div className="im-identity-preview"><Avatar contact={{ name: name || "A", color, kind, icon, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService }} size="large" /><span>{name || "新的联系人"}<small>@{handle}</small></span></div>
+      <div className="im-identity-preview"><Avatar contact={{ name: name || "A", color, kind, icon, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService, avatarDataUrl: selectedBackend?.avatarDataUrl }} size="large" /><span>{name || "新的联系人"}<small>@{handle}</small></span></div>
       <label>名称<input autoFocus required maxLength={80} value={name} onChange={e => setName(e.target.value)} data-testid="im-contact-name" /></label>
       <label>用户名<span className="im-field-hint">群聊中通过 @{handle} 提及</span><input required pattern="[a-z][a-z0-9_-]{1,31}" maxLength={32} value={handle} onChange={e => setHandle(e.target.value.toLowerCase())} data-testid="im-contact-handle" /></label>
       <label>简介<input maxLength={300} placeholder="一句话介绍这位联系人" value={description} onChange={e => setDescription(e.target.value)} data-testid="im-contact-description" /></label>
@@ -81,7 +81,7 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
         <p className="im-field-hint">身份和聊天记录保存在这台 Mac。更改身份从下一条消息起生效。</p>
       </>}
       {kind === "human" && <p className="im-callout">先保存到本机通讯录。对方尚不能收到消息，后续接入消息网络后再启用投递。</p>}
-      <div className="im-avatar-picker" aria-label="联系人图标">{Object.entries(avatarIcons).map(([id, Icon]) => <button key={id} type="button" aria-label={avatarLabels[id]} title={avatarLabels[id]} aria-pressed={icon === id} data-testid={`im-avatar-icon-${id}`} onClick={() => setIcon(id)}>{id === "auto" ? <Avatar contact={{ name: name || "A", color, kind, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService }} size="small" /> : <Icon size={20} />}</button>)}</div>
+      <div className="im-avatar-picker" aria-label="联系人图标">{Object.entries(avatarIcons).map(([id, Icon]) => <button key={id} type="button" aria-label={avatarLabels[id]} title={avatarLabels[id]} aria-pressed={icon === id} data-testid={`im-avatar-icon-${id}`} onClick={() => setIcon(id)}>{id === "auto" ? <Avatar contact={{ name: name || "A", color, kind, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService, avatarDataUrl: selectedBackend?.avatarDataUrl }} size="small" /> : <Icon size={20} />}</button>)}</div>
       <div className="im-colors" aria-label="头像颜色">{["blue", "violet", "teal", "orange", "rose"].map(c => <button className={`im-color ${c}`} type="button" key={c} aria-label={`${c}头像`} aria-pressed={color === c} onClick={() => setColor(c)}>{color === c && <Check size={15} />}</button>)}</div>
       {error && <p role="alert" className="im-error">{error}</p>}
       <button className="im-primary" disabled={busy || refreshing || (kind === "agent" && backend === "null")} data-testid="im-contact-save">{busy ? "正在保存…" : contact ? "保存更改" : "添加联系人"}</button>

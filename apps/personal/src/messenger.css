@@ -331,6 +331,7 @@
 .im-avatar.im-avatar-group { background: #d8e0ed; color: #5b7095; }
 .im-avatar-gemini > img, .im-avatar-opencode > img { width: 100%; height: 100%; border-radius: inherit; }
 .im-avatar-pi > img { width: 100%; height: 100%; }
+.im-avatar-bot > img { width: 100%; height: 100%; border-radius: inherit; }
 .im-avatar-claude { background: #fbf1ec !important; }
 .im-avatar.small { width: 31px; height: 31px; }
 .im-avatar.small > svg { width: 18px; height: 18px; }

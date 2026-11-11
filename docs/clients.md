@@ -1,5 +1,7 @@
 # Clients: screens, behaviour and test ids
 
+Personal automatic Bot avatars use `im-avatar` with `data-avatar-source="bot"`; the image uses `im-avatar-image`. An explicit persona icon takes precedence. Native service images arrive as bounded PNG data URLs, with the service brand as fallback.
+
 ## AgentRoom first-use and test mode
 
 The empty chats home offers onboarding without blocking sidebar navigation or legacy links. Settings adds a 测试与引导 tab. Test profiles show a persistent mode label. Test-only reset rotates to a fresh profile; the normal workspace never has that reset button.
