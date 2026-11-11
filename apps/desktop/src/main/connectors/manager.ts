@@ -119,6 +119,7 @@ export class ConnectorManager {
   private readonly store: ConnectorStore;
   private readonly running = new Map<string, Running>();
   private readonly logins = new Map<string, Login>();
+  private readonly loginWindows = new Map<BrowserWindow, AbortSignal | undefined>();
   /** Stored records that aren't running (yet, or because they failed to start). */
   private readonly dormant = new Map<string, InstanceRecord>();
   private readonly trace: Trace | undefined;
@@ -183,6 +184,8 @@ export class ConnectorManager {
 
   async stop() {
     for (const id of this.logins.keys()) this.cancel(id);
+    for (const window of this.loginWindows.keys()) if (!window.isDestroyed()) window.close();
+    this.loginWindows.clear();
     for (const r of this.running.values()) await r.connector.stop().catch(() => {});
     this.running.clear();
     await this.host.close();
@@ -273,21 +276,28 @@ export class ConnectorManager {
 
   // ---- internals -------------------------------------------------------------------
 
-  private openExternal = async (url: string) => {
-    if (this.env.openExternalInWindow) {
-      const w = new BrowserWindow({ width: 900, height: 760, title: "Sign in", webPreferences: { sandbox: true, contextIsolation: true } });
-      // A browser would hand app links (cuedev://) to the OS; do that here.
-      const appLink = (e: { preventDefault(): void }, target: string) => {
-        if (!handleCueLink(target)) return;
-        e.preventDefault();
-        if (!w.isDestroyed()) w.close();
-      };
-      w.webContents.on("will-navigate", appLink);
-      w.webContents.on("will-redirect", appLink);
-      await w.loadURL(url).catch(() => {});
-      return;
-    }
-    await openSystemBrowser(url);
+  private openSignInWindow = async (url: string, signal?: AbortSignal) => {
+    const target = new URL(url);
+    if (target.protocol !== "https:" && !(target.protocol === "http:" && target.hostname === "127.0.0.1")) throw new Error("Invalid sign-in URL");
+    if (signal?.aborted) throw new Error("cancelled");
+    const w = new BrowserWindow({ width: 900, height: 760, title: "Sign in", webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    this.loginWindows.set(w, signal);
+    const close = () => { if (!w.isDestroyed()) w.close(); };
+    signal?.addEventListener("abort", close, { once: true });
+    w.on("closed", () => { this.loginWindows.delete(w); signal?.removeEventListener("abort", close); });
+    const appLink = (event: { preventDefault(): void }, next: string) => {
+      if (/^https?:\/\//.test(next)) return;
+      event.preventDefault(); if (handleCueLink(next)) close();
+    };
+    w.webContents.on("will-navigate", appLink); w.webContents.on("will-redirect", appLink);
+    // Starting the owned page must not wait for third-party images/streams.
+    // PKCE polling, not navigation success, establishes authentication.
+    void w.loadURL(url).catch(() => {});
+  };
+
+  private openExternal = async (url: string, signal?: AbortSignal) => {
+    if (this.env.openExternalInWindow) return this.openSignInWindow(url, signal);
+    await openSystemBrowser(url, { inApp: target => this.openSignInWindow(target, signal) });
   };
 
   private webConfig(service: "muse" | "dots"): WebChatConfig {
@@ -492,7 +502,9 @@ export class ConnectorManager {
     const signal = login.abort.signal;
     if (login.service === "grokbot") {
       login.progress = { state: "waiting", message: "Finish signing in to Grok Bot in your browser…" };
-      const res: GrokLoginResult = await grokLogin({ ...this.env.grok, trace: this.trace }, this.openExternal, signal);
+      let res: GrokLoginResult;
+      try { res = await grokLogin({ ...this.env.grok, trace: this.trace }, url => this.openExternal(url, signal), signal); }
+      finally { for (const [window, owner] of this.loginWindows) if (owner === signal && !window.isDestroyed()) window.close(); }
       // Every bot of the account becomes its own contact; already connected bots are skipped.
       const have = new Set(
         [...this.running.values()].filter((r) => r.record.service === "grokbot").map((r) => (r.record.data as GrokData).agent.id),

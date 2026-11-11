@@ -21,3 +21,8 @@ describe("official browser fallback", () => {
     })).rejects.toThrow("The sign-in browser could not be opened");
   });
 });
+it("opens the same PKCE URL in an owned sign-in window if both OS routes fail", async () => {
+ const inApp=vi.fn(async()=>{}),url="https://cursor.com/loginDeepControl?challenge=synthetic";
+ await openSystemBrowser(url,{openExternal:async()=>{throw Error("handler failed");},fallback:async()=>{throw Error("launch failed");},inApp});
+ expect(inApp).toHaveBeenCalledWith(url);
+});

@@ -31,11 +31,11 @@ function deferred() {
   return { promise, resolve };
 }
 
-function fixture(outcomes = ['success']) {
+function fixture(outcomes = ['success'], service = 'cue') {
   const handlers = new Map(), connections = new Map(), receipts = new Map();
-  const postBodies = [], deletes = [], postStarted = deferred(), releasePost = deferred();
+  const postBodies = [], deletes = [], nativeSources = [], postStarted = deferred(), releasePost = deferred();
   const instance = {
-    instanceId: 'synthetic_instance', name: 'Synthetic Agent',
+    instanceId: 'synthetic_instance', name: 'Synthetic Agent', service,
     url: 'http://127.0.0.1:19455/a2a/synthetic_instance', token: 'synthetic_local_bridge_token',
   };
   let present = true, state = 'ready', providerLogins = 0, providerSends = 0;
@@ -55,7 +55,7 @@ function fixture(outcomes = ['success']) {
       cancel: async () => { state = 'cancelled'; },
       remove: async id => { assert.equal(id, instance.instanceId); present = false; },
     },
-    personalHost: { request: async request => {
+    personalHost: { registerNativeSource: async source => { nativeSources.push(source); }, request: async request => {
       if (request.method === 'POST') {
         assert.equal(request.path, '/api/connections');
         const body = JSON.stringify(request.body), key = request.body.clientId;
@@ -82,7 +82,7 @@ function fixture(outcomes = ['success']) {
   vm.runInContext(`${compiled}\nregisterPersonalIpc();`, context);
   const channel = vm.runInContext('PERSONAL_IPC.integration', context);
   return {
-    context, instance, connections, receipts, postBodies, deletes,
+    context, instance, connections, receipts, postBodies, deletes, nativeSources,
     invoke: action => handlers.get(channel)({}, action),
     postStarted: postStarted.promise, releasePost: releasePost.resolve,
     present: () => present, providerLogins: () => providerLogins, providerSends: () => providerSends,
@@ -209,4 +209,11 @@ test('native connection requests cannot start while a workspace switch is reserv
   await assert.rejects(() => f.invoke({kind: 'connect', serviceId: 'cue'}), /forbidden/);
   assert.equal(f.providerLogins(), 0);
   assert.equal(f.postBodies.length, 0);
+});
+
+test('Grok native readiness privately registers its source without forwarding credentials',async()=>{
+ const f=fixture(['success'],'grokbot');const reply=await f.invoke({kind:'progress',flowId:'synthetic_flow'});
+ assert.equal(reply.state,'ready');assert.equal(f.nativeSources.length,1);
+ assert.deepEqual(JSON.parse(JSON.stringify(f.nativeSources[0])),{connectionId:'synthetic_connection_1',instanceId:f.instance.instanceId,service:'grokbot'});
+ assert.equal(JSON.stringify(reply).includes(f.instance.token),false);
 });

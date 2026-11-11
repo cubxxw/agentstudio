@@ -452,7 +452,7 @@ async function registerNativeInstance(instance: { instanceId: string; name: stri
     } });
     const connection = response.body as { id?: string };
     if (response.status >= 300 || !connection.id) throw new Error("Native registration failed");
-    await personalHost!.registerNativeSource({ connectionId: connection.id, instanceId: instance.instanceId, service: instance.service });
+    if (instance.service === "grokbot") await personalHost!.registerNativeSource({ connectionId: connection.id, instanceId: instance.instanceId, service: instance.service });
     nativeConnections.set(instance.instanceId, connection.id);
     mainWindow?.webContents.send(PERSONAL_IPC.changed, {});
     return connection.id;
