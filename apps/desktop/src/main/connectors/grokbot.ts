@@ -167,16 +167,17 @@ export class GrokAuthError extends Error {}
  */
 export class GrokClient {
   private refreshing: Promise<void> | null = null;
+  private tokens: GrokTokens;
 
   constructor(
     private readonly cfg: GrokConfig,
-    private tokens: GrokTokens,
+    tokens: GrokTokens,
     readonly machineId: string,
     private readonly onTokens: (t: GrokTokens) => void,
-  ) {}
+  ) { this.tokens = { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken }; }
 
   get currentTokens(): GrokTokens {
-    return this.tokens;
+    return { accessToken: this.tokens.accessToken, refreshToken: this.tokens.refreshToken };
   }
 
   async rpc(method: string, reqSchema: Schema, req: ProtoMessage, resSchema: Schema): Promise<ProtoMessage> {
@@ -564,7 +565,8 @@ export class GrokBotConnector implements Connector {
 
   serialize(): unknown {
     // Tokens live in the shared account client; keep the latest ones.
-    return { ...this.data, ...this.client.currentTokens };
+    const { accessToken, refreshToken } = this.client.currentTokens;
+    return { ...this.data, accessToken, refreshToken };
   }
 
   async start(emitter: Emitter): Promise<void> {
