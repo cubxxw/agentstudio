@@ -1,6 +1,6 @@
 # Personal workspace server
 
-This engine runs the personal workspace without Matrix, Postgres, Docker, or additional server dependencies. The default entry is the existing [macOS Electron app](../../desktop/README.md): its owned utility runs nine copied backend ESM modules (`index`, `runtime`, `store`, `vault`, `local-agents`, `integrations`, `messenger`, `agent-profiles`, `agent-onboarding`) with Electron's bundled Node/SQLite, `serveStatic:false`, a random loopback port and data in `app.getPath('userData')/personal`. The trusted file renderer calls a separate narrow preload/IPC bridge; it does not make API HTTP requests. Native startup does not attach to port 18740 or import old Matrix/web data. The separate main-owned native-service adapter restores only its own existing personal manifest; without one it initializes lazily on catalog/connection actions, as described in [the connector contract](../../../docs/connectors.md#personal-workspace-native-services).
+This engine runs the personal workspace without Matrix, Postgres, Docker, or additional server dependencies. The default entry is the existing [macOS Electron app](../../desktop/README.md): its owned utility runs eleven copied backend ESM modules (`index`, `runtime`, `store`, `vault`, `local-agents`, `integrations`, `messenger`, `agent-profiles`, `agent-onboarding`, `agent-scheduler`, `host-discovery`) with Electron's bundled Node/SQLite, `serveStatic:false`, a random loopback port and data in `app.getPath('userData')/personal`. The trusted file renderer calls a separate narrow preload/IPC bridge; it does not make API HTTP requests. Native startup does not attach to port 18740 or import old Matrix/web data. The separate main-owned native-service adapter restores only its own existing personal manifest; without one it initializes lazily on catalog/connection actions, as described in [the connector contract](../../../docs/connectors.md#personal-workspace-native-services).
 
 The same Node 22.13+ service can run independently for auxiliary web development and QA. It binds to loopback and serves `apps/personal/dist` plus `/api`. Run from the repository root:
 
@@ -36,7 +36,7 @@ All JSON uses camelCase. Errors are `{error:{code,message}}`. Mutating task, mes
 
 | Route | Request / response |
 | --- | --- |
-| `GET /api/health` | Health and `build:{ref,serverFiles,uiEntrySha256}`; SHA-256 entries for all nine backend `.mjs` files, desktop adds bundled runtime versions/UI provenance |
+| `GET /api/health` | Health and `build:{ref,serverFiles,uiEntrySha256}`; SHA-256 entries for all eleven backend `.mjs` files, desktop adds bundled runtime versions/UI provenance |
 | `GET /api/bootstrap` | `{threads,connections,memories,settings,runtime}`; `settings.localAgentId` is the saved default, while `codexAvailable` remains the legacy install check |
 | `GET /api/integrations` | `{checkedAt,agents,selectedLocalAgentId,presets}`; fixed local discovery and safe preset metadata |
 | `POST /api/integrations/refresh` | `{}` → refreshed discovery, no model/login invocation |
@@ -70,7 +70,7 @@ Custom URL discovery skips Agent Card lookup for `/mcp` or `/sse`; an explicit `
 
 Connection `clientId` is optional, unlike required task/decision/memory keys; when supplied it must be 8–160 characters. Quick-connect persists a receipt in the `integrations:create` namespace using the original request and a private keyed credential fingerprint, not the secret. The same accepted request replays before new discovery, even if remote metadata changes or the provider becomes unavailable. Concurrent identical requests share one pending discovery; changed URL/preset/token with the same key returns 409. Endpoint/type/credential deduplication is separate: a new request key does not authorize replacing another account. Failed discovery is not a successful receipt. Refresh and selecting a default take `{}` and require no idempotency key.
 
-`build.serverFiles` names all nine current source modules: `index.mjs`, `runtime.mjs`, `store.mjs`, `vault.mjs`, `local-agents.mjs`, `integrations.mjs`, `messenger.mjs`, `agent-profiles.mjs`, `agent-onboarding.mjs`. Values are computed from the running source at server creation, not hardcoded release claims. A build ref or old test count cannot replace reading these fingerprints back from the actual packaged runtime.
+`build.serverFiles` names all eleven current source modules: `index.mjs`, `runtime.mjs`, `store.mjs`, `vault.mjs`, `local-agents.mjs`, `integrations.mjs`, `messenger.mjs`, `agent-profiles.mjs`, `agent-onboarding.mjs`, `agent-scheduler.mjs`, `host-discovery.mjs`. Values are computed from the running source at server creation, not hardcoded release claims. A build ref or old test count cannot replace reading these fingerprints back from the actual packaged runtime.
 
 ## Messenger contracts
 

@@ -26,6 +26,13 @@ describe("personal IPC capabilities", () => {
     for (const path of ["/api/contacts/../../connection", "/api/contacts/contact_owned?account=other", "/api/chats/https://example.com", "/api/chats/thr_owned/members", "/api/approvals/bulk"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
   });
 
+  it("exposes only bounded contact control and host discovery capabilities", () => {
+    for (const path of ["/api/host/discovery", "/api/contacts/contact_owned/control"]) expect(readPersonalRequest({ path, method: "GET" }).path).toBe(path);
+    for (const path of ["/api/contacts/contact_owned/control", "/api/contacts/contact_owned/run"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
+    for (const path of ["/api/contacts/contact_owned/run/command", "/api/contacts/contact_owned/control?host=other", "/api/host/discovery/processes", "/api/host/execute"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
+    expect(() => readPersonalRequest({ path: "/api/host/discovery", method: "POST", body: {} })).toThrow();
+  });
+
   it("only accepts opaque artifact identifiers for the native save dialog", () => {
     expect(isArtifactId("art_97bf-accepted")).toBe(true);
     for (const id of ["/etc/passwd", "art_x/../../secret", "https://example.com/", null, "thread_1"]) expect(isArtifactId(id)).toBe(false);

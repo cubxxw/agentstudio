@@ -71,7 +71,8 @@ try {
   await capture('live-follow-up');
   check('partial reply is real text, send stays available and the follow-up has its own queued slot');
   await defaults('beta');
-  await expect(page.getByTestId('im-chat-info')).toContainText('beta', { timeout: 15000 });
+  await expect.poll(async () => (await request('/contacts')).contacts.find(c => c.id === contact.id)?.execution?.model, { timeout: 15000 }).toBe('beta');
+  await expect(page.getByTestId('im-chat-info')).not.toContainText('beta');
   await send('第三问 THIRD：新的默认模型。');
   const accepted = await waitThread(id, t => t.runs.length === 3);
   expect(accepted.runs.map(r => r.executionSnapshot.model)).toEqual(['alpha', 'alpha', 'beta']);
@@ -88,14 +89,15 @@ try {
   const markdown = await page.getByTestId('im-timeline').evaluate(node => ({ heading: !!node.querySelector('h2'), code: !!node.querySelector('pre code'), table: !!node.querySelector('table') }));
   expect(markdown).toEqual({ heading: true, code: true, table: true }); await capture('completed-markdown');
   check('replies replace their original slots, include the late prior answer and render Markdown');
-  await page.getByTestId('im-chat-info').click(); await page.getByTestId('im-edit-contact').click();
+  await page.getByTestId('im-chat-info').click(); await page.getByTestId('im-agent-basic').click();
   await page.getByTestId('im-model-options-toggle').click();
   await page.getByTestId('im-model-policy').selectOption('fixed');
   await page.getByTestId('im-model-select').selectOption(JSON.stringify(['fixture', 'alpha']));
   await page.getByTestId('im-model-thinking').selectOption('medium');
   expect(await page.getByTestId('im-model-thinking').evaluate(node => [...node.options].map(option => option.value))).not.toContain('max');
-  await page.getByTestId('im-contact-save').click(); await expect(page.getByTestId('im-contact-detail')).toContainText('alpha');
-  await page.reload(); await expect(page.getByTestId('im-chat-info')).toContainText('alpha');
+  await page.getByTestId('im-contact-save').click(); await expect(page.getByTestId('im-agent-basic')).toContainText('alpha');
+  await page.getByTestId('personal-modal-close').click();
+  await page.reload(); await expect(page.getByTestId('im-chat-info')).not.toContainText('alpha');
   await send('第四问 FIXED：联系人独立模型。');
   await waitThread(id, t => t.runs[3]?.status === 'completed');
   const fixed = (await request(`/threads/${id}`)).runs[3].executionSnapshot;

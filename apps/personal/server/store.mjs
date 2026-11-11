@@ -129,8 +129,11 @@ export class PersonalStore {
       return thread.runs.find((run, index) => run.status === 'queued' && !thread.runs.slice(0, index).some(previous =>
         previous.contactId === run.contactId && (['queued', 'running', 'verifying', 'needs_input'].includes(previous.status) || this.unresolved(previous)))) || null;
     }
-    const index = thread.runs.findIndex((run) => run.status === 'queued');
-    if (index < 0 || thread.runs.slice(0, index).some((run) => ['queued', 'running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run))) return null;
+    let index = thread.runs.findIndex((run) => run.status === 'queued');
+    // Owner messages can pass waiting goal ticks, never running or uncertain work.
+    const ownerIndex = thread.runs.findIndex(run => run.status === 'queued' && !run.agentSchedule);
+    if (ownerIndex >= 0 && !thread.runs.slice(0, ownerIndex).some(run => ['running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run) || (run.status === 'queued' && !run.agentSchedule))) index = ownerIndex;
+    if (index < 0 || thread.runs.slice(0, index).some((run) => ['running', 'verifying', 'needs_input'].includes(run.status) || this.unresolved(run) || (run.status === 'queued' && (!run.agentSchedule || thread.runs[index].agentSchedule)))) return null;
     return thread.runs[index];
   }
 

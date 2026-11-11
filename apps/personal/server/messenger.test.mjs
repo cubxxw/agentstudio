@@ -261,13 +261,13 @@ test('newly joined remote contacts only receive post-join group material', async
     res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { kind: 'message', role: 'agent', messageId: 'synthetic', parts: [{ kind: 'text', text: 'Synthetic joined reply' }] } }));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r)); t.after(() => new Promise(r => server.close(r)));
-  const chat = (await f.api('/chats', { kind: 'group', title: 'Private group', memberIds: ['agent_codex'], clientId: key() })).body;
+  const chat = await legacyGroup(f, { kind: 'group', title: 'Private group', memberIds: ['agent_codex'], clientId: key() });
   await f.api(`/threads/${chat.id}/messages`, { text: 'PRIVATE_BEFORE_JOIN', attachments: [{ name: 'private.txt', text: 'PRIVATE_ATTACHMENT' }], clientId: key() });
   const connection = (await f.api('/connections', { name: 'Joined', type: 'a2a', url: `http://127.0.0.1:${server.address().port}/rpc` })).body;
   const contact = (await f.api('/contacts')).body.contacts.find(c => c.binding?.connectionId === connection.id);
   await f.api(`/chats/${chat.id}`, { version: chat.version, memberIds: ['agent_codex', contact.id], clientId: key() });
   await f.api(`/threads/${chat.id}/messages`, { text: `@${contact.handle} Hello`, clientId: key() });
-  const done = await f.wait(chat.id, x => ['completed', 'needs_input'].includes(x.runs[0]?.status));
+  const done = await f.wait(chat.id, x => x.runs.some(run => run.contactId === contact.id && run.status === 'completed'));
   assert.equal(done.runs[0].status, 'completed');
   assert.ok(!JSON.stringify(payload).includes('PRIVATE_BEFORE_JOIN')); assert.ok(!JSON.stringify(payload).includes('PRIVATE_ATTACHMENT'));
   assert.equal(payload.context.messages.length, 1); assert.deepEqual(payload.sources, []);
@@ -335,6 +335,10 @@ test('a newly joined MCP agent reaches approval with only its post-join context'
   const connection = (await f.api('/connections', { name: 'MCP', type: 'mcp', url: `http://127.0.0.1:${server.address().port}/rpc` })).body;
   const member = (await f.api('/contacts', { kind: 'agent', name: 'MCP member', handle: 'mcp-member', binding: { type: 'connection', connectionId: connection.id }, clientId: key() })).body;
   await f.api(`/chats/${chat.id}`, { version: chat.version, memberIds: ['agent_codex', member.id], clientId: key() });
+  const unconfigured = await f.api(`/threads/${chat.id}/messages`, { text: '@mcp-member hello', clientId: key() });
+  assert.equal(unconfigured.status, 409); assert.ok(unconfigured.body.error.message.includes('明确选择聊天助手'));
+  const configured = await f.api(`/contacts/${member.id}`, { version: member.version, chatBackend: { type: 'local', localAgentId: 'codex' }, clientId: key() });
+  assert.equal(configured.status, 200); assert.equal(configured.body.availability, 'ready');
   await f.api(`/threads/${chat.id}/messages`, { text: '@mcp-member hello', clientId: key() });
   const pending = await f.wait(chat.id, x => x.decisions.length === 1 || x.runs.at(-1)?.status === 'blocked');
   assert.equal(pending.runs.at(-1).status, 'needs_input', pending.runs.at(-1).error);
