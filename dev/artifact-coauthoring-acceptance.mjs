@@ -1,7 +1,7 @@
 // Native acceptance. Default uses two explicit synthetic CLIs; --real uses the configured Codex/Pi.
 import http from 'node:http';
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, writeFile, readFile, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, copyFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 const requireDesktop = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
@@ -10,7 +10,10 @@ const { expect } = requireDesktop('@playwright/test');
 const real = process.argv.includes('--real'), brokenPreview = process.argv.includes('--expect-preview-block');
 if (real && brokenPreview) throw new Error('The failure fixture is synthetic only');
 const root = resolve(process.env.AGENTROOM_EVIDENCE_DIR || 'output/artifact-coauthoring'); await mkdir(root, { recursive: true });
-const output = await mkdtemp(join(root, real ? 'real-' : 'synthetic-'));
+const resumeIndex = process.argv.indexOf('--resume-profile'), resume = resumeIndex >= 0 ? resolve(process.argv[resumeIndex + 1]) : null;
+if (resume && (!real || !resume.startsWith(root + '/'))) throw new Error('Resume requires a real profile within this evidence root');
+const output = resume || await mkdtemp(join(root, real ? 'real-' : 'synthetic-'));
+if (resume) { await copyFile(join(output, 'acceptance.json'), join(output, `acceptance.previous-${Date.now()}.json`)); await copyFile(join(output, 'failure.png'), join(output, `failure.previous-${Date.now()}.png`)).catch(() => {}); }
 const env = cleanDesktopTestEnv({ ...process.env, AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_CLAUDE_BIN: '/agentroom-missing-claude' });
 const checks = [], errors = []; let app, page, networkRequests = 0;
 const sentinel = http.createServer((_req, res) => { networkRequests++; res.end('unexpected network'); }); await new Promise(resolve => sentinel.listen(0, '127.0.0.1', resolve));
@@ -57,6 +60,17 @@ const request = async (path, body) => page.evaluate(async ({ path, body }) => {
   if (response.status >= 400) throw new Error(`HTTP ${response.status}: ${JSON.stringify(response.body)}`); return response.body;
 }, { path, body });
 const wait = async predicate => { let fatal; await expect.poll(async () => { try { return await predicate(); } catch (error) { fatal = error; return true; } }, { timeout: real ? 20 * 60000 : 30000, intervals: [100, 300, 1000] }).toBe(true); if (fatal) throw fatal; };
+const reviewDependencies = async (state, groupId) => {
+  if (state.proposals[0]?.state !== 'needs_input') return state;
+  const proposal = state.proposals[0];
+  if (!real || !proposal.error?.includes('循环依赖') || proposal.contributors.length !== 2) throw new Error(`Shared plan needs input: ${proposal.error}`);
+  await page.getByTestId('creation-adjust').click();
+  await page.getByTestId('creation-dependencies-agent_pi').selectOption([]);
+  await page.getByTestId('creation-dependencies-agent_codex').selectOption(['agent_pi']);
+  await page.getByTestId('creation-save').click();
+  await wait(async () => { state = await request(`/threads/${groupId}/creation`); return state.proposals[0]?.state === 'ready'; });
+  check('owner reviews and corrects the dependency graph to Pi then Codex'); return state;
+};
 try {
   app = await _electron.launch({ executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [resolve('apps/desktop')], env, timeout: 30000 });
   page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
@@ -75,23 +89,28 @@ try {
       await page.getByTestId('creation-reject').click(); await expect(page.getByTestId('creation-card')).toContainText('暂不制作');
       expect((await request('/library/artifacts')).artifacts).toHaveLength(0); check('native reject keeps discussion without creating content');
     }
-    const group = await request('/chats', { kind: 'group', title: real ? '真实 Codex + Pi 共创验收' : '共创验收 · 合成', memberIds: ['agent_codex', 'agent_pi'], clientId: crypto.randomUUID() });
+    const group = resume ? (await request('/bootstrap')).threads.find(thread => thread.kind === 'group' && thread.title.includes('真实 Codex')) : await request('/chats', { kind: 'group', title: real ? '真实 Codex + Pi 共创验收' : '共创验收 · 合成', memberIds: ['agent_codex', 'agent_pi'], clientId: crypto.randomUUID() });
     await page.goto(`${page.url().split(/[?#]/)[0]}?thread=${group.id}`);
     const send = async text => { await page.getByTestId('im-message-input').fill(text); await page.getByTestId('im-send').click(); };
-    await send('@all 我想做一个安静的阅读产品首页。请各自回应、提出创意，再用工具加入同一张共创方案卡。Pi 负责 decisions.md 说明设计选择，Codex 负责 index.html 并依赖 Pi。作品是无外部依赖的静态网页，包含 brief 和设计说明。先出方案，等我审核。');
-    let state;
-    await wait(async () => { state = await request(`/threads/${group.id}/creation`); const thread = await request(`/threads/${group.id}`); if (thread.runs.some(run => ['blocked', 'unknown', 'failed'].includes(run.status))) throw new Error(JSON.stringify(thread.runs.map(({ localAgentId, status, error }) => ({ localAgentId, status, error })))); if (state.proposals[0]?.state === 'needs_input' && thread.runs.every(run => ['completed', 'blocked', 'cancelled'].includes(run.status))) throw new Error(`Shared plan needs input: ${state.proposals[0].error}`); return state.proposals[0]?.state === 'ready'; });
-    expect(state.proposals).toHaveLength(1); expect(state.proposals[0].contributors).toHaveLength(2);
-    expect((await request('/library/artifacts')).artifacts).toHaveLength(0);
-    await expect(page.getByTestId('creation-card')).toHaveCount(1); if (!real) await expect(page.getByTestId('im-message')).toHaveCount(3); else expect((await request(`/threads/${group.id}`)).messages.filter(message => message.role === 'assistant').map(message => message.contactId).sort()).toEqual(['agent_codex', 'agent_pi']);
-    await page.screenshot({ path: join(output, 'review-card.png') }); check('two separate replies and one native proposal, no content before approval');
-    if (!real) {
-      await page.getByTestId('creation-adjust').click(); await page.getByTestId('creation-edit-goal').fill('共同制作一个安静的阅读产品首页，保留设计选择，并适配窄屏。'); await page.getByTestId('creation-save').click();
-      await expect(page.getByTestId('creation-card')).toContainText('并适配窄屏'); check('owner edits and reviews a new canonical proposal version');
-    }
-    await page.getByTestId('creation-approve').click();
-    let work;
-    await wait(async () => { state = await request(`/threads/${group.id}/creation`); work = state.collaborations[0]; if (brokenPreview && work?.status === 'blocked' && work.previewChecks) return true; if (['blocked', 'unknown', 'cancelled'].includes(work?.status)) throw new Error(JSON.stringify(work)); return work?.status === 'completed'; });
+    if (!resume) await send('@all 我想做一个安静的阅读产品首页。请各自回应、提出创意，再用工具加入同一张共创方案卡。Pi 负责 decisions.md 说明设计选择，Codex 负责 index.html 并依赖 Pi。作品是无外部依赖的静态网页，包含 brief 和设计说明。先出方案，等我审核。');
+    let state = await request(`/threads/${group.id}/creation`), work = state.collaborations[0];
+    if (!work || work.status !== 'completed') {
+      await wait(async () => { state = await request(`/threads/${group.id}/creation`); const thread = await request(`/threads/${group.id}`); if (thread.runs.some(run => ['blocked', 'unknown', 'failed'].includes(run.status))) throw new Error(JSON.stringify(thread.runs.map(({ localAgentId, status, error }) => ({ localAgentId, status, error })))); return ['ready', 'needs_input'].includes(state.proposals[0]?.state) && thread.runs.every(run => ['completed', 'blocked', 'cancelled'].includes(run.status)); });
+      state = await reviewDependencies(state, group.id);
+      expect(state.proposals).toHaveLength(1); expect(state.proposals[0].contributors).toHaveLength(2);
+      expect((await request('/library/artifacts')).artifacts).toHaveLength(0);
+      await expect(page.getByTestId('creation-card')).toHaveCount(1);
+      if (!real) await expect(page.getByTestId('im-message')).toHaveCount(3);
+      await page.screenshot({ path: join(output, 'review-card.png') });
+      if (!real) {
+        await page.getByTestId('creation-adjust').click(); await page.getByTestId('creation-edit-goal').fill('共同制作一个安静的阅读产品首页，保留设计选择，并适配窄屏。'); await page.getByTestId('creation-save').click();
+        await expect(page.getByTestId('creation-card')).toContainText('并适配窄屏'); check('owner edits and reviews a new canonical proposal version');
+      }
+      check('two separate replies and one native proposal, no content before approval');
+      await page.getByTestId('creation-approve').click();
+      await wait(async () => { state = await request(`/threads/${group.id}/creation`); work = state.collaborations[0]; if (brokenPreview && work?.status === 'blocked' && work.previewChecks) return true; if (['blocked', 'unknown', 'cancelled'].includes(work?.status)) throw new Error(JSON.stringify(work)); return work?.status === 'completed'; });
+    } else check('resumed the previously completed first real group without replaying models');
+    if (real) expect((await request(`/threads/${group.id}`)).messages.filter(message => message.role === 'assistant').map(message => message.contactId).sort()).toEqual(['agent_codex', 'agent_pi']);
     if (brokenPreview) { expect(work.previewChecks.passed).toBe(false); expect(work.previewChecks.errors.join(' ')).toContain('Fixture preview failure'); check('native runtime errors block final delivery despite saved revisions'); report.status = 'passed'; } else {
     const artifactId = work.artifactId, firstRevision = work.finalRevisionId;
     const detail = await request(`/library/artifacts/${artifactId}`);
@@ -105,18 +124,34 @@ try {
     const networkBlocked = await frame.locator('body').evaluate(async (_node, url) => { try { await fetch(url, { mode: 'no-cors' }); return false; } catch { return true; } }, `http://127.0.0.1:${sentinel.address().port}/preview-probe`); expect(networkBlocked).toBe(true); expect(networkRequests).toBe(0);
     if (!real) { await frame.getByTestId('reading-start').click(); await expect(frame.getByTestId('reading-start')).toContainText('已留好'); } else expect((await frame.locator('body').innerText()).length).toBeGreaterThan(60);
     await page.screenshot({ path: join(output, 'workspace.png') }); check('isolated native preview runs scripts without bridge or parent access');
-    const second = await request('/chats', { kind: 'group', title: '第二个群 · 接着做', memberIds: ['agent_codex', 'agent_pi'], clientId: crypto.randomUUID() });
-    await page.getByTestId('artifact-share').click(); await page.getByTestId('artifact-share-thread').selectOption(second.id); await page.getByTestId('artifact-share-confirm').click();
-    await expect(page.getByTestId('artifact-share-notice')).toContainText('已共享');
+    const existingSecond = resume && (await request('/bootstrap')).threads.find(thread => thread.kind === 'group' && thread.title === '第二个群 · 接着做');
+    const second = existingSecond || await request('/chats', { kind: 'group', title: '第二个群 · 接着做', memberIds: ['agent_codex', 'agent_pi'], clientId: crypto.randomUUID() });
+    if (!existingSecond) {
+      await page.getByTestId('artifact-share').click(); await page.getByTestId('artifact-share-thread').selectOption(second.id); await page.getByTestId('artifact-share-confirm').click();
+      await expect(page.getByTestId('artifact-share-notice')).toContainText('已共享');
+    }
     await page.goto(`${page.url().split(/[?#]/)[0]}?thread=${second.id}`);
-    await send('@all 接着已共享的同一件作品修改。请两位都回应并用工具加入新一轮方案；Pi 改进 decisions.md，Codex 依赖 Pi 修改 index.html，加上跨群继续创作的说明。保持同一 artifactId，先给我审核卡。');
-    await wait(async () => { state = await request(`/threads/${second.id}/creation`); return state.proposals[0]?.state === 'ready'; });
-    expect(state.proposals[0].artifactId).toBe(artifactId); await page.getByTestId('creation-approve').click();
-    await wait(async () => { state = await request(`/threads/${second.id}/creation`); work = state.collaborations[0]; if (['blocked', 'unknown'].includes(work?.status)) throw new Error(JSON.stringify(work)); return work?.status === 'completed'; });
+    if (!existingSecond) await send('@all 接着已共享的同一件作品修改。请两位都回应并用工具加入新一轮方案；Pi 改进 decisions.md，Codex 依赖 Pi 修改 index.html，加上跨群继续创作的说明。保持同一 artifactId，先给我审核卡。');
+    state = await request(`/threads/${second.id}/creation`); work = state.collaborations[0];
+    if (work?.status !== 'completed') {
+      await wait(async () => {
+        state = await request(`/threads/${second.id}/creation`); const thread = await request(`/threads/${second.id}`);
+        const bad = thread.runs.filter(run => ['blocked', 'unknown', 'failed'].includes(run.status));
+        // A valid native tool proposal is independent of the final conversational envelope.
+        if (bad.length && !(resume && state.proposals[0]?.contributors.length === 2 && bad.every(run => run.error?.includes('群聊参与决定')))) throw new Error(JSON.stringify(bad.map(({ localAgentId, status, error }) => ({ localAgentId, status, error }))));
+        if (bad.length) report.secondGroupRejectedReplies = bad.map(({ localAgentId, error }) => ({ localAgentId, error }));
+        return ['ready', 'needs_input'].includes(state.proposals[0]?.state) && thread.runs.every(run => ['completed', 'blocked', 'cancelled'].includes(run.status));
+      });
+      state = await reviewDependencies(state, second.id);
+      expect(state.proposals[0].artifactId).toBe(artifactId); expect(state.proposals[0].contributors).toHaveLength(2); await page.getByTestId('creation-approve').click();
+      await wait(async () => { state = await request(`/threads/${second.id}/creation`); work = state.collaborations[0]; if (['blocked', 'unknown'].includes(work?.status)) { const detail = await request(`/collaborations/${work.id}`); throw new Error(JSON.stringify(detail)); } return work?.status === 'completed'; });
+    }
     expect(work.artifactId).toBe(artifactId); expect(work.finalRevisionId).not.toBe(firstRevision);
     check('second group creates a new version of the same persistent artifact');
-    await page.getByTestId('artifact-open').click(); await page.getByTestId('artifact-tab-history').click();
-    await expect(page.getByTestId('artifact-revision')).toHaveCount(5);
+    await page.goto(`${page.url().split(/[?#]/)[0]}?thread=${group.id}`); await page.getByTestId('artifact-open').click();
+    await expect(page.getByTestId('artifact-revision-select')).toHaveValue(firstRevision); expect(new URL(page.url()).searchParams.get('revision')).toBe(firstRevision); check('first group result card stays pinned after a later cross-group revision');
+    await page.goto(`${page.url().split(/[?#]/)[0]}?thread=${second.id}`); await page.getByTestId('artifact-open').click(); await page.getByTestId('artifact-tab-history').click();
+    expect(await page.getByTestId('artifact-revision').count()).toBeGreaterThanOrEqual(5);
     await page.reload(); await page.getByTestId('im-nav-library').click(); await page.getByTestId(`library-artifact-${artifactId}`).click();
     await expect(page.getByTestId('artifact-workspace')).toBeVisible(); check('library reopens the artifact independently of either conversation');
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 640, height: 780 })); await page.screenshot({ path: join(output, 'narrow-workspace.png') });

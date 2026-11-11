@@ -11,12 +11,13 @@ test('saved website bytes wait for a trusted native preview verdict before deliv
   t.after(async () => { await service.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
   store.put('contact', { id: 'agent_codex', binding: { type: 'local', localAgentId: 'codex' } });
   store.put('thread', { id: 'thread', memberIds: ['self', 'agent_codex'], runs: [], messages: [], events: [] });
-  store.put('capability_grant', { id: 'grant', threadId: 'thread', state: 'active', expiresAt: Date.now() + 10000, revokedContacts: [], participants: [{ contactId: 'agent_codex', localAgentId: 'codex' }] });
+  store.put('capability_grant', { id: 'grant', threadId: 'thread', state: 'active', expiresAt: Date.now() + 30 * 60000, revokedContacts: [], participants: [{ contactId: 'agent_codex', localAgentId: 'codex' }] });
   // The fixture has genuinely persisted bytes/checks, then the same finalizer as real steps.
   const artifact = service.artifacts.create({ title: 'Preview', kind: 'website' }, { grantId: 'grant', contactId: 'agent_codex' });
   const owner = { owner: true, contactId: 'self', runId: 'seed' }, stage = service.artifacts.stage(artifact.id, 'seed', null, owner);
   service.artifacts.write(stage.id, { path: 'index.html', text: '<!doctype html><h1>Preview</h1>', expectedHash: null }, owner);
   const result = service.artifacts.integrate(service.artifacts.submit(stage.id, owner).id, owner);
+  const grant = store.require('capability_grant', 'grant'); Object.assign(grant, { artifactId: artifact.id, baseRevisionId: result.revision.id, producedRevisionIds: [result.revision.id], readPaths: ['**'], extraReads: [] }); store.put('capability_grant', grant);
   store.put('collaboration', { id: 'work', threadId: 'thread', artifactId: artifact.id, grantId: 'grant', audienceIds: ['self', 'agent_codex'], participants: [{ contactId: 'agent_codex' }], status: 'running', steps: [{ id: 'step', status: 'completed' }] });
   service.runtime.enqueueNext('work');
   assert.equal(store.require('collaboration', 'work').status, 'waiting_preview');

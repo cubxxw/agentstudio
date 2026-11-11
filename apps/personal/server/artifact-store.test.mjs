@@ -227,3 +227,35 @@ test('a human edit during materialization preparation keeps current in place and
   assert.equal(result.artifact.materializationState, 'blocked_by_local_changes');
   assert.equal(readFileSync(current, 'utf8'), 'Concurrent human edit');
 });
+
+test('a merged file-directory collision fails before advancing head or marking a contribution integrated', t => {
+  const f = fixture(t), base = seed(f, { 'brief.md': 'Stable' }, 'document');
+  const a = f.artifacts.stage(base.artifact.id, 'file-assets', base.revision.id, actor), b = f.artifacts.stage(base.artifact.id, 'dir-assets', base.revision.id, actor);
+  f.artifacts.write(a.id, { path: 'assets', text: 'A file', expectedHash: null }, actor);
+  f.artifacts.write(b.id, { path: 'assets/note.md', text: 'A nested file', expectedHash: null }, actor);
+  const ca = f.artifacts.submit(a.id, actor), cb = f.artifacts.submit(b.id, actor), first = f.artifacts.integrate(ca.id, actor);
+  assert.throws(() => f.artifacts.integrate(cb.id, actor), code('checks_failed'));
+  assert.equal(f.store.require('workspace_artifact', base.artifact.id).headRevisionId, first.revision.id);
+  assert.equal(f.store.require('artifact_contribution', cb.id).state, 'submitted');
+});
+
+test('same-volume case aliases cannot enter a committed manifest', { skip: process.platform !== 'darwin' }, t => {
+  const f = fixture(t), base = seed(f, { 'brief.md': 'Stable' }, 'document');
+  const a = f.artifacts.stage(base.artifact.id, 'case-upper', base.revision.id, actor), b = f.artifacts.stage(base.artifact.id, 'case-lower', base.revision.id, actor);
+  f.artifacts.write(a.id, { path: 'Assets', text: 'File', expectedHash: null }, actor);
+  f.artifacts.write(b.id, { path: 'assets/note.md', text: 'Nested', expectedHash: null }, actor);
+  const cb = f.artifacts.submit(b.id, actor), first = f.artifacts.integrate(f.artifacts.submit(a.id, actor).id, actor);
+  assert.throws(() => f.artifacts.integrate(cb.id, actor), code('checks_failed'));
+  assert.equal(f.store.require('workspace_artifact', base.artifact.id).headRevisionId, first.revision.id);
+});
+
+test('binary Finder files block normal replacement but survive explicit preserve-and-update', t => {
+  const f = fixture(t), base = seed(f, { 'brief.md': 'Stable' }, 'document');
+  const local = join(f.directory, 'artifacts', base.artifact.id, 'current', '.DS_Store'), bytes = Buffer.from([0, 255, 254, 42]); writeFileSync(local, bytes);
+  const stage = f.artifacts.stage(base.artifact.id, 'with-finder-metadata', base.revision.id, actor);
+  f.artifacts.write(stage.id, { path: 'new.md', text: 'New', expectedHash: null }, actor);
+  const saved = f.artifacts.integrate(f.artifacts.submit(stage.id, actor).id, actor);
+  assert.equal(saved.artifact.materializationState, 'blocked_by_local_changes');
+  const adopted = f.artifacts.resolveLocal(base.artifact.id, 'preserve-and-update', actor);
+  assert.equal(adopted.materializationState, 'clean'); assert.deepEqual(readFileSync(join(adopted.backupPath, '.DS_Store')), bytes);
+});

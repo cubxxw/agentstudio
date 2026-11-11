@@ -84,3 +84,14 @@ test('stdio MCP proxy negotiates, lists only session tools and returns structure
   assert.ok(!stderr.includes(f.session.token));
   child.stdin.end();
 });
+
+test('full read content is released after each response while simultaneous callers still coalesce', async t => {
+  const broker = new ToolSessions(); await broker.listen(); t.after(() => broker.close()); let calls = 0, release, bothArrived, validations = 0;
+  const arrived = new Promise(resolve => { bothArrived = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const session = broker.open({}, tools, async () => { calls++; await gate; return { text: 'Large immutable content'.repeat(10000) }; }, { retainResult: () => false, validate: () => { if (++validations === 2) bothArrived(); } });
+  const call = () => fetch(session.endpoint, { method: 'POST', headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'artifact_probe', arguments: {}, callId: 'read-snapshot' }) }).then(res => res.json());
+  const a = call(), b = call(); await arrived; release(); await Promise.all([a, b]);
+  assert.equal(calls, 1); const entry = [...broker.sessions.values()][0]; assert.equal(entry.calls.get('read-snapshot').result, null);
+  await call(); assert.equal(calls, 2, 'durable kernel, not a retained content promise, handles a later replay');
+});

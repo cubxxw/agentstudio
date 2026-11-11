@@ -61,6 +61,7 @@ function Messenger() {
     return service ? { ...contact, avatarService: service } : contact;
   }), [contactRecords, serviceAvatars]);
   const [library, setLibrary] = useState<WorkspaceArtifact[]>([]);
+  const [artifactRevision, setArtifactRevision] = useState<string | null>(() => new URL(location.href).searchParams.get("revision"));
   const [artifactId, setArtifactId] = useState<string | null>(() => new URL(location.href).searchParams.get("artifact"));
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<string | null>(selectedId);
@@ -149,13 +150,13 @@ function Messenger() {
     setFilter("all"); setSearch("");
     setThread(read(`thread.${id}`, null)); setDraftState(savedDraft(id));
     draftRef.current = savedDraft(id); setError(""); setReading(null); setDetails(false); setMessageLimit(80); nearBottom.current = true; setNewMessages(false);
-    if (push) { const url = new URL(location.href); url.hash = ""; url.searchParams.delete("workspace"); url.searchParams.delete("artifact"); url.searchParams.set("thread", id); history.pushState(null, "", url); }
+    if (push) { const url = new URL(location.href); url.hash = ""; url.searchParams.delete("workspace"); url.searchParams.delete("artifact"); url.searchParams.delete("revision"); url.searchParams.set("thread", id); history.pushState(null, "", url); }
     if (id !== "new") void loadThread(id).catch(e => { if (currentId.current === id) setError(errorText(e)); });
   }, [loadThread]);
 
-  const openArtifact = (id: string) => {
-    setArtifactId(id); setScreen("library"); setMobileDetail(true); setError("");
-    const url = new URL(location.href); url.hash = ""; url.searchParams.delete("thread"); url.searchParams.set("artifact", id); history.pushState(null, "", url);
+  const openArtifact = (id: string, revisionId?: string) => {
+    setArtifactRevision(revisionId || null); setArtifactId(id); setScreen("library"); setMobileDetail(true); setError("");
+    const url = new URL(location.href); url.hash = ""; url.searchParams.delete("thread"); url.searchParams.set("artifact", id); if (revisionId) url.searchParams.set("revision", revisionId); else url.searchParams.delete("revision"); history.pushState(null, "", url);
   };
 
   useEffect(() => {
@@ -174,7 +175,7 @@ function Messenger() {
     return () => { mounted.current = false; clearTimeout(timer); clearTimeout(fullTimer); clearInterval(interval); events?.close(); unsubscribe?.(); document.removeEventListener("visibilitychange", visible); window.removeEventListener("online", invalidate); window.removeEventListener("offline", offline); };
   }, [desktop, refreshSafely, loadThread]);
   useEffect(() => {
-    const navigate = () => { const artifact = new URL(location.href).searchParams.get("artifact"); if (artifact) { setArtifactId(artifact); setScreen("library"); setMobileDetail(true); return; } const id = selectedId(); if (id) openThread(id, false); else { viewEpoch.current += 1; currentId.current = null; setSelected(null); setThread(null); setMobileDetail(false); } };
+    const navigate = () => { const artifact = new URL(location.href).searchParams.get("artifact"); if (artifact) { setArtifactRevision(new URL(location.href).searchParams.get("revision")); setArtifactId(artifact); setScreen("library"); setMobileDetail(true); return; } const id = selectedId(); if (id) openThread(id, false); else { viewEpoch.current += 1; currentId.current = null; setSelected(null); setThread(null); setMobileDetail(false); } };
     window.addEventListener("popstate", navigate); return () => window.removeEventListener("popstate", navigate);
   }, [openThread]);
   useEffect(() => {
@@ -314,7 +315,7 @@ function Messenger() {
     <main className="im-main" id="im-main" data-testid="im-main">
       {(!connected && !loading) && <div className="im-connection-warning" role="status"><WifiOff size={16} />连接中断，草稿和已加载的消息仍保留。<button disabled={busy === "reconnect"} onClick={() => void reconnect()}>{busy === "reconnect" ? "正在恢复…" : "重新连接"}</button></div>}
       {error && <div className="im-error-banner" role="alert">{error}<IconButton label="关闭提示" onClick={() => setError("")}><X size={16} /></IconButton></div>}
-      {screen === "library" && artifactId ? <ArtifactWorkspace key={artifactId} artifactId={artifactId} contacts={contacts} threads={data?.threads || []} toolbar={focusControl} onBack={() => setMobileDetail(false)} onOpenThread={openThread} onChanged={refresh} /> : screen === "contacts" && contact ? <>
+      {screen === "library" && artifactId ? <ArtifactWorkspace key={`${artifactId}:${artifactRevision || "head"}`} artifactId={artifactId} initialRevisionId={artifactRevision || undefined} contacts={contacts} threads={data?.threads || []} toolbar={focusControl} onBack={() => setMobileDetail(false)} onOpenThread={openThread} onChanged={refresh} /> : screen === "contacts" && contact ? <>
         <header className="im-header"><IconButton label="返回联系人" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<strong>联系人信息</strong></header>
         <div className="im-contact-detail" data-testid="im-contact-detail"><Avatar contact={contact} size="hero" /><h2>{contact.name}</h2><span className="im-handle">@{contact.handle}</span><p>{contact.description || (contact.kind === "agent" ? "你的 Agent 伙伴" : "保存在这台 Mac 的联系人")}</p><div className="im-contact-status"><span className={contact.availability === "ready" ? "im-online-dot" : "im-offline-dot"} />{availabilityText[contact.availability]}</div>
           <div className="im-profile-actions"><button className="im-primary" onClick={() => void startChat(contact)} disabled={busy === contact.id} data-testid="im-start-chat"><MessageCircle size={18} />{contact.kind === "human" ? "打开本地对话" : "发送消息"}</button><button className="im-secondary" onClick={() => setContactEditor(contact)} data-testid="im-edit-contact">编辑身份</button>{contact.kind === "agent" && <button className="im-text-button" onClick={() => setProfileId(contact.id)} data-testid="im-agent-profile-open">目标与运行安排<ChevronRight size={15} /></button>}</div>

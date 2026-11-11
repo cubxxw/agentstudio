@@ -74,3 +74,38 @@ test('owner file edits and acceptance are durable through their real fixed API r
   const accepted = await f.api(`/library/artifacts/${artifact.id}/change`, { action: 'accept', expectedVersion: edited.body.version, revisionId: edited.body.headRevisionId, clientId: 'accept-human-file-edit' });
   assert.equal(accepted.body.acceptedRevisionId, edited.body.headRevisionId);
 });
+
+test('opening an artifact detects fresh Finder edits before another model submission', async t => {
+  const f = await fixture(t), proposal = f.app.store.list('creation_proposal')[0];
+  await f.api(`/creation-proposals/${proposal.id}/decision`, { choice: 'approve', version: proposal.version, clientId: 'finder-edit-detection' });
+  await f.wait(() => f.app.store.list('collaboration')[0]?.status === 'waiting_preview');
+  const work = f.app.store.list('collaboration')[0]; f.app.creation.runtime.recordPreviewCheck(work.id, work.finalRevisionId, { passed: true, errors: [], viewports: [] });
+  const { writeFileSync } = await import('node:fs'); writeFileSync(join(f.app.store.dataDir, 'artifacts', work.artifactId, 'current', 'human.md'), 'A fresh human note');
+  const detail = await f.api(`/library/artifacts/${work.artifactId}`); assert.equal(detail.body.artifact.materializationState, 'blocked_by_local_changes');
+});
+
+test('a lost owner edit acknowledgement is recovered from its committed contribution', async t => {
+  const f = await fixture(t), proposal = f.app.store.list('creation_proposal')[0];
+  await f.api(`/creation-proposals/${proposal.id}/decision`, { choice: 'approve', version: proposal.version, clientId: 'recover-owner-ack-seed' });
+  await f.wait(() => f.app.store.list('collaboration')[0]?.status === 'waiting_preview');
+  const work = f.app.store.list('collaboration')[0]; f.app.creation.runtime.recordPreviewCheck(work.id, work.finalRevisionId, { passed: true, errors: [], viewports: [] });
+  const artifact = f.app.store.require('workspace_artifact', work.artifactId), file = (await f.api(`/library/artifacts/${artifact.id}/files`, { revisionId: artifact.headRevisionId, path: 'index.html' })).body.files[0];
+  const body = { action: 'edit', path: 'index.html', text: '<h1>Recovered owner edit</h1>', expectedHash: file.sha256, expectedVersion: artifact.version, clientId: 'lost-owner-acknowledgement' };
+  const saved = await f.api(`/library/artifacts/${artifact.id}/change`, body); assert.equal(saved.status, 200);
+  const operation = f.app.store.list('artifact_owner_operation')[0]; delete operation.result; operation.state = 'pending'; f.app.store.put('artifact_owner_operation', operation);
+  const { ArtifactAPI } = await import('./artifact-api.mjs'); const reopened = new ArtifactAPI(f.app.creation, () => {}); reopened.close();
+  const replay = await f.api(`/library/artifacts/${artifact.id}/change`, body); assert.equal(replay.status, 200); assert.equal(replay.body.headRevisionId, saved.body.headRevisionId);
+});
+
+test('owner-only details retain private work records while group cards expose only fixed status', async t => {
+  const f = await fixture(t), proposal = f.app.store.list('creation_proposal')[0];
+  await f.api(`/creation-proposals/${proposal.id}/decision`, { choice: 'approve', version: proposal.version, clientId: 'owner-private-details' });
+  await f.wait(() => f.app.store.list('collaboration')[0]?.status === 'waiting_preview');
+  const work = f.app.store.list('collaboration')[0]; work.messages.push({ text: 'PRIVATE_DETAIL_TEXT' }); work.steps[0].summary = 'PRIVATE_STEP_SUMMARY'; f.app.store.put('collaboration', work);
+  const publicState = await f.api(`/threads/${f.chat.id}/creation`), owner = await f.api(`/collaborations/${work.id}`);
+  assert.ok(!JSON.stringify(publicState.body).includes('PRIVATE_')); assert.match(JSON.stringify(owner.body), /PRIVATE_DETAIL_TEXT/); assert.equal(owner.body.runs.length, 1);
+  const operation = { id: 'owner_unknown_receipt', artifactId: work.artifactId, action: 'edit', state: 'unknown' }; f.app.store.put('artifact_owner_operation', operation);
+  const artifact = f.app.store.require('workspace_artifact', work.artifactId);
+  const missingReview = await f.api(`/library/artifacts/${artifact.id}/change`, { action: 'reconcile-owner', operationId: operation.id, expectedVersion: artifact.version, clientId: 'missing-owner-review' }); assert.equal(missingReview.status, 409);
+  const resolved = await f.api(`/library/artifacts/${artifact.id}/change`, { action: 'reconcile-owner', operationId: operation.id, expectedVersion: artifact.version, confirmedReviewed: true, clientId: 'reviewed-owner-abandon' }); assert.equal(resolved.status, 200); assert.equal(f.app.store.require('artifact_owner_operation', operation.id).state, 'abandoned');
+});

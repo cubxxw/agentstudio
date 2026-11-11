@@ -35,6 +35,13 @@ export class PersonalStore {
       this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS documents(kind TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(kind,id));
       CREATE TABLE IF NOT EXISTS idempotency(route TEXT NOT NULL, key TEXT NOT NULL, fingerprint TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(route,key));`);
+      if (!this.db.prepare('PRAGMA table_info(documents)').all().some(column => column.name === 'thread_id')) {
+        this.db.exec("ALTER TABLE documents ADD COLUMN thread_id TEXT; UPDATE documents SET thread_id=json_extract(body,'$.threadId') WHERE kind IN ('artifact_tool_operation','artifact_tool_receipt');");
+        this.db.exec(`INSERT OR IGNORE INTO documents(kind,id,body,thread_id)
+          SELECT 'artifact_tool_receipt',id,json_object('id',id,'threadId',thread_id,'contactId',json_extract(body,'$.contactId'),'name',json_extract(body,'$.name'),'state',json_extract(body,'$.state'),'ok',json_extract(body,'$.ok'),'createdAt',json_extract(body,'$.createdAt')),thread_id
+          FROM documents WHERE kind='artifact_tool_operation' AND thread_id IS NOT NULL;`);
+      }
+      this.db.exec('CREATE INDEX IF NOT EXISTS documents_thread ON documents(kind,thread_id);');
       this.secureFiles();
       this.vault = new CredentialVault(dataDir);
     } catch (error) {
@@ -65,10 +72,17 @@ export class PersonalStore {
     return this.db.prepare('SELECT body FROM documents WHERE kind=? ORDER BY rowid DESC').all(kind).map((row) => JSON.parse(row.body));
   }
 
+  listForThread(kind, threadId, limit = 100) {
+    return this.db.prepare('SELECT body FROM documents WHERE kind=? AND thread_id=? ORDER BY rowid DESC LIMIT ?').all(kind, threadId, Math.min(Math.max(limit, 1), 200)).map(row => JSON.parse(row.body));
+  }
+  assertExecutorReady(agentId) {
+    if (this.list('thread').some(thread => thread.runs.some(run => run.stopUnconfirmed && (run.localAgentId || 'codex') === agentId))) throw new APIError(409, 'local_agent_stop_unconfirmed', '这个本机助手的停止状态尚未确认，请先核查原任务；没有再次启动执行');
+  }
+
   put(kind, value) {
     value = this.vault ? this.vault.redact(value) : value;
-    this.db.prepare('INSERT INTO documents(kind,id,body) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body')
-      .run(kind, value.id, JSON.stringify(value));
+    this.db.prepare('INSERT INTO documents(kind,id,body,thread_id) VALUES(?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body,thread_id=excluded.thread_id')
+      .run(kind, value.id, JSON.stringify(value), value.threadId || null);
     this.secureFiles();
     return value;
   }

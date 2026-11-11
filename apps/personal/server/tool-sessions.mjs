@@ -16,11 +16,11 @@ export class ToolSessions {
     if (this.server.listening) return;
     await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve); });
   }
-  open(context, tools, handler, { validate = () => {} } = {}) {
+  open(context, tools, handler, { validate = () => {}, retainResult = () => true } = {}) {
     if (!this.server.listening) throw new Error('Tool broker is not listening');
     const key = randomBytes(24).toString('hex'), token = randomBytes(32).toString('base64url');
     const controller = new AbortController();
-    const entry = { context: Object.freeze(structuredClone(context)), tools: structuredClone(tools), handler, validate, controller,
+    const entry = { context: Object.freeze(structuredClone(context)), tools: structuredClone(tools), handler, validate, retainResult, controller,
       tokenHash: fingerprint(token), expires: Date.now() + 30 * 60000, calls: new Map() };
     this.sessions.set(key, entry);
     return { endpoint: `http://127.0.0.1:${this.server.address().port}/s/${key}`, token, toolNames: tools.map(tool => tool.name),
@@ -46,16 +46,15 @@ export class ToolSessions {
       const hash = fingerprint(JSON.stringify({ name: input.name, arguments: input.arguments })).toString('hex');
       const previous = entry.calls.get(input.callId);
       if (previous && previous.hash !== hash) fail(409, 'idempotency_conflict', '同一工具调用标识的参数发生变化');
-      if (!previous) {
-        if (entry.calls.size >= 200) fail(429, 'budget_exceeded', '工具调用预算已用完');
-        const result = Promise.resolve().then(() => {
+      if (!previous && entry.calls.size >= 200) fail(429, 'budget_exceeded', '工具调用预算已用完');
+      const record = previous || { hash, result: null }; if (!previous) entry.calls.set(input.callId, record);
+      if (!record.result) {
+        record.result = Promise.resolve().then(() => {
           if (entry.controller.signal.aborted) fail(401, 'invalid_session', '本次工具会话已经失效');
           return entry.handler({ ...entry.context, signal: entry.controller.signal }, input.name, input.arguments, input.callId);
-        });
-        // Retain failures too: an uncertain operation must never be replayed implicitly.
-        entry.calls.set(input.callId, { hash, result });
+        }).then(result => { if (!entry.retainResult(input.name)) record.result = null; return result; });
       }
-      const result = await entry.calls.get(input.callId).result;
+      const result = await record.result;
       entry.validate(entry.context, input.name, input.arguments, input.callId);
       send(200, { result });
     } catch (error) { send(error.status || 500, { error: { code: error.code || 'tool_failed', message: error.status ? error.message : '工具执行未完成，请查看运行记录' } }); }

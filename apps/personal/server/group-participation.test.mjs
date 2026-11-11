@@ -140,3 +140,12 @@ test('autonomous delivery preserves post-join history boundaries and skips unava
   assert.equal(rejected.status, 409);
   assert.equal(f.app.store.get('thread', chat.id).messages.filter(m => m.role === 'user').length, 2);
 });
+
+test('always-policy group output remains unpublished while the model is still producing text', async t => {
+  let entered, release; const ready = new Promise(resolve => { entered = resolve; }), gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, async (_context, input) => { input.onEvent({ type: 'progress', phase: 'writing', text: 'PRIVATE_STREAM_BEFORE_FINAL_CHECK' }); entered(); await gate; return 'A completed ordinary reply'; });
+  const chat = await group(f, ['agent_codex']); await f.api(`/chats/${chat.id}`, { version: chat.version, responsePolicies: { agent_codex: 'always' }, clientId: key() });
+  await send(f, chat, 'Please respond'); await ready;
+  const during = f.app.store.require('thread', chat.id).runs[0].progress?.text || ''; release(); await f.wait(chat.id, thread => thread.runs[0]?.status === 'completed');
+  assert.equal(during, '');
+});

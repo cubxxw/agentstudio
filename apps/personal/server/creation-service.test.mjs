@@ -35,9 +35,9 @@ function fixture(t) {
     service.seal(group.id, thread.messages[0].id);
     return store.require('creation_proposal', a.proposalId);
   };
-  const begin = workId => {
+  const begin = (workId, threadId = group.id) => {
     service.runtime.enqueueNext(workId);
-    const thread = store.require('thread', group.id), run = thread.runs.find(item => item.collaboration?.workId === workId && item.status === 'queued');
+    const thread = store.require('thread', threadId), run = thread.runs.find(item => item.collaboration?.workId === workId && item.status === 'queued');
     if (!run) return null;
     store.updateThread(thread.id, item => { item.runs.find(r => r.id === run.id).status = 'running'; });
     service.runtime.prepare(thread.id, run.id);
@@ -261,4 +261,191 @@ test('an agent joins an existing website plan without reclassifying its Markdown
   const f = fixture(t), first = f.call(f.context('agent_codex'), 'creation_propose', { title: 'Website', kind: 'website', goal: 'A website with design notes', task: 'Build index.html', writePaths: ['index.html'] });
   const joined = f.call(f.context('agent_pi'), 'creation_update', { proposalId: first.proposalId, version: first.version, task: 'Write decisions.md for the same website', writePaths: ['decisions.md'] });
   assert.equal(joined.contributors.length, 2); assert.equal(f.store.require('creation_proposal', first.proposalId).kind, 'website');
+});
+
+function completedFixtureArtifact(f) {
+  const proposal = f.prepare(), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: `seed-${proposal.id}` });
+  f.contribute(f.begin(collaboration.id), 'design.md', 'PRIVATE_SOURCE_VALUE');
+  f.contribute(f.begin(collaboration.id), 'implementation.md', 'Implementation');
+  return f.store.require('workspace_artifact', f.store.require('collaboration', collaboration.id).artifactId);
+}
+function proposedWork(f, threadId, artifactId = null, kind = 'document') {
+  if (!f.store.require('thread', threadId).messages.length) f.send(threadId);
+  const ctx = f.context('agent_codex', threadId), first = f.call(ctx, 'creation_propose', { title: 'Shared work', kind, goal: 'Do the approved work', task: 'Codex contribution', writePaths: ['**'], ...(artifactId ? { artifactId } : {}) });
+  f.call(f.context('agent_pi', threadId), 'creation_update', { proposalId: first.proposalId, version: first.version, task: 'Pi contribution', writePaths: ['**'] });
+  f.store.updateThread(threadId, thread => { for (const run of thread.runs.filter(run => run.messageId === ctx.messageId && !run.collaboration)) run.status = 'completed'; });
+  const proposal = f.service.seal(threadId, ctx.messageId);
+  return f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: `approve-${proposal.id}` }).collaboration;
+}
+
+test('an intervening private head is never promoted to a pinned group before a queued step starts', t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f), second = f.messenger.createChat({ kind: 'group', title: 'Pinned group', memberIds: ['agent_codex', 'agent_pi'] });
+  f.service.share(artifact.id, { threadId: second.id, revisionId: artifact.headRevisionId });
+  const work = proposedWork(f, second.id, artifact.id), owner = { owner: true, contactId: 'self', runId: 'private-head-edit' }, stage = f.service.artifacts.stage(artifact.id, 'private-intervening', artifact.headRevisionId, owner);
+  f.service.artifacts.write(stage.id, { path: 'private-future.md', text: 'PRIVATE_FUTURE', expectedHash: null }, owner);
+  f.service.artifacts.integrate(f.service.artifacts.submit(stage.id, owner).id, owner);
+  assert.throws(() => f.begin(work.id, second.id));
+  assert.equal(f.store.list('artifact_link').find(link => link.threadId === second.id).revisionId, artifact.headRevisionId);
+});
+
+test('remaining contributors cannot restore a removed member in a later link update', t => {
+  const f = fixture(t), proposal = f.prepare(), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'permanent-audience-reduction' });
+  f.contribute(f.begin(collaboration.id), 'design.md', 'Design');
+  let thread = f.store.require('thread', f.group.id); f.messenger.updateChat(thread.id, { version: thread.version, memberIds: ['agent_codex'] }); f.service.reconcileMembership(thread.id);
+  f.contribute(f.begin(collaboration.id), 'implementation.md', 'Implementation');
+  thread = f.store.require('thread', f.group.id); f.messenger.updateChat(thread.id, { version: thread.version, memberIds: ['agent_codex', 'agent_pi'] }); f.service.reconcileMembership(thread.id);
+  f.send(); assert.equal(f.call(f.context('agent_codex'), 'artifact_list').artifacts.length, 0);
+});
+
+test('withdrawal revokes an active work and cached artifact metadata immediately', t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f), second = f.messenger.createChat({ kind: 'group', title: 'Withdraw work', memberIds: ['agent_codex', 'agent_pi'] });
+  const link = f.service.share(artifact.id, { threadId: second.id, revisionId: artifact.headRevisionId });
+  const work = proposedWork(f, second.id, artifact.id), ctx = f.begin(work.id, second.id);
+  f.service.call(ctx, 'artifact_list', {}, 'metadata-receipt-before-revoke');
+  f.service.share(artifact.id, { threadId: second.id, revoke: true, expectedVersion: link.version });
+  assert.throws(() => f.service.call(ctx, 'artifact_list', {}, 'metadata-receipt-before-revoke'), error => ['grant_revoked', 'permission_required'].includes(error.code));
+  assert.throws(() => f.call(ctx, 'artifact_write', { path: 'late.md', text: 'Late', expectedHash: null }), errorCode('grant_revoked'));
+});
+
+test('follow sharing begins at its committed starting revision and excludes old revisions and candidates', t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f), old = f.store.list('artifact_revision').find(rev => rev.artifactId === artifact.id && rev.state === 'committed' && rev.id !== artifact.headRevisionId), second = f.messenger.createChat({ kind: 'group', title: 'Follow forward', memberIds: ['agent_codex', 'agent_pi'] });
+  f.service.share(artifact.id, { threadId: second.id, revisionId: artifact.headRevisionId, follow: true }); f.send(second.id); const ctx = f.context('agent_codex', second.id);
+  assert.throws(() => f.call(ctx, 'artifact_read', { artifactId: artifact.id, revisionId: old.id }), errorCode('permission_required'));
+  const owner = { owner: true, contactId: 'self', runId: 'private-candidate' }, stage = f.service.artifacts.stage(artifact.id, 'private-candidate', artifact.headRevisionId, owner);
+  f.service.artifacts.write(stage.id, { path: 'private.md', text: 'NOT_COMMITTED', expectedHash: null }, owner);
+  const candidate = f.service.artifacts.candidate(f.service.artifacts.submit(stage.id, owner).id, owner);
+  assert.throws(() => f.call(ctx, 'artifact_read', { artifactId: artifact.id, revisionId: candidate.id }), errorCode('permission_required'));
+});
+
+test('private work sources and free-form work notes never become group-readable cards or links', t => {
+  const f = fixture(t), source = completedFixtureArtifact(f), watcher = f.messenger.saveContact({ kind: 'agent', name: 'Observer', handle: 'observer', binding: { type: 'local', localAgentId: 'codex' } });
+  const second = f.messenger.createChat({ kind: 'group', title: 'Wider group', memberIds: ['agent_codex', 'agent_pi', watcher.id] }), work = proposedWork(f, second.id), ctx = f.begin(work.id, second.id);
+  const request = f.call(ctx, 'permission_request', { capability: 'artifact_read', artifactId: source.id, revisionId: source.headRevisionId, paths: ['design.md'], reason: 'PRIVATE_WORK_REASON' });
+  f.service.decidePermission(request.requestId, { version: 1, choice: 'approve', clientId: 'grant-private-work-source' });
+  assert.equal(f.call(ctx, 'artifact_read', { artifactId: source.id, revisionId: source.headRevisionId, paths: ['design.md'] }).files[0].text, 'PRIVATE_SOURCE_VALUE');
+  f.call(ctx, 'collaboration_message', { contactId: 'agent_pi', text: 'PRIVATE_WORK_HANDOFF' });
+  f.call(ctx, 'task_delegate', { contactId: 'agent_pi', task: 'PRIVATE_DELEGATED_TASK', writePaths: ['**'] });
+  const publicView = JSON.stringify(f.service.forThread(second.id)); assert.ok(!/PRIVATE_WORK_REASON|PRIVATE_WORK_HANDOFF|PRIVATE_DELEGATED_TASK/.test(publicView));
+  f.send(second.id); const observer = f.context(watcher.id, second.id);
+  assert.throws(() => f.call(observer, 'artifact_read', { artifactId: source.id, revisionId: source.headRevisionId, paths: ['design.md'] }), errorCode('permission_required'));
+});
+
+test('revoked read data cannot be written into a new public proposal after final-read publication protection', t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f); f.send(); const ctx = f.context('agent_codex');
+  f.call(ctx, 'artifact_read', { artifactId: artifact.id, revisionId: artifact.headRevisionId, paths: ['design.md'] });
+  const link = f.store.list('artifact_link').find(link => link.threadId === f.group.id && link.artifactId === artifact.id);
+  f.service.share(artifact.id, { threadId: f.group.id, revoke: true, expectedVersion: link.version });
+  assert.throws(() => f.call(ctx, 'creation_propose', { title: 'Private title', kind: 'document', goal: 'PRIVATE_SOURCE_VALUE', task: 'Publish read bytes', writePaths: ['**'] }), errorCode('permission_required'));
+});
+
+test('queued approved DAGs recover after the decision commits before initial dispatch', t => {
+  const f = fixture(t), proposal = f.prepare(), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'recover-undispatched-plan' });
+  f.store.updateThread(f.group.id, thread => { thread.runs = thread.runs.filter(run => !run.collaboration); });
+  const work = f.store.require('collaboration', collaboration.id); for (const step of work.steps) { delete step.activeRunId; step.runIds = []; } f.store.put('collaboration', work);
+  f.service.runtime.recover();
+  assert.equal(f.store.require('thread', f.group.id).runs.filter(run => run.collaboration && run.status === 'queued').length, 1);
+});
+
+test('unknown work has an explicit reviewed abandon path without replay or fake completion', t => {
+  const f = fixture(t), proposal = f.prepare(), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'reconcile-unknown-work' });
+  const ctx = f.begin(collaboration.id); f.store.recover(); f.service.runtime.recover();
+  assert.throws(() => f.service.runtime.control(collaboration.id, { action: 'reconcile', stepId: ctx.stepId, runId: ctx.runId, choice: 'abandon', clientId: 'no-process-confirmation' }), errorCode('process_stop_confirmation_required'));
+  f.service.runtime.control(collaboration.id, { action: 'reconcile', stepId: ctx.stepId, runId: ctx.runId, choice: 'abandon', confirmedStopped: true, clientId: 'owner-reviewed-abandon' });
+  assert.equal(f.store.require('collaboration', collaboration.id).status, 'cancelled');
+  const run = f.store.require('thread', f.group.id).runs.find(run => run.id === ctx.runId); assert.equal(run.status, 'cancelled'); assert.ok(!run.requiresReconciliation && !run.stopUnconfirmed);
+});
+
+test('an approved work receives exact fingerprinted inputs and later groups cannot inherit raw original attachments', t => {
+  const f = fixture(t); f.store.updateThread(f.group.id, thread => { thread.messages[0].attachments = [{ id: 'source_exact_table', name: 'numbers.csv', text: 'SKU,Count\nalpha,271828' }]; });
+  const proposal = f.prepare(), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'exact-source-inputs' });
+  const inputs = f.service.workInput(f.store.require('collaboration', collaboration.id)); assert.equal(inputs.sources[0].text, 'SKU,Count\nalpha,271828');
+  f.store.updateThread(f.group.id, thread => { thread.messages[0].attachments[0].text = 'changed'; });
+  assert.throws(() => f.service.workInput(f.store.require('collaboration', collaboration.id)), errorCode('input_changed'));
+});
+
+test('read receipts reference immutable snapshots rather than duplicating file text in every operation', t => {
+  const f = fixture(t), proposal = f.prepare(), { collaboration } = f.service.decide(proposal.id, { choice: 'approve', version: proposal.version, clientId: 'bounded-read-receipts' }), ctx = f.begin(collaboration.id);
+  const text = 'PRIVATE_STAGED_READ_'.repeat(10000); f.call(ctx, 'artifact_write', { path: 'large.md', text, expectedHash: null });
+  const original = f.service.call(ctx, 'artifact_read', { paths: ['large.md'] }, 'stable-read-snapshot');
+  const receipt = f.store.list('artifact_tool_operation').find(item => item.name === 'artifact_read'); assert.ok(!JSON.stringify(receipt).includes('PRIVATE_STAGED_READ_'));
+  f.call(ctx, 'artifact_write', { path: 'large.md', text: 'Updated', expectedHash: original.files[0].sha256 });
+  assert.equal(f.service.call(ctx, 'artifact_read', { paths: ['large.md'] }, 'stable-read-snapshot').files[0].text, text);
+});
+
+test('collaboration dispatch shares the global unconfirmed-executor guard across groups', async t => {
+  const f = fixture(t), work = proposedWork(f, f.group.id), ctx = f.begin(work.id);
+  f.store.put('thread', { id: 'other_group', kind: 'group', memberIds: ['self', ctx.contactId], messages: [], runs: [{ id: 'old_unconfirmed', mode: 'codex', status: 'unknown', localAgentId: ctx.localAgentId, stopUnconfirmed: true }], events: [] });
+  let executions = 0; f.service.options.executeLocalAgent = async () => { executions++; return { markdown: 'Unexpected launch', identity: { id: ctx.localAgentId } }; };
+  await f.service.runtime.execute(f.store.require('thread', ctx.threadId), f.store.require('thread', ctx.threadId).runs.find(run => run.id === ctx.runId), new AbortController().signal);
+  assert.equal(executions, 0); assert.equal(f.store.require('collaboration', work.id).status, 'blocked');
+});
+
+test('a confirmed normal stop remains cancelled after the executor rejection is reaped', async t => {
+  const f = fixture(t), work = proposedWork(f, f.group.id), ctx = f.begin(work.id), controller = new AbortController(); let entered;
+  const ready = new Promise(resolve => { entered = resolve; });
+  f.service.options.cancelRun = () => controller.abort();
+  f.service.options.executeLocalAgent = async input => { entered(); return new Promise((_resolve, reject) => input.signal.addEventListener('abort', () => reject(Object.assign(new Error('Stopped'), { code: 'cancelled' })), { once: true })); };
+  const execution = f.service.runtime.execute(f.store.require('thread', ctx.threadId), f.store.require('thread', ctx.threadId).runs.find(run => run.id === ctx.runId), controller.signal);
+  await ready; f.service.runtime.control(work.id, { action: 'stop', clientId: 'confirmed-normal-stop' }); await execution;
+  assert.equal(f.store.require('collaboration', work.id).status, 'cancelled');
+});
+
+test('website work keeps the old Finder and shared version until native checks accept the final output', t => {
+  const f = fixture(t), work = proposedWork(f, f.group.id, null, 'website'), codex = f.begin(work.id);
+  f.contribute(codex, 'index.html', '<!doctype html><h1>First page</h1>'); f.contribute(f.begin(work.id), 'decisions.md', 'Design');
+  let saved = f.store.require('collaboration', work.id); assert.equal(saved.status, 'waiting_preview');
+  assert.equal(f.store.list('artifact_link').length, 0); assert.equal(f.store.require('workspace_artifact', saved.artifactId).currentRevisionId, null);
+  f.service.runtime.recordPreviewCheck(work.id, saved.finalRevisionId, { passed: true, errors: [], viewports: [] });
+  const first = f.store.require('workspace_artifact', saved.artifactId), firstLink = f.store.list('artifact_link')[0];
+  f.send(); const next = proposedWork(f, f.group.id, first.id, 'website'), nextCodex = f.begin(next.id), current = f.call(nextCodex, 'artifact_read', { paths: ['index.html'] }).files[0];
+  f.call(nextCodex, 'artifact_write', { path: 'index.html', text: '<!doctype html><h1>Broken page</h1><script>throw Error("broken")</script>', expectedHash: current.sha256 });
+  f.call(nextCodex, 'artifact_submit', { summary: 'Working revision' }); f.call(nextCodex, 'task_complete', { summary: 'Saved' }); f.finish(nextCodex);
+  const pi = f.begin(next.id), old = f.call(pi, 'artifact_read', { paths: ['decisions.md'] }).files[0]; f.call(pi, 'artifact_write', { path: 'decisions.md', text: 'Changed design', expectedHash: old.sha256 }); f.call(pi, 'artifact_submit', { summary: 'Changed design' }); f.call(pi, 'task_complete', { summary: 'Saved' }); f.finish(pi);
+  saved = f.store.require('collaboration', next.id); f.service.runtime.recordPreviewCheck(next.id, saved.finalRevisionId, { passed: false, errors: ['broken'], viewports: [] });
+  assert.equal(f.store.require('workspace_artifact', first.id).currentRevisionId, first.currentRevisionId);
+  assert.equal(f.store.list('artifact_link').find(link => link.id === firstLink.id).revisionId, firstLink.revisionId);
+});
+
+test('revoked history is excluded from a new prompt even when the current run never calls artifact_read', async t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f); let phase = 'read'; const contexts = [];
+  const execute = async input => {
+    const context = JSON.parse(input.prompt.split('<untrusted_thread_context>\n')[1].split('\n</untrusted_thread_context>')[0]);
+    if (phase === 'observe') contexts.push(context);
+    if (phase === 'read' && input.id === 'codex') {
+      const response = await fetch(input.toolSession.endpoint, { method: 'POST', headers: { authorization: `Bearer ${input.toolSession.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'artifact_read', arguments: { artifactId: artifact.id, revisionId: artifact.headRevisionId, paths: ['design.md'] }, callId: 'history-source-read' }) }); assert.equal(response.status, 200); await response.json();
+    }
+    return { markdown: JSON.stringify({ action: 'reply', text: phase === 'read' && input.id === 'codex' ? 'PRIVATE_SOURCE_VALUE' : 'Ordinary reply' }), identity: { id: input.id } };
+  };
+  const worker = new PersonalWorker(f.store, { creationService: f.service, executeLocalAgent: execute }, () => {}); t.after(() => worker.close());
+  f.send(); await worker.drain(); const link = f.store.list('artifact_link').find(link => link.threadId === f.group.id && link.artifactId === artifact.id);
+  f.service.share(artifact.id, { threadId: f.group.id, revoke: true, expectedVersion: link.version }); phase = 'observe'; f.send(); await worker.drain();
+  assert.equal(contexts.length, 2); assert.ok(!JSON.stringify(contexts).includes('PRIVATE_SOURCE_VALUE'));
+});
+
+test('owner local-file coordination resumes a finished work without launching another model', async t => {
+  const f = fixture(t), work = proposedWork(f, f.group.id), first = f.begin(work.id);
+  const artifactId = f.store.require('collaboration', work.id).artifactId;
+  const { writeFileSync, readFileSync } = await import('node:fs'); writeFileSync(join(f.directory, 'artifacts', artifactId, 'current', '.DS_Store'), Buffer.from([0, 0xff, 0x81]));
+  f.contribute(first, 'implementation.md', 'Implementation'); f.contribute(f.begin(work.id), 'design.md', 'Design');
+  assert.equal(f.store.require('collaboration', work.id).status, 'waiting_local_changes');
+  const runCount = f.store.require('thread', f.group.id).runs.length;
+  f.service.artifacts.resolveLocal(artifactId, 'preserve-and-update', { owner: true }); f.service.runtime.resumeAfterLocal(artifactId);
+  assert.equal(f.store.require('collaboration', work.id).status, 'completed'); assert.equal(f.store.require('thread', f.group.id).runs.length, runCount);
+  const { readdirSync } = await import('node:fs'); const backup = readdirSync(join(f.directory, 'artifacts', artifactId, 'local-backups'))[0]; assert.equal(readFileSync(join(f.directory, 'artifacts', artifactId, 'local-backups', backup, '.DS_Store'))[1], 255);
+});
+
+test('a later owner share choice supersedes automatic output publication', t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f); f.send(); const work = proposedWork(f, f.group.id, artifact.id), first = f.begin(work.id);
+  f.service.share(artifact.id, { threadId: f.group.id, revisionId: artifact.headRevisionId, paths: ['design.md'], follow: false });
+  f.contribute(first, 'new-implementation.md', 'New'); f.contribute(f.begin(work.id), 'new-design.md', 'New');
+  const link = f.store.list('artifact_link').find(link => link.threadId === f.group.id && link.artifactId === artifact.id);
+  assert.equal(link.revisionId, artifact.headRevisionId); assert.deepEqual(link.paths, ['design.md']);
+});
+
+test('a second group receives its own exact inputs and no original source attachments', t => {
+  const f = fixture(t); f.store.updateThread(f.group.id, thread => { thread.messages[0].attachments = [{ id: 'original-secret', name: 'private-source.txt', text: 'ORIGINAL_PRIVATE_SOURCE' }]; });
+  const artifact = completedFixtureArtifact(f), second = f.messenger.createChat({ kind: 'group', title: 'Continue', memberIds: ['agent_codex', 'agent_pi'] });
+  f.service.share(artifact.id, { threadId: second.id, revisionId: artifact.headRevisionId });
+  const next = proposedWork(f, second.id, artifact.id), inputs = f.service.workInput(next);
+  assert.deepEqual(inputs.sources, []); assert.ok(!JSON.stringify(inputs).includes('ORIGINAL_PRIVATE_SOURCE')); assert.equal(inputs.request, '@all 做一个阅读作品');
 });

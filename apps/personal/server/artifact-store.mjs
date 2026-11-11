@@ -1,6 +1,6 @@
-import { constants, mkdirSync, realpathSync, lstatSync, existsSync, readdirSync, readFileSync, openSync, writeFileSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
+import { constants, mkdirSync, realpathSync, lstatSync, existsSync, readdirSync, readFileSync, openSync, writeFileSync, fsyncSync, closeSync, renameSync, unlinkSync, rmSync, readSync, readlinkSync } from 'node:fs';
 import { join, dirname, posix } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { APIError, id, now, digest } from './store.mjs';
 
@@ -12,7 +12,7 @@ const mediaType = path => path.endsWith('.html') ? 'text/html' : path.endsWith('
 function directory(path) {
   if (!existsSync(path)) mkdirSync(path, { mode: 0o700 });
   const stat = lstatSync(path);
-  if (stat.isSymbolicLink() || !stat.isDirectory() || realpathSync(path) !== path) fail(400, 'invalid_path', '作品目录不能指向链接或普通文件');
+  if (stat.isSymbolicLink() || !stat.isDirectory() || realpathSync(path).normalize('NFC') !== path.normalize('NFC')) fail(400, 'invalid_path', '作品目录不能指向链接或普通文件');
 }
 export function validateArtifactPath(relative) {
   if (typeof relative !== 'string' || !relative || relative.length > 240 || relative.includes('\\') || relative.includes('\0') || relative.startsWith('/') || relative.includes(':')) fail(400, 'invalid_path', '需要作品内的相对路径');
@@ -44,15 +44,21 @@ function atomic(path, bytes) {
   const parent = openSync(dirname(path), constants.O_RDONLY);
   try { fsyncSync(parent); } finally { closeSync(parent); }
 }
-function scan(root) {
+function scan(root, { strict = true } = {}) {
   directory(root);
   const files = {}; let total = 0;
   const visit = (path, prefix = '') => {
     for (const name of readdirSync(path).sort()) {
-      const relative = prefix ? `${prefix}/${name}` : name, absolute = join(path, name), stat = lstatSync(absolute);
-      if (stat.isSymbolicLink()) fail(400, 'invalid_path', '作品包含链接，未读取链接目标');
-      if (stat.isDirectory()) { safePath(root, `${relative}/.path-check`); visit(absolute, relative); }
+      const relative = (prefix ? `${prefix}/${name}` : name).normalize('NFC'), absolute = join(path, name), stat = lstatSync(absolute);
+      if (stat.isSymbolicLink()) { if (strict) fail(400, 'invalid_path', '作品包含链接，未读取链接目标'); files[relative] = { type: 'link', sha256: digest(readlinkSync(absolute)) }; continue; }
+      if (stat.isDirectory()) { if (strict) safePath(root, `${relative}/.path-check`); visit(absolute, relative); }
       else {
+        if (!strict) {
+          if (!stat.isFile()) { files[relative] = { type: 'special', size: stat.size }; continue; }
+          const hash = createHash('sha256'), buffer = Buffer.allocUnsafe(65536), fd = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+          try { let count; while ((count = readSync(fd, buffer, 0, buffer.length, null))) hash.update(buffer.subarray(0, count)); } finally { closeSync(fd); }
+          files[relative] = { sha256: hash.digest('hex'), size: stat.size, mediaType: mediaType(relative), ...(stat.nlink !== 1 ? { hardLinks: stat.nlink } : {}) }; continue;
+        }
         safePath(root, relative);
         if (stat.size > 1_048_576) fail(413, 'file_limit', '单个文本文件不能超过 1 MiB');
         const bytes = readFileSync(absolute);
@@ -80,7 +86,7 @@ export class ArtifactStore {
   create({ title, kind }, context) {
     this.authorize(context, 'create');
     if (typeof title !== 'string' || !title.trim() || title.length > 120 || !['document', 'website'].includes(kind)) fail(400, 'invalid_artifact', '需要作品名称与支持的类型');
-    const artifact = { id: id('aw'), title: title.trim(), kind, ownerId: 'self', headRevisionId: null, acceptedRevisionId: null, currentRevisionId: null,
+    const artifact = { id: id('aw'), title: title.trim(), kind, ownerId: 'self', headRevisionId: null, deliveredRevisionId: null, acceptedRevisionId: null, currentRevisionId: null,
       materializationState: 'clean', status: 'active', version: 1, createdAt: now(), updatedAt: now() };
     const root = this.root(artifact.id);
     for (const part of ['current', 'objects', 'revisions', 'local-backups']) directory(join(root, part));
@@ -106,11 +112,25 @@ export class ArtifactStore {
     if (bytes.length !== file.size || digest(bytes) !== file.sha256) fail(500, 'artifact_corrupted', '作品文件读回校验失败');
     return bytes;
   }
+  captureRead(result) {
+    return { ...result, files: result.files.map(({ text, ...file }) => {
+      if (text !== undefined) {
+        const bytes = Buffer.from(text); if (digest(bytes) !== file.sha256) fail(500, 'artifact_corrupted', '读取快照指纹不匹配');
+        const target = this.object(result.artifactId, file.sha256); if (!existsSync(target)) atomic(target, bytes); this.bytes(result.artifactId, file);
+      }
+      return file;
+    }) };
+  }
+  replayRead(result, context) {
+    for (const file of result.files) this.authorize(context, 'read', result.artifactId, file.path, result.revisionId);
+    return result.contentOmitted ? result : { ...result, files: result.files.map(file => ({ ...file, text: this.bytes(result.artifactId, file).toString('utf8') })) };
+  }
   read(artifactId, revisionId, context, paths) {
     this.authorize(context, 'read', artifactId, undefined, revisionId);
     const revision = this.revision(artifactId, revisionId), names = paths || Object.keys(revision.files);
     if (!Array.isArray(names) || names.length > 256) fail(400, 'invalid_request', '读取文件范围无效');
     const files = names.map(path => {
+      if (typeof path === 'string') path = path.normalize('NFC');
       validateArtifactPath(path);
       this.authorize(context, 'read', artifactId, path, revisionId);
       const file = Object.hasOwn(revision.files, path) && revision.files[path]; if (!file) fail(404, 'not_found', '这个版本没有所选文件');
@@ -133,6 +153,7 @@ export class ArtifactStore {
     const stage = this.ownStage(stageId, context), current = scan(stage.directory), base = this.revision(stage.artifactId, stage.baseRevisionId), names = paths || Object.keys(current);
     if (!Array.isArray(names) || names.length > 256) fail(400, 'invalid_request', '读取文件范围无效');
     const files = names.map(path => {
+      if (typeof path === 'string') path = path.normalize('NFC');
       this.authorize(context, 'read', stage.artifactId, path, stage.baseRevisionId);
       const file = current[path]; if (!file) fail(404, 'not_found', '工作副本没有所选文件');
       if (base.files[path]?.sha256 === file.sha256) stage.readSet[path] = file.sha256;
@@ -164,6 +185,7 @@ export class ArtifactStore {
     return this.store.put('artifact_stage', { id: stageId, artifactId, stepId, baseRevisionId, contactId: context.contactId, runId: context.runId, directory: tree, readSet: {}, mandatoryInputs, createdAt: now() });
   }
   write(stageId, { path, text, expectedHash }, context) {
+    if (typeof path === 'string') path = path.normalize('NFC');
     const stage = this.ownStage(stageId, context); this.authorize(context, 'write', stage.artifactId, path);
     const absolute = safePath(stage.directory, path, true), actual = existsSync(absolute) ? digest(readFileSync(absolute)) : null;
     if (expectedHash !== actual) fail(409, 'file_conflict', '文件已经变化，请读取当前指纹再修改');
@@ -209,10 +231,21 @@ export class ArtifactStore {
     const root = join(this.root(artifact.id), 'revisions'); directory(root); const revisionRoot = join(root, revisionId); directory(revisionRoot);
     atomic(join(revisionRoot, 'manifest.json'), JSON.stringify(manifest)); this.store.put('artifact_revision', revision); return revision;
   }
+  validateTree(revision) {
+    const root = join(this.root(revision.artifactId), `.validate_${randomUUID()}`); directory(root);
+    try {
+      for (const [path, file] of Object.entries(revision.files).sort(([a], [b]) => a.localeCompare(b))) {
+        const filename = safePath(root, path, true), fd = openSync(filename, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+        try { writeFileSync(fd, this.bytes(revision.artifactId, file)); } finally { closeSync(fd); }
+      }
+      if (!same(scan(root), revision.files)) fail(409, 'invalid_tree', '完整候选目录的文件指纹不匹配');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
   check(revisionId, context, { final = false } = {}) {
     const initial = this.store.require('artifact_revision', revisionId); this.authorize(context, 'read', initial.artifactId, undefined, revisionId);
     const revision = this.revision(initial.artifactId, revisionId), artifact = this.store.require('workspace_artifact', initial.artifactId), errors = [];
     for (const [path, file] of Object.entries(revision.files)) {
+      this.authorize(context, 'read', artifact.id, path, revisionId);
       const text = this.bytes(artifact.id, file).toString('utf8');
       if (!path.endsWith('.html')) continue;
       for (const match of text.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)) {
@@ -223,15 +256,16 @@ export class ArtifactStore {
         if (!revision.files[relative]) errors.push(`${path}: 缺少资源 ${relative}`);
       }
     }
+    try { this.validateTree(revision); } catch { errors.push('完整候选不能在本地卷形成无冲突的目录树'); }
     if (final && artifact.kind === 'website' && !revision.files['index.html']) errors.push('缺少网页入口 index.html');
     if (!Object.keys(revision.files).length) errors.push('作品没有内容');
-    const result = { id: `check_${revisionId}`, revisionId, manifestHash: revision.manifestHash, parentRevisionId: revision.parentRevisionId, policyVersion: 1, final, passed: errors.length === 0, errors, checkedAt: now(), scope: 'integrity_and_static_resources' };
+    const result = { id: `check_${revisionId}`, revisionId, manifestHash: revision.manifestHash, parentRevisionId: revision.parentRevisionId, policyVersion: 2, final, passed: errors.length === 0, errors, checkedAt: now(), scope: 'integrity_and_static_resources' };
     this.store.put('artifact_check', result); return result;
   }
   commit(revisionId, expectedHead, context) {
     const revision = this.store.require('artifact_revision', revisionId); this.authorize(context, 'merge', revision.artifactId);
     const checks = this.store.require('artifact_check', `check_${revisionId}`);
-    if (!checks.passed || checks.manifestHash !== revision.manifestHash || checks.parentRevisionId !== expectedHead) fail(409, 'checks_failed', '完整候选版本尚未通过对应检查');
+    if (!checks.passed || checks.policyVersion !== 2 || checks.manifestHash !== revision.manifestHash || checks.parentRevisionId !== expectedHead) fail(409, 'checks_failed', '完整候选版本尚未通过对应检查');
     this.revision(revision.artifactId, revisionId);
     this.store.transaction(() => {
       const artifact = this.store.require('workspace_artifact', revision.artifactId);
@@ -242,7 +276,10 @@ export class ArtifactStore {
         const contribution = this.store.require('artifact_contribution', contributionId); contribution.state = 'integrated'; contribution.revisionId = revisionId; this.store.put('artifact_contribution', contribution);
       }
     });
-    return this.materialize(revision.artifactId);
+    if (context.deferMaterialization) { const artifact = this.store.require('workspace_artifact', revision.artifactId); artifact.materializationState = 'pending_delivery'; this.store.put('workspace_artifact', artifact); this.project(artifact); return artifact; }
+    const artifact = this.materialize(revision.artifactId);
+    if (context.owner && !context.internalWorkBootstrap && artifact.kind === 'document' && artifact.materializationState === 'clean') return this.markDelivered(artifact.id, revisionId);
+    return artifact;
   }
   integrate(contributionId, context) {
     const previous = this.store.require('artifact_contribution', contributionId);
@@ -252,9 +289,19 @@ export class ArtifactStore {
     const artifact = this.commit(revision.id, revision.parentRevisionId, context);
     return { artifact, revision: this.store.require('artifact_revision', revision.id), checks };
   }
-  materialize(artifactId, { preserve = false } = {}) {
+  markDelivered(artifactId, revisionId) {
+    const artifact = this.store.require('workspace_artifact', artifactId), revision = this.revision(artifactId, revisionId);
+    if (artifact.headRevisionId !== revisionId || artifact.currentRevisionId !== revisionId || artifact.materializationState !== 'clean' || revision.state !== 'committed') fail(409, 'version_conflict', '只能交付已核验并物化的当前版本');
+    artifact.deliveredRevisionId = revisionId; artifact.version++; revision.deliveredAt ||= now();
+    this.store.put('artifact_revision', revision); this.store.put('workspace_artifact', artifact); this.project(artifact); return artifact;
+  }
+  materialize(artifactId, options = {}) {
+    try { return this.materializeTree(artifactId, options); }
+    catch (error) { const artifact = this.store.require('workspace_artifact', artifactId); artifact.materializationState = 'unknown'; artifact.materializationError = error.code || 'materialization_failed'; this.store.put('workspace_artifact', artifact); try { this.project(artifact); } catch {} return artifact; }
+  }
+  materializeTree(artifactId, { preserve = false } = {}) {
     const artifact = this.store.require('workspace_artifact', artifactId), root = this.root(artifactId), current = join(root, 'current'); directory(current);
-    const actual = scan(current), old = this.revision(artifactId, artifact.currentRevisionId);
+    const actual = scan(current, { strict: false }), old = this.revision(artifactId, artifact.currentRevisionId);
     if (!same(actual, old.files) && !preserve) {
       artifact.materializationState = 'blocked_by_local_changes'; this.store.put('workspace_artifact', artifact); this.project(artifact); return artifact;
     }
@@ -263,14 +310,25 @@ export class ArtifactStore {
     const backupRoot = join(root, 'local-backups'); directory(backupRoot); const backupPath = join(backupRoot, operationId);
     this.store.put('artifact_materialization', { id: operationId, artifactId, revisionId: revision.id, previousRevisionId: artifact.currentRevisionId, backupPath, next, state: 'prepared' });
     const blocked = () => { artifact.materializationState = 'blocked_by_local_changes'; this.store.put('workspace_artifact', artifact); this.store.put('artifact_materialization', { id: operationId, artifactId, revisionId: revision.id, backupPath, next, state: 'blocked' }); this.project(artifact); return artifact; };
-    if (!same(scan(current), actual)) return blocked();
+    if (!same(scan(current, { strict: false }), actual)) return blocked();
     renameSync(current, backupPath);
-    if (!same(scan(backupPath), actual)) { renameSync(backupPath, current); return blocked(); }
+    if (!same(scan(backupPath, { strict: false }), actual)) { renameSync(backupPath, current); return blocked(); }
     renameSync(next, current);
     // Keep the old tree even when initially clean: open file handles may modify it.
     artifact.currentRevisionId = revision.id; artifact.materializationState = 'clean';
     this.store.put('workspace_artifact', artifact); this.store.put('artifact_materialization', { id: operationId, artifactId, revisionId: revision.id, backupPath, state: 'completed' });
     this.project(artifact); return { ...artifact, ...(preserve ? { backupPath } : {}) };
+  }
+  inspectLocal(artifactId) {
+    const artifact = this.store.require('workspace_artifact', artifactId);
+    try {
+      if (!same(scan(join(this.root(artifactId), 'current'), { strict: false }), this.revision(artifactId, artifact.currentRevisionId).files)) {
+        artifact.materializationState = 'blocked_by_local_changes'; this.store.put('workspace_artifact', artifact);
+      } else if (artifact.headRevisionId === artifact.currentRevisionId && artifact.materializationState === 'blocked_by_local_changes') {
+        artifact.materializationState = 'clean'; this.store.put('workspace_artifact', artifact);
+      }
+    } catch { artifact.materializationState = 'blocked_by_local_changes'; this.store.put('workspace_artifact', artifact); }
+    return artifact;
   }
   resolveLocal(artifactId, action, context) {
     this.authorize(context, 'merge', artifactId);
@@ -284,7 +342,7 @@ export class ArtifactStore {
     if (['accept', 'archive', 'unarchive'].includes(input.action)) {
       if (input.action === 'accept') { const revision = this.revision(artifactId, input.revisionId); if (revision.state !== 'committed') fail(409, 'invalid_revision', '只能接受已整合版本'); artifact.acceptedRevisionId = revision.id; }
       else artifact.status = input.action === 'archive' ? 'archived' : 'active';
-      artifact.version++; artifact.updatedAt = now(); this.store.put('workspace_artifact', artifact); this.project(artifact); return artifact;
+      artifact.version++; artifact.updatedAt = now(); artifact.lastOwnerOperation = { id: context.runId, action: input.action, revisionId: input.revisionId, expectedVersion: input.expectedVersion }; this.store.put('workspace_artifact', artifact); this.project(artifact); return artifact;
     }
     if (!['edit', 'restore', 'import-local'].includes(input.action)) fail(400, 'invalid_action', '请选择编辑、接受、恢复或归档');
     const baseId = input.action === 'import-local' ? artifact.currentRevisionId : artifact.headRevisionId;

@@ -23,6 +23,7 @@ const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
     /^\/api\/library\/artifacts$/,
+    new RegExp(`^/api/(collaborations|capability-requests)/${opaqueId}$`),
     new RegExp(`^/api/library/artifacts/${opaqueId}$`),
     new RegExp(`^/api/library/previews/${opaqueId}(?:/files/${opaqueId})?$`),
     new RegExp(`^/api/threads/${opaqueId}/creation$`),
@@ -42,6 +43,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/library/artifacts/${opaqueId}/(files|preview|share|resolve-local|change)$`),
     new RegExp(`^/api/(creation-proposals|capability-requests)/${opaqueId}/decision$`),
     new RegExp(`^/api/creation-proposals/${opaqueId}/change$`),
+    new RegExp(`^/api/capability-requests/${opaqueId}/revoke$`),
     new RegExp(`^/api/collaborations/${opaqueId}/control$`),
     /^\/api\/workspace\/onboarding$/,
     /^\/api\/(threads|connections|memories)$/,
