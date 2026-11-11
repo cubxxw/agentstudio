@@ -62,6 +62,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | History / scratch / mode / recovery | `im-new-notes`, `im-send-options-toggle`, `im-task-mode`, `im-task-connection`, `im-send-recovery` |
 | Results / records / artifacts | `im-results`, `im-conversation-details`, `im-artifact`, `im-execution-record` |
 | Rail / list / skip | `im-rail`, `im-list-panel`, `im-skip` |
+| List scroll surface | `im-list-scroll` (a fresh surface when switching sections) |
 | Focus reading / reveal list | `im-focus-toggle` (`aria-expanded`, `aria-controls`) |
 
 Every personal conversation uses this Messenger shell, including old `?workspace=tasks&thread=…` links and scratch drafts (`?thread=new`). The old workspace parameter is removed without replacing the shell. Historical threads retain their IDs, mode/connection and draft recovery keys; no message is sent during migration. The conversation title opens its contact/group information; the single `im-results` information button opens result versions and execution records. `im-new-notes` continues the old unsent scratch draft or starts local organization. Native New Chat opens the conversation picker.
@@ -83,6 +84,8 @@ The shared reader, connection preferences and decision cards retain these IDs:
 | Decision / approve / reject | `personal-decision`, `personal-decision-approve`, `personal-decision-reject` |
 | Reader / save / font / save receipt | `personal-reader`, `personal-reader-download`, `personal-reader-font`, `personal-save-receipt` |
 | Modal / close / tabs | `personal-modal`, `personal-modal-close`, `personal-tab-connections`, `personal-tab-memory`, `personal-tab-about` |
+| Preferences content / connection jumps | `personal-preference-panel`, `personal-jump-mac`, `personal-jump-agents`, `personal-jump-servers`, `personal-jump-tools`, `personal-connections-heading-tools` |
+| Native service groups / management | `personal-service-instances-<service>`, `personal-service-instances-toggle-<service>` (more than two instances), `personal-service-remove-<instanceId>` |
 | Connection / fields / save | `personal-add-connection`, `personal-connection-name`, `personal-connection-type`, `personal-connection-url`, `personal-connection-save` |
 | Optional Bearer disclosure / password field | `personal-connection-auth-toggle`, `personal-connection-token` |
 | Memory / save | `personal-memory-input`, `personal-memory-save` |
