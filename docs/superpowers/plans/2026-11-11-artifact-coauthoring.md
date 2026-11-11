@@ -94,11 +94,11 @@
 
 **Files:** Create `dev/artifact-coauthoring-acceptance.mjs`, explicit `--real` path and acceptance report; update architecture/API/desktop docs/roadmap and this plan.
 
-- [ ] Run exact synthetic regressions for permissions, conflicts, recovery, audience boundaries and main chat compatibility.
-- [ ] Run real Codex + Pi in an isolated profile; require two genuine tool contributions, one approved plan, an openable website, a second-group revision and persisted reopen.
-- [ ] Run the applicable personal/desktop checks, native registration and latest-head CI; report any limits separately from observed successes.
-- [ ] Obtain an independent whole-branch code review; fix confirmed P0/P1 with reproduction tests and rerun affected checks.
-- [ ] Update PR #18 around final implementation, link Linear if service access recovers, and merge only after applicable current-head gates pass. Preserve incomplete work and evidence if externally blocked.
+- [x] Run exact synthetic regressions for permissions, conflicts, recovery, audience boundaries and main chat compatibility.
+- [x] Run real Codex + Pi in an isolated profile; require two genuine tool contributions, one approved plan, an openable website, a second-group revision and persisted reopen.
+- [x] Run the applicable personal/desktop checks, native registration and latest-head CI; report any limits separately from observed successes.
+- [x] Obtain an independent whole-branch code review; fix confirmed P0/P1 with reproduction tests and rerun affected checks.
+- [x] Update PR #18 around final implementation, link Linear if service access recovers, and merge only after applicable current-head gates pass. Preserve incomplete work and evidence if externally blocked.
 
 ## Plan self-review
 

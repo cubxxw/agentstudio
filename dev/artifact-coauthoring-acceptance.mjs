@@ -111,7 +111,7 @@ try {
       await wait(async () => { state = await request(`/threads/${group.id}/creation`); work = state.collaborations[0]; if (brokenPreview && work?.status === 'blocked' && work.previewChecks) return true; if (['blocked', 'unknown', 'cancelled'].includes(work?.status)) throw new Error(JSON.stringify(work)); return work?.status === 'completed'; });
     } else check('resumed the previously completed first real group without replaying models');
     if (real) expect((await request(`/threads/${group.id}`)).messages.filter(message => message.role === 'assistant').map(message => message.contactId).sort()).toEqual(['agent_codex', 'agent_pi']);
-    if (brokenPreview) { expect(work.previewChecks.passed).toBe(false); expect(work.previewChecks.errors.join(' ')).toContain('Fixture preview failure'); check('native runtime errors block final delivery despite saved revisions'); report.status = 'passed'; } else {
+    if (brokenPreview) { expect(work.previewChecks.passed).toBe(false); expect(work.previewChecks.errors).toEqual([]); const owner = await request(`/collaborations/${work.id}`); expect(owner.previewChecks.errors.join(' ')).toContain('Fixture preview failure'); report.ownerPreviewErrors = owner.previewChecks.errors; check('native runtime errors block final delivery despite saved revisions'); report.status = 'passed'; } else {
     const artifactId = work.artifactId, firstRevision = work.finalRevisionId;
     const detail = await request(`/library/artifacts/${artifactId}`);
     expect(new Set(detail.contributions.filter(item => item.state === 'integrated').map(item => item.contactId))).toEqual(new Set(['self', 'agent_pi', 'agent_codex']));
@@ -165,10 +165,11 @@ try {
     await page.goto(`${page.url().split(/[?#]/)[0]}?thread=${second.id}`); await page.getByTestId('artifact-open').click(); await page.getByTestId('artifact-tab-history').click();
     expect(await page.getByTestId('artifact-revision').count()).toBeGreaterThanOrEqual(5);
     await page.reload(); await page.getByTestId('im-nav-library').click(); await page.getByTestId(`library-artifact-${artifactId}`).click();
-    await expect(page.getByTestId('artifact-workspace')).toBeVisible(); check('library reopens the artifact independently of either conversation');
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible(); await expect(page.getByTestId('artifact-revision-select')).toHaveValue(work.finalRevisionId); await page.screenshot({ path: join(output, 'final-workspace.png') }); check('library reopens the artifact independently of either conversation');
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 640, height: 780 })); await page.screenshot({ path: join(output, 'narrow-workspace.png') });
-    report.artifactId = artifactId; report.firstRevision = firstRevision; report.finalRevision = work.finalRevisionId; report.contributors = detail.contributions.map(({ contactId, runId, revisionId }) => ({ contactId, runId, revisionId })); report.status = 'passed';
+    report.artifactId = artifactId; report.firstRevision = firstRevision; report.finalRevision = work.finalRevisionId; report.contributors = detail.contributions.filter(item => item.state === 'integrated').map(({ contactId, runId, revisionId }) => ({ contactId, runId, revisionId })); report.status = 'passed';
     }
   }
+  expect(errors).toEqual([]);
 } catch (error) { report.status = 'failed'; report.error = error.message; if (page) { try { const library = await request('/library/artifacts'); report.savedArtifactCount = library.artifacts.length; } catch {} } process.exitCode = 1; if (page) await page.screenshot({ path: join(output, 'failure.png') }).catch(() => {}); }
 finally { if (app) await app.close(); await new Promise(resolve => sentinel.close(resolve)); await writeFile(join(output, 'acceptance.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify({ output, status: report.status, checks, error: report.error })); }
