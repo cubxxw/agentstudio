@@ -25,7 +25,7 @@ These personal owner routes are allowlisted in native IPC. Agents use scoped nat
 | POST | `/api/library/artifacts/:id/change` | `{action,expectedVersion,clientId,…}`; `edit` adds `path,text,expectedHash`, `restore/accept` add `revisionId`, plus `import-local/archive/unarchive`; `reconcile-owner` requires `operationId,confirmedReviewed:true` to abandon an unconfirmed receipt after review |
 | POST | `/api/library/artifacts/:id/resolve-local` | `{action:"preserve-and-update",clientId}`; retain local backup before adopting head |
 | GET | `/api/threads/:id/creation` | Audience-safe proposals, fixed work/request status, authorized links and up to 100 indexed tool receipts; no private work free text |
-| POST | `/api/creation-proposals/:id/decision` | `{version,choice:"approve|reject",clientId}`; one frozen plan |
+| POST | `/api/creation-proposals/:id/decision` | `{version,choice:"approve|reject",clientId}`; approve requires `ready`; reject accepts `ready` or `needs_input` without starting work |
 | POST | `/api/creation-proposals/:id/change` | `{version,goal,tasks?,paths?,dependencies?,clientId}`; edits own roles and regenerates canonical version |
 | GET | `/api/capability-requests/:id` | Owner-only precise scope, purpose and recipients |
 | GET | `/api/collaborations/:id` | Owner-only work, step details, handoffs and attempts |

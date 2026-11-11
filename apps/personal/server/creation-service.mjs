@@ -231,7 +231,8 @@ export class CreationService {
     const result = this.store.idempotent(`creation:${proposalId}`, body.clientId, body, () => {
       const proposal = this.store.require('creation_proposal', proposalId);
       if (body.version !== proposal.version) fail(409, 'version_conflict', '共同方案已更新，请重新审核');
-      if (proposal.state !== 'ready' || !['approve', 'reject'].includes(body.choice)) fail(409, 'inactive_proposal', '这个方案当前不能执行该决定');
+      const allowedStates = body.choice === 'reject' ? ['ready', 'needs_input'] : ['ready'];
+      if (!allowedStates.includes(proposal.state) || !['approve', 'reject'].includes(body.choice)) fail(409, 'inactive_proposal', '这个方案当前不能执行该决定');
       if (body.choice === 'reject') { proposal.state = 'rejected'; proposal.version++; this.store.put('creation_proposal', proposal); return { proposal, collaboration: null }; }
       const thread = this.store.require('thread', proposal.threadId);
       this.workInput(proposal);

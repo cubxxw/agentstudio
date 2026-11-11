@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { PersonalStore } from './store.mjs';
 import { Messenger } from './messenger.mjs';
 import { CreationService } from './creation-service.mjs';
+import { ArtifactAPI } from './artifact-api.mjs';
 import { PersonalWorker } from './runtime.mjs';
 
 function fixture(t) {
@@ -68,6 +69,20 @@ test('approval is version-bound and replayed once; rejection has no creation sid
   const second = fixture(t), rejected = second.prepare();
   second.service.decide(rejected.id, { choice: 'reject', version: rejected.version, clientId: 'reject-current-plan' });
   assert.equal(second.store.list('collaboration').length, 0);
+});
+
+test('rejecting a plan with invalid dependencies clears its workspace-switch blocker without starting work', t => {
+  const f = fixture(t), proposal = f.prepare(), api = new ArtifactAPI(f.service, () => {});
+  const invalid = f.service.ownerUpdate(proposal.id, { version: proposal.version, goal: proposal.goal, dependencies: { agent_pi: ['agent_codex'] }, clientId: 'introduce-cycle' });
+  assert.equal(invalid.state, 'needs_input');
+  assert.equal(api.blockers(), 1);
+  assert.throws(() => f.service.decide(invalid.id, { choice: 'approve', version: invalid.version, clientId: 'cannot-approve-cycle' }), errorCode('inactive_proposal'));
+  const result = f.service.decide(invalid.id, { choice: 'reject', version: invalid.version, clientId: 'reject-cycle' });
+  assert.equal(result.proposal.state, 'rejected');
+  assert.equal(result.collaboration, null);
+  assert.equal(f.store.list('collaboration').length, 0);
+  assert.equal(f.store.require('thread', f.group.id).runs.filter(run => run.collaboration).length, 0);
+  assert.equal(api.blockers(), 0);
 });
 
 test('approved steps create genuinely attributed revisions without broadcasting private work output', t => {
