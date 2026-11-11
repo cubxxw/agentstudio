@@ -48,7 +48,7 @@ export type GrokAgentRef = {
   avatarShape?: string;
   avatarColor?: string;
 };
-type PersonalTurn = { messageId: string; providerMessageId: string; text: string; echoed: boolean; startSeq: number; sessionId: string; waiting?: boolean; resumeAfter?: number; resumeUpdated?: number; responseSeq?: number; responseUpdated?: number; runningObserved?: boolean; temporalTurn?: string; approvalRequests?: string[]; lastCardSeq?: number; responseRequest?: string; responseTurn?: string; settled?: boolean; cards: string[] };
+type PersonalTurn = { messageId: string; providerMessageId: string; text: string; echoed: boolean; startSeq: number; sessionId: string; waiting?: boolean; resumeAfter?: number; resumeUpdated?: number; responseSeq?: number; responseUpdated?: number; runningObserved?: boolean; temporalTurn?: string; initialRequest?: string; approvalRequests?: string[]; lastCardSeq?: number; responseRequest?: string; responseTurn?: string; settled?: boolean; cards: string[] };
 export type GrokData = GrokTokens & { machineId: string; agent: GrokAgentRef; lastSeq?: number; personalTurn?: PersonalTurn };
 
 // ---- protobuf schemas (aiserver.v1, transcribed from the app bundle) --------
@@ -822,11 +822,12 @@ export class GrokBotConnector implements Connector {
     // A proven new generation request in the same approval turn can instead
     // use bounded readback, including after restart; no request is resent.
     const newApprovalRequest = !!(reply.temporalTurn && reply.responseTurn === reply.temporalTurn && (reply.responseSeq ?? 0) > (reply.lastCardSeq ?? Infinity) && reply.responseRequest && reply.approvalRequests?.length && !reply.approvalRequests.includes(reply.responseRequest));
-    const temporal = this.data.agent.harness === "temporal" && !before.live && !after.live && (reply.runningObserved || newApprovalRequest);
+    const sameInitialRequest = !!(reply.temporalTurn && reply.responseTurn === reply.temporalTurn && reply.initialRequest && reply.responseRequest === reply.initialRequest);
+    const temporal = this.data.agent.harness === "temporal" && !before.live && !after.live && (reply.runningObserved || newApprovalRequest || sameInitialRequest);
     if (this.data.agent.harness === "temporal" && reply.approvalRequests?.length && !newApprovalRequest) return;
     if ((exact(before) && exact(after) && settlement?.outcome === "success") || temporal) {
       if (!reply.responseSeq || (reply.resumeUpdated !== undefined ? (reply.responseUpdated ?? 0) <= reply.resumeUpdated : reply.responseSeq <= (reply.resumeAfter ?? reply.startSeq))) return;
-      if (temporal && reply.lastCardSeq) {
+      if (temporal) {
         const candidate = JSON.stringify([reply.messageId, reply.responseSeq, reply.responseUpdated, reply.responseRequest, this.readbackVersion]);
         if (candidate !== this.terminalCandidate) { this.terminalCandidate = candidate; return; }
       }
@@ -875,7 +876,10 @@ export class GrokBotConnector implements Connector {
           if (ours) {
             this.ownTexts.delete(parsed.text); this.personalReply.echoed = true;
             if (parsed.nonce) this.ownMessageIds.delete(parsed.nonce);
-            if (this.data.agent.harness === "temporal") this.personalReply.temporalTurn ??= /^(t\d+)u$/.exec(id)?.[1];
+            if (this.data.agent.harness === "temporal" && parsed.nonce === this.personalReply.providerMessageId) {
+              const temporalTurn = /^(t\d+)u$/.exec(id)?.[1];
+              if (temporalTurn) { this.personalReply.temporalTurn ??= temporalTurn; this.personalReply.initialRequest ??= requestId(e); }
+            }
             this.persistTurn();
           }
         } else ours = (parsed.nonce && this.ownMessageIds.delete(parsed.nonce)) || this.ownTexts.delete(parsed.text);

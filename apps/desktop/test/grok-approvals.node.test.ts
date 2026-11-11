@@ -27,6 +27,21 @@ it("requires a known temporal running phase before idle can complete a stable re
   f.setStatus({agent_id:"different"});await f.poll();expect(f.events).not.toContainEqual({type:"status",state:"idle"});
   f.setStatus({agent_id:"qa"});await f.poll();await f.poll();expect(f.events).toContainEqual({type:"status",state:"idle"});
 });
+it("completes a short known Temporal request when its running phase falls between polls, retaining late cards", async () => {
+ const f=await fixture(undefined,"temporal");f.set([]);await f.connector.send({session_id:"personal:short",message_id:"short",text:"QA",sent_at:new Date().toISOString()});
+ const nonce=f.calls.find(c=>c.method==="SendGrokBotUserMessage").params.message_id;f.setStatus({agent_id:"qa"});
+ const user={entry_id:"t2u",seq:11,updated_seq:11,entry_kind:"user-message",body:Buffer.from(JSON.stringify({kind:"user-message",clientNonce:nonce,text:"QA",requestId:"request_qa"}))};
+ const reply={entry_id:"t2s0",seq:12,updated_seq:12,entry_kind:"send-message",body:Buffer.from(JSON.stringify({kind:"send-message",requestId:"request_qa",message:{text:"QA connected"}}))};
+ f.set([user,reply]);await f.poll();await f.poll();expect(f.events).not.toContainEqual({type:"status",state:"idle"});
+ await f.poll();expect(f.events).toContainEqual({type:"status",state:"idle"});
+ f.set([user,reply,{...entry(),entry_id:"t2s1",seq:13,updated_seq:13}]);await f.poll();expect(f.cards.at(-1)).toMatchObject({state:"pending",replyTo:"short"});
+ expect(f.calls.filter(c=>c.method==="SendGrokBotUserMessage")).toHaveLength(1);
+});
+it("does not authorize short-request completion from a nonce-free same-text user echo", async () => {
+ const f=await fixture(undefined,"temporal");f.set([]);await f.connector.send({session_id:"personal:short",message_id:"short",text:"QA",sent_at:new Date().toISOString()});f.setStatus({agent_id:"qa"});
+ f.set([{entry_id:"t2u",seq:11,updated_seq:11,entry_kind:"user-message",body:Buffer.from(JSON.stringify({kind:"user-message",text:"QA",requestId:"foreign"}))},{entry_id:"t2s0",seq:12,updated_seq:12,entry_kind:"send-message",body:Buffer.from(JSON.stringify({kind:"send-message",requestId:"foreign",message:{text:"Other result"}}))}]);
+ await f.poll();await f.poll();await f.poll();expect(f.events).not.toContainEqual({type:"status",state:"idle"});
+});
 it("keeps a turn open when a stable preamble arrives before its native approval card", async () => {
   const f = await fixture(); f.set([]);
   await f.connector.send({ session_id: "personal:qa", message_id: "outbound", text: "QA", sent_at: new Date().toISOString() });
