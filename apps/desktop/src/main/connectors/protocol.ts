@@ -38,6 +38,8 @@ export type AgentEvent =
       type: "message";
       text: string;
       reply_to?: string;
+      /** Text before an approval boundary cannot settle the resumed turn. */
+      provisional?: boolean;
       /** Files to post along (the bridge downloads them; images show inline). */
       attachments?: Attachment[];
       /** Something the user said in the service's own app (via names it). */

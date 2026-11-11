@@ -54,6 +54,8 @@ export function App() {
   return <Messenger />;
 }
 
+const unresolvedApproval = (decision: { state: string }) => ["pending", "sending", "unknown"].includes(decision.state);
+
 function Messenger() {
   const desktop = desktopBridge();
   const [screen, setScreen] = useState<Screen>(() => new URL(location.href).searchParams.has("artifact") ? "library" : "chats");
@@ -101,8 +103,8 @@ function Messenger() {
   const contact = contacts.find(c => c.id === contactId);
   const profileContact = contacts.find(c => c.id === profileId);
   const directContact = thread?.kind === "direct" ? contacts.find(c => thread.memberIds?.includes(c.id) && c.id !== "self") : undefined;
-  const selectedApproval = approvals.find(a => a.id === approvalId) || approvals.find(a => a.state === "pending");
-  const pending = approvals.filter(a => a.state === "pending");
+  const selectedApproval = approvals.find(a => a.id === approvalId) || approvals.find(a => unresolvedApproval(a));
+  const pending = approvals.filter(a => unresolvedApproval(a));
   const toggleList = useCallback(() => {
     if (!window.matchMedia("(min-width: 761px)").matches) return;
     const focusWasInList = document.getElementById("im-list")?.contains(document.activeElement);
@@ -287,7 +289,7 @@ function Messenger() {
   const matches = (value: string) => value.toLowerCase().includes(search.toLowerCase());
   const addressBook = contacts.filter(c => c.added !== false);
   const people = addressBook.filter(c => c.id !== "self" && matches(`${c.name} ${c.handle} ${c.description}`) && (filter === "all" || (filter === "agent" ? c.kind === "agent" : c.kind === "human")));
-  const shownApprovals = approvals.filter(a => matches(`${a.title} ${a.threadTitle} ${a.contact?.name || ""}`) && (filter === "history" ? a.state !== "pending" : a.state === "pending"));
+  const shownApprovals = approvals.filter(a => matches(`${a.title} ${a.threadTitle} ${a.contact?.name || ""}`) && (filter === "history" ? !unresolvedApproval(a) : unresolvedApproval(a)));
   const replyMessage = thread?.messages.find(m => m.id === draft.replyTo);
   const mentionMatch = draft.text.match(/(?:^|\s)@([a-z0-9_-]*)$/i);
   const mentionCandidates = thread?.kind === "group" && mentionMatch ? contacts.filter(c => c.kind === "agent" && thread.memberIds?.includes(c.id) && c.handle.startsWith((mentionMatch[1] || "").toLowerCase())) : [];
@@ -305,7 +307,7 @@ function Messenger() {
         {screen === "library" && <ArtifactLibrary artifacts={library.filter(item => matches(item.title))} selected={artifactId} onOpen={openArtifact} />}
         {screen === "chats" && <ConversationList threads={data?.threads || []} contacts={contacts} search={search} filter={filter} selected={selected} loading={loading} onOpen={openThread} onNew={() => setNewChat(true)} />}
         {screen === "contacts" && people.map(person => <button className={`im-chat-row ${contactId === person.id ? "selected" : ""}`} key={person.id} data-testid={`im-contact-${person.id}`} onClick={() => { setContactId(person.id); setMobileDetail(true); }} onDoubleClick={() => void startChat(person)}><Avatar contact={person} /><span className="im-row-copy"><strong>{person.name}</strong><small>{person.kind === "agent" ? person.availability === "ready" ? person.description || person.providerName : availabilityText[person.availability] : "本地联系人"}</small></span><ChevronRight size={16} className="im-muted" /></button>)}
-        {screen === "approvals" && shownApprovals.map(item => <button key={item.id} className={`im-chat-row ${selectedApproval?.id === item.id ? "selected" : ""}`} data-testid={`im-approval-${item.id}`} onClick={() => { setApprovalId(item.id); setMobileDetail(true); }}><Avatar contact={item.contact || undefined} /><span className="im-row-copy"><strong>{item.title}</strong><small>{item.threadTitle} · {item.state === "pending" ? "等待决定" : item.state === "cancelled" ? "已失效" : "已记录选择"}</small></span></button>)}
+        {screen === "approvals" && shownApprovals.map(item => <button key={item.id} className={`im-chat-row ${selectedApproval?.id === item.id ? "selected" : ""}`} data-testid={`im-approval-${item.id}`} onClick={() => { setApprovalId(item.id); setMobileDetail(true); }}><Avatar contact={item.contact || undefined} /><span className="im-row-copy"><strong>{item.title}</strong><small>{item.threadTitle} · {item.state === "pending" ? "等待决定" : item.state === "sending" ? "正在同步选择" : item.state === "unknown" ? "结果待核查" : item.state === "cancelled" ? "已失效" : "已记录选择"}</small></span></button>)}
         {!loading && screen !== "chats" && screen !== "library" && (screen === "contacts" ? people.length === 0 : shownApprovals.length === 0) && <div className="im-list-empty"><span>{search ? "没有找到匹配的内容" : screen === "contacts" ? "还没有这类联系人" : filter === "history" ? "还没有审批记录" : "暂无待处理审批"}</span>{screen === "contacts" && !search && <button onClick={() => setContactEditor("new")}>添加联系人</button>}</div>}
       </div>
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-local-add-entry" onClick={() => setLocalPickerOpen(true)}><Plus size={18} /><span>快速添加本机助手<small>选择常用 Agent，添加后开始聊天</small></span><ChevronRight size={16} /></button>}
@@ -328,7 +330,7 @@ function Messenger() {
         <div className="im-approval-content"><ShieldCheck size={28} className="im-blue" /><h2>看过，再决定。</h2><p>每项审批绑定这一次动作。批准后的执行和结果会继续记录在原聊天中。</p><DecisionView decision={selectedApproval} busy={busy === selectedApproval.id} onDecide={choice => void decide(selectedApproval, choice)} /></div>
       </> : screen === "chats" && selected ? <>
         <header className="im-header im-conversation-header"><IconButton label="返回聊天列表" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<button className="im-chat-identity" onClick={() => thread?.kind === "group" ? setGroupEditor(thread) : directContact ? setProfileId(directContact.id) : setDetails(true)} data-testid="im-chat-info"><Avatar contact={directContact} group={thread?.kind === "group"} size="small" /><span><strong><span>{selected === "new" ? "整理资料" : thread ? chatTitle(thread) : "正在打开聊天…"}</span><ChevronRight size={12} /></strong><small className="im-header-presence" data-testid="im-header-status">{directContact?.kind === "agent" && directContact.availability !== "ready" ? availabilityText[directContact.availability] : thread?.runs.some(run => ["running", "verifying"].includes(run.status)) ? "正在回复" : thread?.runs.some(run => run.status === "queued") ? "等待回复" : ""}</small></span></button><div className="im-header-actions">{thread?.kind === "direct" && <IconButton label="从这段私聊创建群聊" testId="im-promote-group" onClick={() => setGroupEditor("new")}><Users size={19} /></IconButton>}<IconButton label="聊天记录与成果" testId="im-results" onClick={() => setDetails(true)}><Info size={20} /></IconButton></div></header>
-        {thread?.decisions.some(d => d.state === "pending") && <button className="im-pending-bar" data-testid="im-pending-bar" onClick={() => { setApprovalId(thread.decisions.find(d => d.state === "pending")!.id); setScreen("approvals"); }}><ShieldCheck size={17} /><span>{thread.decisions.filter(d => d.state === "pending").length} 项操作等待审批</span><ChevronRight size={17} /></button>}
+        {thread?.decisions.some(d => unresolvedApproval(d)) && <button className="im-pending-bar" data-testid="im-pending-bar" onClick={() => { setApprovalId(thread.decisions.find(d => unresolvedApproval(d))!.id); setScreen("approvals"); }}><ShieldCheck size={17} /><span>{thread.decisions.filter(d => unresolvedApproval(d)).length} 项审批需要你处理</span><ChevronRight size={17} /></button>}
         <div className="im-timeline" ref={timeline} data-testid="im-timeline" onScroll={e => { const node = e.currentTarget; nearBottom.current = node.scrollHeight - node.clientHeight - node.scrollTop < 100; if (nearBottom.current) setNewMessages(false); }}>
           {thread && thread.messages.length === 0 && <div className="im-conversation-start"><Avatar contact={directContact} group={thread.kind === "group"} size="large" /><h2>{thread.kind === "group" ? "伙伴到齐，开始聊吧。" : `和 ${directContact?.name || thread.title} 聊聊`}</h2><p>{thread.kind === "group" ? "成员会结合自己的角色选择回应；也可以 @ 指定一位伙伴。" : directContact?.instructions || directContact?.description || "发一条消息，开始这段对话。"}</p></div>}
           {thread && <ConversationTimeline thread={{ ...thread, runs: thread.runs.filter(run => !run.collaboration) }} contacts={contacts} serviceAvatars={serviceAvatars} serviceImages={serviceImages} limit={messageLimit} onMore={() => setMessageLimit(value => value + 80)} onReply={message => { editDraft({ replyTo: message.id }); input.current?.focus(); }} onContact={id => { setContactId(id); setScreen("contacts"); setMobileDetail(true); }} onSource={setSource} onRun={(run, action) => void mutateRun(run, action)} onError={setError} busy={busy} />}

@@ -6,12 +6,13 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { BrowserWindow, nativeImage, shell } from "electron";
+import { BrowserWindow, clipboard, nativeImage, shell } from "electron";
 import { ConnectorHost, newToken } from "./host";
 import { ConnectorStore, type InstanceRecord } from "./store";
 import { GROK_DEFAULTS, GrokBotConnector, GrokClient, grokLogin, type GrokConfig, type GrokData, type GrokLoginResult } from "./grokbot";
 import { WebChatConnector, snapshotOf, type WebChatConfig, type WebChatData } from "./webchat";
 import { DOTS_DRIVER, MUSE_DRIVER, MUSE_LOGIN_STATE } from "./drivers";
+import { openSystemBrowser } from "./system-browser";
 import { grokAvatar } from "./grokavatar";
 import { cueWebSignIn, createCueApiKey, handleCueLink, type CueWebConfig } from "./cueweb";
 import { CUE_DEFAULTS, CueAuthError, CueClient, CueConnector, cueAccountKey, type CueConfig, type CueData } from "./cue";
@@ -71,7 +72,7 @@ type Login = {
   progress: LoginProgress;
   abort: AbortController;
   /** Resolves the "choose" step (Grok Bot accounts with several bots). */
-  choose?: (choiceId: string) => void;
+  choose?: (choiceId: string) => void | Promise<void>;
   /** Resolves an "input" step (the Cue API key). */
   submit?: (value: string) => void;
 };
@@ -119,6 +120,7 @@ export class ConnectorManager {
   private readonly store: ConnectorStore;
   private readonly running = new Map<string, Running>();
   private readonly logins = new Map<string, Login>();
+  private readonly loginWindows = new Map<BrowserWindow, AbortSignal | undefined>();
   /** Stored records that aren't running (yet, or because they failed to start). */
   private readonly dormant = new Map<string, InstanceRecord>();
   private readonly trace: Trace | undefined;
@@ -183,6 +185,8 @@ export class ConnectorManager {
 
   async stop() {
     for (const id of this.logins.keys()) this.cancel(id);
+    for (const window of this.loginWindows.keys()) if (!window.isDestroyed()) window.close();
+    this.loginWindows.clear();
     for (const r of this.running.values()) await r.connector.stop().catch(() => {});
     this.running.clear();
     await this.host.close();
@@ -194,7 +198,7 @@ export class ConnectorManager {
 
   /** Private main-process registration only; never expose this to a renderer. */
   registrations() {
-    return [...this.running.values()].map(({ record }) => ({ instanceId: record.id, name: record.name, token: record.token }));
+    return [...this.running.values()].map(({ record }) => ({ instanceId: record.id, name: record.name, token: record.token, service: record.service }));
   }
 
   sendDirect(id: string, message: InboundMessage) { return this.host.sendDirect(id, message); }
@@ -252,6 +256,9 @@ export class ConnectorManager {
 
   /** Starts a connect flow; poll progress(loginId) for its state. */
   begin(service: ServiceId): string {
+    if (service === "grokbot") for (const [id, active] of this.logins) {
+      if (active.service === service && active.progress.state === "waiting" && !active.abort.signal.aborted) return id;
+    }
     const loginId = randomBytes(8).toString("hex");
     const login: Login = { service, progress: { state: "waiting", message: "Starting…" }, abort: new AbortController() };
     this.logins.set(loginId, login);
@@ -266,8 +273,9 @@ export class ConnectorManager {
     return this.logins.get(loginId)?.progress ?? { state: "failed", message: "Unknown connect flow" };
   }
 
-  choose(loginId: string, choiceId: string) {
-    this.logins.get(loginId)?.choose?.(choiceId);
+  async choose(loginId: string, choiceId: string) {
+    if (choiceId === "copy-login" && !this.logins.get(loginId)?.choose) throw new Error("本次登录链接已失效，请检查连接进度。");
+    await this.logins.get(loginId)?.choose?.(choiceId);
   }
 
   /** A link the OS opened AgentRoom with (open-url). True when a connector took it. */
@@ -288,21 +296,29 @@ export class ConnectorManager {
 
   // ---- internals -------------------------------------------------------------------
 
-  private openExternal = async (url: string) => {
-    if (this.env.openExternalInWindow) {
-      const w = new BrowserWindow({ width: 900, height: 760, title: "Sign in", webPreferences: { sandbox: true, contextIsolation: true } });
-      // A browser would hand app links (cuedev://) to the OS; do that here.
-      const appLink = (e: { preventDefault(): void }, target: string) => {
-        if (!handleCueLink(target)) return;
-        e.preventDefault();
-        if (!w.isDestroyed()) w.close();
-      };
-      w.webContents.on("will-navigate", appLink);
-      w.webContents.on("will-redirect", appLink);
-      await w.loadURL(url).catch(() => {});
-      return;
-    }
-    await shell.openExternal(url);
+  private openSignInWindow = async (url: string, signal?: AbortSignal) => {
+    if (signal) for (const [window, owner] of this.loginWindows) if (owner === signal && !window.isDestroyed()) { window.show(); window.focus(); return; }
+    const target = new URL(url);
+    if (target.protocol !== "https:" && !(target.protocol === "http:" && target.hostname === "127.0.0.1")) throw new Error("Invalid sign-in URL");
+    if (signal?.aborted) throw new Error("cancelled");
+    const w = new BrowserWindow({ width: 900, height: 760, title: "Sign in", webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    this.loginWindows.set(w, signal);
+    const close = () => { if (!w.isDestroyed()) w.close(); };
+    signal?.addEventListener("abort", close, { once: true });
+    w.on("closed", () => { this.loginWindows.delete(w); signal?.removeEventListener("abort", close); });
+    const appLink = (event: { preventDefault(): void }, next: string) => {
+      if (/^https?:\/\//.test(next)) return;
+      event.preventDefault(); if (handleCueLink(next)) close();
+    };
+    w.webContents.on("will-navigate", appLink); w.webContents.on("will-redirect", appLink);
+    // Starting the owned page must not wait for third-party images/streams.
+    // PKCE polling, not navigation success, establishes authentication.
+    void w.loadURL(url).catch(() => {});
+  };
+
+  private openExternal = async (url: string, signal?: AbortSignal) => {
+    if (this.env.openExternalInWindow) return this.openSignInWindow(url, signal);
+    await openSystemBrowser(url, { signal, inApp: target => this.openSignInWindow(target, signal) });
   };
 
   private webConfig(service: "muse" | "dots"): WebChatConfig {
@@ -393,7 +409,7 @@ export class ConnectorManager {
       actions: [{ id: "api-key", label: "Use an API key instead" }],
     };
     const switched = new Promise<"api-key">((resolve) => {
-      login.choose = (id) => id === "api-key" && resolve("api-key");
+      login.choose = (id) => { if (id === "api-key") resolve("api-key"); };
     });
     const signIn = cueWebSignIn(this.env.cue, this.openExternal, web.signal, this.env.openExternalInWindow ? null : join(this.userData, "link-catcher")).then((token) => ({ token }));
     signIn.catch(() => {}); // the user may switch to a key and close the window
@@ -507,7 +523,34 @@ export class ConnectorManager {
     const signal = login.abort.signal;
     if (login.service === "grokbot") {
       login.progress = { state: "waiting", message: "Finish signing in to Grok Bot in your browser…" };
-      const res: GrokLoginResult = await grokLogin({ ...this.env.grok, trace: this.trace }, this.openExternal, signal);
+      let launchSignal: AbortSignal | undefined, startUrl = "", opening = false;
+      const open = async (url: string, scope?: AbortSignal) => {
+        if (opening || scope?.aborted) return;
+        opening = true; launchSignal = scope;
+        try { await this.openExternal(url, scope); } finally { opening = false; }
+      };
+      login.choose = async choice => {
+        if (!startUrl || signal.aborted || login.progress.state !== "waiting" || login.progress.link?.url !== startUrl
+          || !login.progress.expiresAt || Date.parse(login.progress.expiresAt) <= Date.now()) {
+          if (choice === "copy-login") throw new Error("本次登录链接已失效，请检查连接进度。");
+          return;
+        }
+        if (choice === "copy-login") await clipboard.writeText(startUrl);
+        else if (choice === "open-login") await open(startUrl, launchSignal);
+      };
+      let res: GrokLoginResult;
+      try { res = await grokLogin({ ...this.env.grok, trace: this.trace }, open, signal, {
+        onStart: ({ url, expiresAt }) => {
+          startUrl = url;
+          login.progress = { state: "waiting", message: "Waiting for Grok sign-in receipt", expiresAt,
+            link: { label: "本次 Grok 登录链接", url }, actions: [{ id: "open-login", label: "重新打开本次登录页" }] };
+        },
+        onStatus: message => {
+          if (login.progress.state !== "waiting" || signal.aborted) return;
+          login.progress = /^Checking/.test(message) ? { state: "waiting", message } : { ...login.progress, message };
+        },
+      }); }
+      finally { login.choose = undefined; startUrl = ""; }
       // Every bot of the account becomes its own contact; already connected bots are skipped.
       const have = new Set(
         [...this.running.values()].filter((r) => r.record.service === "grokbot").map((r) => (r.record.data as GrokData).agent.id),

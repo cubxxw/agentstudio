@@ -16,7 +16,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { decode, encode, type ProtoMessage, type Schema } from "./proto";
 import { askPrompt, parseDrafts, truncate, HISTORY_ON_CONNECT, MAX_TEXT, type AgentEvent, type AgentInfo, type InboundMessage, type Choice } from "./protocol";
-import { UnknownApprovalError, type Connector, type ConnectorState, type Emitter, type Trace } from "./types";
+import { NotSentError, UnknownApprovalError, type Connector, type ConnectorState, type Emitter, type Trace, type NativeApproval } from "./types";
 
 export type GrokConfig = {
   apiUrl: string; // https://api2.cursor.sh
@@ -41,13 +41,15 @@ export type GrokAgentRef = {
   name: string;
   description: string;
   sessionId: string;
+  harness?: string;
   /** A photo the owner uploaded. */
   avatarUrl?: string;
   /** Otherwise Grok Bot draws the avatar from a shape and a color (see grokavatar.ts). */
   avatarShape?: string;
   avatarColor?: string;
 };
-export type GrokData = GrokTokens & { machineId: string; agent: GrokAgentRef; lastSeq?: number };
+type PersonalTurn = { messageId: string; providerMessageId: string; text: string; echoed: boolean; startSeq: number; sessionId: string; waiting?: boolean; resumeAfter?: number; resumeUpdated?: number; responseSeq?: number; responseUpdated?: number; runningObserved?: boolean; temporalTurn?: string; initialRequest?: string; approvalRequests?: string[]; lastCardSeq?: number; responseRequest?: string; responseTurn?: string; settled?: boolean; cards: string[] };
+export type GrokData = GrokTokens & { machineId: string; agent: GrokAgentRef; lastSeq?: number; personalTurn?: PersonalTurn };
 
 // ---- protobuf schemas (aiserver.v1, transcribed from the app bundle) --------
 
@@ -60,6 +62,7 @@ const GrokBotAgent: Schema = [
   { no: 7, name: "avatar_color", type: "string" },
   { no: 9, name: "avatar_url", type: "string" },
   { no: 12, name: "agent_id", type: "string" },
+  { no: 13, name: "harness", type: "string" },
   { no: 14, name: "role", type: "string" },
   { no: 18, name: "viewer_session_id", type: "string" },
 ];
@@ -109,6 +112,25 @@ const DismissWidgetRequest: Schema = [
   { no: 3, name: "session_id", type: "string" },
 ];
 const RespondWidgetResponse: Schema = [{ no: 1, name: "accepted", type: "bool" }];
+// 0.79.4: live.last_turn_settlement.turn_id is the outbound client nonce.
+// Stable transcript text can precede a card and is not a turn completion signal.
+const GrokLiveState: Schema = [
+  { no: 2, name: "is_running", type: "bool" },
+  { no: 3, name: "is_composing_message", type: "bool" },
+  { no: 4, name: "is_retrying", type: "bool" },
+  { no: 6, name: "awaiting", type: "message", schema: [] },
+  { no: 9, name: "box_handoff_request_id", type: "string" },
+  { no: 11, name: "session_id", type: "string" },
+  { no: 13, name: "has_running_subagents", type: "bool" },
+  { no: 16, name: "last_turn_settlement", type: "message", schema: [
+    { no: 1, name: "turn_id", type: "string" }, { no: 2, name: "outcome", type: "string" },
+  ] },
+];
+const ListGrokStatusesRequest: Schema = [{ no: 1, name: "agent_ids", type: "string", repeated: true }];
+const ListGrokStatusesResponse: Schema = [{ no: 1, name: "statuses", type: "message", repeated: true, schema: [
+  { no: 1, name: "agent_id", type: "string" }, { no: 2, name: "live", type: "message", schema: GrokLiveState },
+  { no: 4, name: "is_running", type: "bool" },
+] }];
 
 // ---- HTTP plumbing ------------------------------------------------------------
 
@@ -145,16 +167,17 @@ export class GrokAuthError extends Error {}
  */
 export class GrokClient {
   private refreshing: Promise<void> | null = null;
+  private tokens: GrokTokens;
 
   constructor(
     private readonly cfg: GrokConfig,
-    private tokens: GrokTokens,
+    tokens: GrokTokens,
     readonly machineId: string,
     private readonly onTokens: (t: GrokTokens) => void,
-  ) {}
+  ) { this.tokens = { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken }; }
 
   get currentTokens(): GrokTokens {
-    return this.tokens;
+    return { accessToken: this.tokens.accessToken, refreshToken: this.tokens.refreshToken };
   }
 
   async rpc(method: string, reqSchema: Schema, req: ProtoMessage, resSchema: Schema): Promise<ProtoMessage> {
@@ -222,6 +245,7 @@ export class GrokClient {
       name: String(a.name || a.title || "Grok Bot"),
       description: String(a.description || ""),
       sessionId: String(a.viewer_session_id || ""),
+      harness: a.harness ? String(a.harness) : undefined,
       // https only (loopback http for local test fakes).
       avatarUrl: typeof a.avatar_url === "string" && /^(https:\/\/|http:\/\/127\.0\.0\.1[:/])/.test(a.avatar_url) ? a.avatar_url : undefined,
       avatarShape: a.avatar_shape ? String(a.avatar_shape) : undefined,
@@ -236,12 +260,13 @@ export type GrokLoginResult = { tokens: GrokTokens; machineId: string; agents: G
 
 /**
  * Runs the browser sign-in: opens the login page, then polls until the user
- * finishes (up to ~10 minutes) or the signal aborts.
+ * finishes (up to ~20 minutes) or the signal aborts.
  */
 export async function grokLogin(
   cfg: GrokConfig,
-  openExternal: (url: string) => void | Promise<void>,
+  openExternal: (url: string, launchSignal?: AbortSignal) => void | Promise<void>,
   signal: AbortSignal,
+  view: { onStart?(value: { url: string; expiresAt: string }): void; onStatus?(message: string): void } = {},
 ): Promise<GrokLoginResult> {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -252,37 +277,55 @@ export async function grokLogin(
   login.searchParams.set("uuid", uuid);
   login.searchParams.set("mode", "login");
   login.searchParams.set("redirectTarget", "sand");
-  await openExternal(login.toString());
+  login.searchParams.set("supportsSelectedTeamLogin", "true");
+  const deadline = Date.now() + 20 * 60_000;
+  const launch = new AbortController();
+  const cancelLaunch = () => launch.abort();
+  signal.addEventListener("abort", cancelLaunch, { once: true });
+  if (signal.aborted) { signal.removeEventListener("abort", cancelLaunch); cancelLaunch(); throw new Error("cancelled"); }
+  view.onStart?.({ url: login.toString(), expiresAt: new Date(deadline).toISOString() });
+  // A stuck OS browser launch must not prevent receipt polling or copying the
+  // original PKCE URL into the owner's existing browser. Never copy a callback.
+  void Promise.resolve().then(() => openExternal(login.toString(), launch.signal)).catch(() => {
+    if (!launch.signal.aborted) view.onStatus?.("Grok sign-in browser unavailable; use the original login link");
+  });
+  try {
 
   const machineId = createHash("sha256").update(randomBytes(32)).digest("hex");
   const poll = new URL(`${cfg.apiUrl}/auth/poll`);
   poll.searchParams.set("uuid", uuid);
   poll.searchParams.set("verifier", verifier);
   let delay = 1000;
-  const deadline = Date.now() + 10 * 60_000;
   while (Date.now() < deadline) {
     if (signal.aborted) throw new Error("cancelled");
     try {
-      const res = await fetch(poll, { headers: { "content-type": "application/json", ...clientHeaders(cfg, machineId) }, signal });
+      const res = await fetch(poll, { headers: { "content-type": "application/json", ...clientHeaders(cfg, machineId) }, signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]) });
       if (res.ok) {
         const body = (await res.json()) as Record<string, unknown>;
         const accessToken = String(body.accessToken ?? body.xaiAccessToken ?? "");
         const refreshToken = String(body.refreshToken ?? body.xaiRefreshToken ?? "");
         if (!accessToken) throw new Error("Grok Bot sign-in returned no token");
+        if (signal.aborted) throw new Error("cancelled");
         const tokens = { accessToken, refreshToken };
+        cancelLaunch();
+        view.onStatus?.("Checking Grok Bot account…");
         const agents = await new GrokClient(cfg, tokens, machineId, () => {}).listAgents();
+        if (signal.aborted) throw new Error("cancelled");
         if (agents.length === 0) throw new Error("This account has no Grok Bot yet. Create one in the Grok Bot app first.");
         return { tokens, machineId, agents };
       }
+      if (res.status === 401 || res.status === 403) throw new Error("Grok sign-in was rejected; start a new sign-in");
       if (res.status !== 404) cfg.trace?.("grokbot.poll", { status: res.status });
     } catch (err) {
       if (signal.aborted) throw new Error("cancelled");
-      if (err instanceof Error && !/fetch failed|network/i.test(err.message)) throw err;
+      if (!(err instanceof Error) || (err.name !== "TimeoutError" && !/fetch failed|network/i.test(err.message))) throw err;
+      view.onStatus?.("Grok sign-in connection interrupted; retrying the same request");
     }
     await sleep(delay, signal);
     delay = Math.min(delay * 1.2, 5000);
   }
-  throw new Error("Sign-in timed out. Try again.");
+  throw new Error("Grok sign-in timed out; the old login link has expired");
+  } finally { signal.removeEventListener("abort", cancelLaunch); cancelLaunch(); }
 }
 
 // ---- transcript parsing --------------------------------------------------------
@@ -334,7 +377,7 @@ function parseObject(o: Record<string, unknown>, kind: string, entryKind: string
   const sent = o.message && typeof o.message === "object" ? (o.message as Record<string, unknown>) : undefined;
   if (sent?.type === "widget" && sent.widget && typeof sent.widget === "object") {
     // Already answered or skipped in Grok Bot: nothing to ask.
-    if (o.widgetSkipped === true || o.widgetAnswered === true || o.answer !== undefined) return { kind: "other" };
+    if (widgetAnswered(o)) return { kind: "other" };
     const w = sent.widget as Record<string, unknown>;
     const prompt = textOf(w.prompt) || textOf(w.title) || "Grok Bot needs your answer";
     const opts = optionsOf(w);
@@ -359,6 +402,7 @@ function parseObject(o: Record<string, unknown>, kind: string, entryKind: string
   if (kind === "user-attachment") return { kind: "user", text: `📎 Sent a file${name ? ` (${name})` : ""}` };
   const options = optionsOf(o);
   if (/widget/i.test(kind) || /widget/i.test(entryKind)) {
+    if (widgetAnswered(o)) return { kind: "other" };
     if (options.length > 0) return { kind: "widget", prompt: textOf(o.prompt) || textOf(o) || "Grok Bot needs your answer", options };
     return { kind: "other" };
   }
@@ -378,6 +422,15 @@ function parseObject(o: Record<string, unknown>, kind: string, entryKind: string
     return { kind: "assistant", text };
   }
   return { kind: "other" };
+}
+
+function widgetAnswered(body: Record<string, unknown>): boolean {
+  return body.widgetAnswered === true || body.widgetSkipped === true || body.widgetDismissed === true || body.answer != null || body.respondedValue != null;
+}
+
+function requestId(entry: ProtoMessage): string | undefined {
+  try { const value = JSON.parse(new TextDecoder().decode(entry.body as Uint8Array)).requestId; return typeof value === "string" && value.length > 0 && value.length < 200 ? value : undefined; }
+  catch { return undefined; }
 }
 
 /** Transcript kinds the Grok Bot app has (0.78.3); the internal ones aren't chat. */
@@ -410,7 +463,7 @@ function optionsOf(o: Record<string, unknown>): { value: string; label: string }
       return null;
     })
     .filter((x): x is { value: string; label: string } => !!x && !!x.label)
-    .slice(0, 4);
+    .slice(0, 32);
 }
 
 const DENY_WORDS = /^(no|don'?t|do not|deny|reject|decline|cancel|skip|not now|stop|never)\b/i;
@@ -457,8 +510,13 @@ export class GrokBotConnector implements Connector {
   private seen = new Map<string, number>(); // entry id -> updated_seq emitted or pending
   private pending = new Map<string, { updated: number; polls: number; text: string }>();
   private pendingAsk: string | null = null;
-  private personalReply: { messageId: string; providerMessageId: string; text: string; echoed: boolean } | null = null;
+  private personalReply: PersonalTurn | null = null;
+  private terminalCandidate = "";
+  private readbackVersion = 0;
+  private nativeCards = new Map<string, { card: NativeApproval; options: { value: string; label: string }[]; updated: number }>();
   private widgets = new Set<string>();
+  private widgetAnswers = new Map<string, number>();
+  private widgetEchoCards = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
 
   private avatarCache: { mime: string; data: Buffer } | null = null;
@@ -507,18 +565,23 @@ export class GrokBotConnector implements Connector {
 
   serialize(): unknown {
     // Tokens live in the shared account client; keep the latest ones.
-    return { ...this.data, ...this.client.currentTokens };
+    const { accessToken, refreshToken } = this.client.currentTokens;
+    return { ...this.data, accessToken, refreshToken };
   }
 
   async start(emitter: Emitter): Promise<void> {
     this.emitter = emitter;
     this.running = true;
+    if ((this.data.personalTurn?.waiting || this.data.personalTurn?.resumeAfter !== undefined) && this.data.personalTurn.sessionId === this.data.agent.sessionId) {
+      this.personalReply = this.data.personalTurn;
+    }
     try {
       await this.refreshProfile();
       if (this.data.lastSeq === undefined) {
         // Earlier entries are history: the last few come over as such, the rest stays in Grok Bot.
         const entries = await this.list();
         for (const m of grokHistory(entries)) emitter.emit(m);
+        this.syncCards(entries);
         this.data.lastSeq = Math.max(0, ...entries.map((e) => Number(e.seq ?? 0)));
         for (const e of entries) this.seen.set(String(e.entry_id ?? e.seq), Number(e.updated_seq ?? 0));
         this.onChange();
@@ -542,12 +605,13 @@ export class GrokBotConnector implements Connector {
     const fresh = (cur.id ? list.find((a) => a.id === cur.id) : undefined) ?? list.find((a) => a.name === cur.name);
     if (!fresh) return;
     const moved = fresh.id !== cur.id;
-    const changed = moved || (["name", "avatarUrl", "avatarShape", "avatarColor"] as const).some((k) => fresh[k] !== cur[k]);
+    const changed = moved || (["name", "harness", "avatarUrl", "avatarShape", "avatarColor"] as const).some((k) => fresh[k] !== cur[k]);
     if (!changed) return;
     this.data.agent = { ...cur, ...fresh, sessionId: fresh.sessionId || cur.sessionId };
     if (moved) {
       this.cfg.trace?.("grokbot.repair", { name: fresh.name });
       this.data.lastSeq = undefined;
+      this.personalReply = null; this.data.personalTurn = undefined; this.nativeCards.clear(); this.widgets.clear();
       this.seen.clear();
       this.pending.clear();
     }
@@ -566,12 +630,18 @@ export class GrokBotConnector implements Connector {
     const id = randomUUID();
     const personal = msg.session_id.startsWith("personal:");
     if (personal) {
-      if (this.pending.size || this.widgets.size || this.personalReply) throw new Error("The service has an unfinished conversation; inspect it first.");
+      if (this.pending.size || this.widgets.size || this.personalReply && !this.personalReply.settled) throw new NotSentError("The service has an unfinished conversation; inspect it first.");
+      const previousTurn = this.personalReply;
       const before = await this.list();
+      this.syncCards(before);
+      if (this.widgets.size || this.personalReply !== previousTurn || this.personalReply && !this.personalReply.settled) throw new NotSentError("The earlier service turn needs attention; this new message was not sent.");
       this.data.lastSeq = Math.max(this.data.lastSeq ?? 0, ...before.map((entry) => Number(entry.seq ?? 0)));
       for (const entry of before) this.seen.set(String(entry.entry_id ?? entry.seq), Number(entry.updated_seq ?? 0));
       this.onChange();
-      this.personalReply = { messageId: msg.message_id, providerMessageId: id, text: text.trim(), echoed: false };
+      this.widgetAnswers.clear(); this.widgetEchoCards.clear(); this.ownMessageIds.clear(); this.ownTexts.clear();
+      this.terminalCandidate = "";
+      this.personalReply = { messageId: msg.message_id, providerMessageId: id, text: text.trim(), echoed: false, startSeq: this.data.lastSeq ?? 0, sessionId: this.data.agent.sessionId, cards: [] };
+      this.persistTurn();
     }
     this.ownMessageIds.add(id);
     this.ownTexts.add(text.trim());
@@ -589,22 +659,100 @@ export class GrokBotConnector implements Connector {
     this.emitter?.emit({ type: "status", state: "working", text: "Working" });
     this.activeUntil = Date.now() + 10 * 60_000;
     this.schedule(this.cfg.pollActiveMs);
-    } catch (error) { if (personal) this.personalReply = null; throw error; }
+    } catch (error) { if (personal) { this.personalReply = null; this.persistTurn(); } throw error; }
   }
 
-  async decide(externalId: string, choice: string): Promise<void> {
-    if (!this.widgets.has(externalId)) throw new UnknownApprovalError();
-    this.widgets.delete(externalId);
-    const base = { agent_id: this.data.agent.id, entry_id: externalId, session_id: this.data.agent.sessionId };
-    if (choice === DISMISS) {
-      await this.client.rpc("DismissGrokBotWidget", DismissWidgetRequest, base, []);
-    } else {
-      this.ownTexts.add(choice.trim()); // Grok Bot may log the answer as the user's message
-      const res = await this.client.rpc("RespondGrokBotWidget", WidgetRequest, { ...base, value: choice }, RespondWidgetResponse);
-      if (res.accepted === false) throw new Error("Grok Bot didn't accept the answer");
+  private persistTurn() { this.data.personalTurn = this.personalReply ?? undefined; this.onChange(); }
+
+  /** Read-only card sync is independent of chat seq/history and the active task. */
+  private syncCards(entries: ProtoMessage[]) {
+    const observed = new Set<string>();
+    let relatedAnswer = false;
+    for (const entry of entries) {
+      if (entry.body_omitted || !entry.body) continue; // absence is never an answer
+      let body: Record<string, unknown>;
+      try { body = JSON.parse(new TextDecoder().decode(entry.body as Uint8Array)); } catch { continue; }
+      const message = body.message as Record<string, unknown> | undefined;
+      const permission = message?.type === "local-tool-permission" && message.ask && typeof message.ask === "object" ? message.ask as Record<string, unknown> : null;
+      const widget = permission || (message?.type === "widget" && message.widget && typeof message.widget === "object" ? message.widget as Record<string, unknown> : /widget/i.test(String(body.kind ?? entry.entry_kind)) ? body : null);
+      if (!widget) continue;
+      const options = optionsOf(widget);
+      if ((!options.length && !permission) || options.some(o => o.value.length > 16000 || o.label.length > 1000)) continue;
+      const id = String(entry.entry_id || entry.seq);
+      const prior = this.nativeCards.get(id);
+      if (prior && Number(entry.updated_seq ?? 0) < prior.updated) continue;
+      const permissionState = permission ? String(permission.status ?? "pending") : null;
+      const answered = permission ? permissionState !== "pending" : widgetAnswered(body);
+      if (!answered && prior?.card.state === "resolved") continue;
+      const revision = createHash("sha256").update(JSON.stringify([this.data.agent.id, this.data.agent.sessionId, id, entry.updated_seq, widget])).digest("hex");
+      const reply = this.personalReply;
+      const related = reply?.echoed && (reply.cards.includes(id) || Number(entry.seq) > reply.startSeq && (this.data.agent.harness !== "temporal" || !!reply.temporalTurn && /^(t\d+)s\d+$/.exec(id)?.[1] === reply.temporalTurn));
+      const firstAnswered = related && answered && prior?.card.replyTo !== reply.messageId;
+      if (related && this.data.agent.harness === "temporal") {
+        reply.lastCardSeq = Math.max(reply.lastCardSeq ?? 0, Number(entry.seq));
+        for (const item of entries.filter(item => !answered || Number(item.seq) <= Number(entry.seq))) {
+          const request = requestId(item);
+          if (request && !reply.approvalRequests?.includes(request)) (reply.approvalRequests ??= []).push(request);
+        }
+        this.persistTurn();
+      }
+      if (firstAnswered) {
+        // The owner can answer between polls, including before the original
+        // echo arrives. First association with this turn must exclude earlier text.
+        reply.resumeAfter = Math.max(reply.resumeAfter ?? 0, Number(entry.seq));
+        reply.resumeUpdated = undefined; reply.runningObserved = false; reply.settled = false; this.terminalCandidate = ""; this.persistTurn();
+      }
+      const answer = body.respondedValue ?? body.answer;
+      const rawAnswer = typeof answer === "string" ? answer : (answer as { value?: unknown } | undefined)?.value;
+      const card: NativeApproval = { id, revision, title: permission ? `Grok Bot 请求本机权限：${textOf(permission.action) || "使用电脑"}` : textOf(widget.prompt) || textOf(widget.title) || "Grok Bot needs your answer",
+        ...(permission ? { originalAppOnly: true } : {}),
+        choices: options.map((o, i) => ({ key: `g${revision}_${i}`, label: o.label })), state: answered ? "resolved" : "pending",
+        ...(related ? { replyTo: reply.messageId } : prior?.card.replyTo ? { replyTo: prior.card.replyTo } : {}),
+        ...(answered ? { source: prior?.card.source === "agentroom" ? "agentroom" : "original", choiceLabel: permission ? ({ once: "允许一次", always: "已在原应用设置持续允许", denied: "已拒绝", expired: "已过期" }[permissionState!] || "已在 Grok Bot 处理") : body.widgetSkipped === true || body.widgetDismissed === true ? "已跳过" : options.find(o => o.value === rawAnswer)?.label || "已在 Grok Bot 处理" } : {}) };
+      if (answered) this.widgets.delete(id); else this.widgets.add(id);
+      if (related && !answered) { reply.waiting = true; reply.settled = false; reply.runningObserved = false; this.terminalCandidate = ""; reply.resumeAfter = Math.max(reply.resumeAfter ?? 0, ...entries.map(item => Number(item.seq ?? 0))); reply.resumeUpdated = Math.max(reply.resumeUpdated ?? 0, ...entries.map(item => Number(item.updated_seq ?? 0))); if (!reply.cards.includes(id)) reply.cards.push(id); this.persistTurn(); }
+      this.nativeCards.set(id, { card, options, updated: Number(entry.updated_seq ?? 0) }); observed.add(id);
+      if (JSON.stringify(prior?.card) !== JSON.stringify(card)) this.emitter?.approval?.(card);
+      if (answered && related && (firstAnswered || prior?.card.state === "pending" || (!prior && reply.cards.includes(id)))) {
+        relatedAnswer = true;
+        if (typeof rawAnswer === "string") this.rememberWidgetAnswer(id, rawAnswer);
+        reply.cards = reply.cards.filter(cardId => cardId !== id); this.persistTurn();
+      }
     }
-    this.activeUntil = Date.now() + 10 * 60_000;
-    this.schedule(this.cfg.pollActiveMs);
+    if (relatedAnswer && this.personalReply?.waiting && !this.widgets.size) {
+      this.personalReply.waiting = false; this.persistTurn(); this.emitter?.emit({ type: "status", state: "working", text: "Decision answered" });
+    }
+    return observed;
+  }
+
+  private rememberWidgetAnswer(cardId: string, value: string) { if (!this.personalReply || this.widgetEchoCards.has(cardId)) return; this.widgetEchoCards.add(cardId); const key = value.trim(); this.widgetAnswers.set(key, (this.widgetAnswers.get(key) ?? 0) + 1); }
+  private consumeWidgetAnswer(value: string) { const key = value.trim(), count = this.widgetAnswers.get(key) ?? 0; if (!count) return false; if (count === 1) this.widgetAnswers.delete(key); else this.widgetAnswers.set(key, count - 1); return true; }
+
+  async decide(externalId: string, choice: string): Promise<void> {
+    // Refresh first: another device may have answered or revised this exact card.
+    const observed = this.syncCards(await this.list());
+    if (!observed.has(externalId)) throw new UnknownApprovalError();
+    const current = this.nativeCards.get(externalId);
+    const index = current?.card.choices.findIndex(option => option.key === choice) ?? -1;
+    const personalChoice = choice.startsWith("g") && /^g[0-9a-f]{64}_\d+$/.test(choice);
+    if (!current || current.card.state !== "pending" || (personalChoice && index < 0)) throw new UnknownApprovalError();
+    const value = personalChoice ? current.options[index]!.value : choice;
+    if (value !== DISMISS && !current.options.some(option => option.value === value)) throw new UnknownApprovalError();
+    const base = { agent_id: this.data.agent.id, entry_id: externalId, session_id: this.data.agent.sessionId };
+    if (value === DISMISS) await this.client.rpc("DismissGrokBotWidget", DismissWidgetRequest, base, []);
+    else {
+      const res = await this.client.rpc("RespondGrokBotWidget", WidgetRequest, { ...base, value }, RespondWidgetResponse);
+      if (res.accepted === false) throw new Error("Grok Bot didn't accept the answer");
+      this.ownTexts.add(value.trim()); if (current.card.replyTo === this.personalReply?.messageId) this.rememberWidgetAnswer(externalId, value);
+    }
+    this.widgets.delete(externalId);
+    current.card = { ...current.card, state: "resolved", source: "agentroom", choiceLabel: current.options.find(option => option.value === value)?.label || "已跳过" };
+    this.emitter?.approval?.(current.card);
+    this.emitter?.emit({ type: "approval_cancel", external_id: externalId });
+    if (this.personalReply?.waiting && !this.widgets.size) {
+      this.personalReply.waiting = false; this.persistTurn(); this.emitter?.emit({ type: "status", state: "working", text: "Decision answered" });
+    }
+    this.activeUntil = Date.now() + 10 * 60_000; this.schedule(this.cfg.pollActiveMs);
   }
 
   private schedule(ms: number) {
@@ -626,9 +774,22 @@ export class GrokBotConnector implements Connector {
   private async tick() {
     if (!this.running) return;
     try {
+      // Read status first, then transcript, so terminal state cannot finish a
+      // pre-terminal transcript snapshot. Failure never falls back to text-idle.
+      const turn = this.personalReply;
+      const status = turn ? await this.runState().catch(() => null) : null;
+      if (!status) this.terminalCandidate = "";
       const entries = await this.list();
+      this.readbackVersion = Math.max(0, ...entries.map(entry => Number(entry.updated_seq ?? 0)));
       this.status = { status: "ready" };
       this.process(entries);
+      if (turn && this.personalReply === turn) {
+        if (turn.echoed && !turn.waiting && this.stateRunning(status)) { turn.runningObserved = true; this.terminalCandidate = ""; this.persistTurn(); }
+        if (status && !this.stateRunning(status) && (turn.responseSeq || (status.live as ProtoMessage | undefined)?.last_turn_settlement)) {
+          const confirmed = await this.runState().catch(() => null);
+          if (this.personalReply === turn) this.settlePersonalTurn(status, confirmed);
+        }
+      }
     } catch (err) {
       this.status = { status: err instanceof GrokAuthError ? "needs_login" : "error", message: String((err as Error).message) };
       this.cfg.trace?.("grokbot.poll_error", { message: this.status.message });
@@ -636,15 +797,61 @@ export class GrokBotConnector implements Connector {
     this.schedule(Date.now() < this.activeUntil ? this.cfg.pollActiveMs : this.cfg.pollIdleMs);
   }
 
+  private async runState(): Promise<ProtoMessage | null> {
+    const result = await this.client.rpc("ListGrokBotAgentStatuses", ListGrokStatusesRequest, { agent_ids: [this.data.agent.id] }, ListGrokStatusesResponse);
+    const status = (result.statuses as ProtoMessage[] | undefined)?.find(item => item.agent_id === this.data.agent.id);
+    return status ?? null;
+  }
+
+  private stateRunning(status: ProtoMessage | null): boolean {
+    const live = status?.live as ProtoMessage | undefined;
+    return !!(status?.is_running || live?.is_running || live?.is_composing_message || live?.is_retrying || live?.has_running_subagents || live?.awaiting || live?.box_handoff_request_id);
+  }
+
+  private settlePersonalTurn(before: ProtoMessage, after: ProtoMessage | null) {
+    const reply = this.personalReply, live = after?.live as ProtoMessage | undefined;
+    const settlement = live?.last_turn_settlement as ProtoMessage | undefined;
+    if (!reply || reply.settled || !reply.echoed || !after || this.stateRunning(before) || this.stateRunning(after)
+      || this.pending.size || this.widgets.size || reply.waiting) { this.terminalCandidate = ""; return; }
+    const exact = (status: ProtoMessage) => {
+      const state = status.live as ProtoMessage | undefined, settled = state?.last_turn_settlement as ProtoMessage | undefined;
+      return state?.session_id === reply.sessionId && settled?.turn_id === reply.providerMessageId;
+    };
+    // Temporal agents do not expose live/settlement. Require this phase's
+    // observed running -> idle transition, bracketed around a fresh transcript.
+    // A proven new generation request in the same approval turn can instead
+    // use bounded readback, including after restart; no request is resent.
+    const newApprovalRequest = !!(reply.temporalTurn && reply.responseTurn === reply.temporalTurn && (reply.responseSeq ?? 0) > (reply.lastCardSeq ?? Infinity) && reply.responseRequest && reply.approvalRequests?.length && !reply.approvalRequests.includes(reply.responseRequest));
+    const sameInitialRequest = !!(reply.temporalTurn && reply.responseTurn === reply.temporalTurn && reply.initialRequest && reply.responseRequest === reply.initialRequest);
+    const temporal = this.data.agent.harness === "temporal" && !before.live && !after.live && (reply.runningObserved || newApprovalRequest || sameInitialRequest);
+    if (this.data.agent.harness === "temporal" && reply.approvalRequests?.length && !newApprovalRequest) return;
+    if ((exact(before) && exact(after) && settlement?.outcome === "success") || temporal) {
+      if (!reply.responseSeq || (reply.resumeUpdated !== undefined ? (reply.responseUpdated ?? 0) <= reply.resumeUpdated : reply.responseSeq <= (reply.resumeAfter ?? reply.startSeq))) return;
+      if (temporal) {
+        const candidate = JSON.stringify([reply.messageId, reply.responseSeq, reply.responseUpdated, reply.responseRequest, this.readbackVersion]);
+        if (candidate !== this.terminalCandidate) { this.terminalCandidate = candidate; return; }
+      }
+      this.emitter?.emit({ type: "status", state: "idle" });
+      reply.settled = true;
+    } else if (exact(before) && exact(after) && ["error", "cancelled"].includes(String(settlement?.outcome))) {
+      this.emitter?.uncertain?.(reply.messageId);
+    } else return;
+    this.widgetAnswers.clear(); this.widgetEchoCards.clear();
+    if (!reply.settled) this.personalReply = null;
+    this.persistTurn();
+  }
+
   private process(entries: ProtoMessage[]) {
     const emit = (e: Parameters<Emitter["emit"]>[0]) => this.emitter?.emit(e);
+    this.syncCards(entries);
+    // Process cards again after user echoes below so correlation uses the original nonce.
     const latestSeq = Math.max(0, ...entries.map((e) => Number(e.seq ?? 0)));
     let processedAssistant = false;
     for (const e of entries) {
       const id = String(e.entry_id || e.seq);
       const updated = Number(e.updated_seq ?? 0);
       const seq = Number(e.seq ?? 0);
-      if (seq <= (this.data.lastSeq ?? 0) && !this.pending.has(id)) continue;
+      if (seq <= (this.data.lastSeq ?? 0) && !this.pending.has(id) && !(this.personalReply && seq > this.personalReply.startSeq && ((this.seen.has(id) && updated > this.seen.get(id)!) || this.personalReply.responseSeq === seq && updated > (this.personalReply.responseUpdated ?? updated)))) continue;
       if ((this.seen.get(id) ?? -1) >= updated && !this.pending.has(id)) continue;
       const parsed = parseEntry(String(e.entry_kind ?? ""), e.body as Uint8Array | undefined);
       this.cfg.trace?.("grokbot.entry", {
@@ -664,11 +871,19 @@ export class GrokBotConnector implements Connector {
         // What the user typed in Grok Bot itself (AgentRoom's own sends are skipped).
         let ours: boolean | string | undefined;
         if (this.personalReply) {
-          ours = parsed.nonce ? parsed.nonce === this.personalReply.providerMessageId && this.ownMessageIds.delete(parsed.nonce)
-            : parsed.text.trim() === this.personalReply.text && this.ownTexts.delete(parsed.text);
-          if (ours) { this.ownTexts.delete(parsed.text); this.personalReply.echoed = true; }
+          ours = parsed.nonce ? parsed.nonce === this.personalReply.providerMessageId
+            : (this.personalReply.echoed && this.consumeWidgetAnswer(parsed.text)) || (parsed.text.trim() === this.personalReply.text && this.ownTexts.delete(parsed.text));
+          if (ours) {
+            this.ownTexts.delete(parsed.text); this.personalReply.echoed = true;
+            if (parsed.nonce) this.ownMessageIds.delete(parsed.nonce);
+            if (this.data.agent.harness === "temporal" && parsed.nonce === this.personalReply.providerMessageId) {
+              const temporalTurn = /^(t\d+)u$/.exec(id)?.[1];
+              if (temporalTurn) { this.personalReply.temporalTurn ??= temporalTurn; this.personalReply.initialRequest ??= requestId(e); }
+            }
+            this.persistTurn();
+          }
         } else ours = (parsed.nonce && this.ownMessageIds.delete(parsed.nonce)) || this.ownTexts.delete(parsed.text);
-        if (!ours) { this.personalReply = null; emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), from_user: true, via: "Grok Bot" }); }
+        if (!ours) { this.widgetAnswers.clear(); this.widgetEchoCards.clear(); this.personalReply = null; this.persistTurn(); emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), from_user: true, via: "Grok Bot" }); }
         continue;
       }
       if (parsed.kind === "notice") {
@@ -690,15 +905,23 @@ export class GrokBotConnector implements Connector {
       }
       this.pending.delete(id);
       this.seen.set(id, updated);
-      processedAssistant = true;
+      const afterApproval = this.personalReply?.resumeUpdated !== undefined ? updated > this.personalReply.resumeUpdated : !this.personalReply?.resumeAfter || seq > this.personalReply.resumeAfter;
+      const temporalTurn = /^(t\d+)s\d+$/.exec(id)?.[1];
+      const correlated = this.personalReply?.echoed && (this.data.agent.harness !== "temporal" || !!this.personalReply.temporalTurn && temporalTurn === this.personalReply.temporalTurn);
+      if (afterApproval) processedAssistant = true;
+      if (this.personalReply && correlated && afterApproval) {
+        this.personalReply.responseSeq = seq; this.personalReply.responseUpdated = updated;
+        this.personalReply.responseRequest = requestId(e); this.personalReply.responseTurn = temporalTurn; this.persistTurn();
+      }
       if (this.pendingAsk) {
         const taskId = this.pendingAsk;
         this.pendingAsk = null;
         emit({ type: "drafts", task_id: taskId, drafts: parseDrafts(parsed.text).map((text) => ({ text })) });
       } else {
-        emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), ...(this.personalReply?.echoed ? { reply_to: this.personalReply.messageId } : {}) });
+        emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), ...(this.personalReply && correlated ? { reply_to: this.personalReply.messageId, ...(!afterApproval ? { provisional: true } : {}) } : {}) });
       }
     }
+    this.syncCards(entries);
     const maxDone = Math.max(this.data.lastSeq ?? 0, ...entries.filter((e) => !this.pending.has(String(e.entry_id || e.seq))).map((e) => Number(e.seq ?? 0)));
     if (maxDone !== this.data.lastSeq) {
       this.data.lastSeq = maxDone;
@@ -706,22 +929,16 @@ export class GrokBotConnector implements Connector {
     }
     // A poll can contain several assistant entries and a later decision card.
     // Keep their association and ordering until the entire pending batch settles.
-    if (processedAssistant && this.pending.size === 0) {
+    if (processedAssistant && this.pending.size === 0 && this.widgets.size === 0 && !this.personalReply) {
       emit({ type: "status", state: "idle" });
-      if (this.personalReply) {
-        if (!this.personalReply.echoed) this.emitter?.uncertain?.(this.personalReply.messageId);
-        this.personalReply = null;
-      }
     }
   }
 }
 
 function sleep(ms: number, signal?: AbortSignal) {
-  return new Promise<void>((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(t);
-      resolve();
-    }, { once: true });
+  return new Promise<void>(resolve => {
+    const finish = () => { clearTimeout(timer); signal?.removeEventListener("abort", finish); resolve(); };
+    const timer = setTimeout(finish, ms);
+    if (signal?.aborted) finish(); else signal?.addEventListener("abort", finish, { once: true });
   });
 }

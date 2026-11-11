@@ -336,6 +336,8 @@ The quiet `im-chat-info` header displays the peer/group and status (`im-header-s
 
 Schedules start disabled. Run Now requires a saved active goal. Pause turns off later scheduling and invalidates queued ticks; it does not claim to stop an operation already sent. Save conflict/network errors preserve editing. App exit and Mac sleep suspend scheduling. Fixed remote schedules do not claim structured autonomy. Human contacts remain local-only until an actual messaging transport exists.
 
+The personal approval card (`personal-decision`) also renders `provider_approval` questions from Grok Bot. Its `personal-decision-<opaque key>` buttons retain each provider label. Sending/unknown states disable further choices; resolved cards display the selected label and original-app/AgentRoom source. Native permission cards explain that the action belongs in Grok Bot and synchronize the result without offering a permission grant. Independent cards open their bot’s direct conversation without a synthetic run.
+
 ### Shared artifact coauthoring (personal desktop)
 
 The `im-nav-library` entry opens the independent artifact library. `library-artifact-<artifactId>` opens the same work across chats. Discussion cards use host-owned records, with `creation-card`, `creation-scope`, `creation-approve`, `creation-adjust`, `creation-edit-goal`, `creation-save` and `creation-reject`. A decision binds the displayed version; approving an old card fails rather than executing a changed plan.

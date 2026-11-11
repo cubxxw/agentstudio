@@ -8,6 +8,7 @@ import { PersonalServices, type PersonalServicesManager } from "../src/main/pers
 import { ConnectorHost } from "../src/main/connectors/host";
 import type { AgentEvent, InboundMessage } from "../src/main/connectors/protocol";
 import type { Connector, ConnectorSummary, DirectConnectorEvent, Emitter, LoginProgress, ServiceId } from "../src/main/connectors/types";
+import { NotSentError } from "../src/main/connectors/types";
 import { GrokBotConnector, GROK_DEFAULTS, type GrokClient } from "../src/main/connectors/grokbot";
 import { CueConnector, type CueClient, type CueEvent } from "../src/main/connectors/cue";
 import { WebChatConnector } from "../src/main/connectors/webchat";
@@ -31,6 +32,8 @@ class FakeManager implements PersonalServicesManager {
   readonly chosen: string[] = [];
   readonly submitted: string[] = [];
   readonly cancelled: string[] = [];
+  decisions: { id: string; choice: string }[] = [];
+  onDecide: () => Promise<void> = async () => {};
   starts = 0;
   stops = 0;
   status: ConnectorSummary["status"] = "ready";
@@ -62,6 +65,7 @@ class FakeManager implements PersonalServicesManager {
   open(id: string) { this.opened.push(id); }
   async remove(id: string) { this.removed.push(id); const position = this.records.findIndex((entry) => entry.instanceId === id); if (position >= 0) this.records.splice(position, 1); this.host.remove(id); }
   handleLink(url: string) { return url === "cuedev://synthetic"; }
+  async decideDirect(_instance: string, id: string, choice: string) { this.decisions.push({ id, choice }); await this.onDecide(); }
   sendDirect(id: string, message: InboundMessage) { return this.host.sendDirect(id, message); }
 }
 async function fixture(existingDirectory?: string) {
@@ -244,6 +248,11 @@ describe("durable local A2A dispatch", () => {
     await finish(f); expect((await f.get(first.result.id)).result.status.state).toBe("unknown");
     expect((await f.send()).result.id).toBe(first.result.id); expect(f.manager().sends).toHaveLength(1);
   });
+  it("records a proved preflight rejection as not sent rather than uncertain", async () => {
+    const f=await fixture();await f.services.list();f.manager().onSend=async()=>{throw new NotSentError("known preflight");};const sent=await f.send();
+    await expect.poll(async()=>(await f.get(sent.result.id)).result.status.state).toBe("failed");
+    expect((await f.get(sent.result.id)).result.metadata.uncertain).toBe(false);
+  });
 
   it("returns input-required for agent decisions, offers original service and never auto-answers", async () => {
     const f = await fixture(); const first = await f.send();
@@ -332,8 +341,8 @@ describe("durable local A2A dispatch", () => {
     const events: DirectConnectorEvent[] = [];
     const harness = Object.create(WebChatConnector.prototype) as { process(snapshot: unknown): void };
     Object.assign(harness, {
-      cfg: { name: "Synthetic WebChat" }, emitter: { ...emitter, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); } },
-      ownTexts: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true }, seen: new Set(),
+      cfg: { name: "Synthetic WebChat" }, emitter: { ...emitter, approval: (card: any) => { events.push({ type: "native_approval", card }); emitter.approval!(card); }, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); } },
+      ownTexts: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true, startSeq: 0, cards: [] }, seen: new Set(),
       pending: new Map([["answer_1", { text: "First bubble", polls: 1 }], ...(secondPending ? [] : [["answer_2", { text: "Second bubble contains final result", polls: 1 }] as const])]),
       approvals: new Map(), pendingAsk: null,
     });
@@ -357,13 +366,13 @@ describe("durable local A2A dispatch", () => {
     const f = await fixture(); const first = await f.send(); await expect.poll(() => f.manager().sends.length).toBe(1);
     const emitter = f.manager().emitters.get("fake_grok")!;
     const events: DirectConnectorEvent[] = [];
-    const harness = Object.create(GrokBotConnector.prototype) as { process(entries: unknown[]): void };
+    const harness = Object.create(GrokBotConnector.prototype) as { process(entries: unknown[]): void; settlePersonalTurn(before: any, after: any): void };
     Object.assign(harness, {
-      cfg: {}, data: { lastSeq: 0 }, onChange() {},
-      emitter: { ...emitter, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); }, inputRequired: (messageId: string) => { events.push({ type: "input_required", messageId }); emitter.inputRequired!(messageId); } },
-      ownTexts: new Set(), ownMessageIds: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true }, seen: new Map(),
+      cfg: {}, data: { lastSeq: 0, agent: { id: "qa", sessionId: "qa" } }, nativeCards: new Map(), onChange() {},
+      emitter: { ...emitter, approval: (card: any) => { events.push({ type: "native_approval", card }); emitter.approval!(card); }, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); }, inputRequired: (messageId: string) => { events.push({ type: "input_required", messageId }); emitter.inputRequired!(messageId); } },
+      ownTexts: new Set(), ownMessageIds: new Set(), personalReply: { messageId: "message_1", providerMessageId: "qa_nonce", sessionId: "qa", text: "Synthetic task", echoed: true, startSeq: 0, cards: [] }, seen: new Map(),
       pending: new Map([["entry_1", { updated: 1, text: "First Grok bubble", polls: 1 }], ...(scenario === "pending" ? [] : [["entry_2", { updated: 1, text: "Final Grok result", polls: 1 }] as const])]),
-      widgets: new Set(), pendingAsk: null,
+      widgets: new Set(), widgetAnswers: new Map(), widgetEchoCards: new Set(), pendingAsk: null,
     });
     const entry = (seq: number, body: unknown, kind = "message") => ({ seq, entry_id: `entry_${seq}`, updated_seq: 1, entry_kind: kind, body: new TextEncoder().encode(JSON.stringify(body)) });
     const entries = [entry(1, { role: "assistant", content: "First Grok bubble" }), entry(2, { role: "assistant", content: "Final Grok result" })];
@@ -375,17 +384,20 @@ describe("durable local A2A dispatch", () => {
       expect(events.filter((event) => event.type === "status" && event.state === "idle")).toHaveLength(0);
       harness.process(entries); await eventTurn();
     }
+    const settled = { agent_id: "qa", live: { session_id: "qa", last_turn_settlement: { turn_id: "qa_nonce", outcome: "success" } } };
+    harness.settlePersonalTurn(settled, settled); await eventTurn();
     const result = (await f.get(first.result.id)).result;
     if (scenario === "approval" || scenario === "manual-step") {
       expect(result.status.state).toBe("input-required"); expect(result.artifacts).toBeUndefined();
-      const required = events.findIndex((event) => event.type === "approval_request" || event.type === "input_required");
-      expect(events.findIndex((event) => event.type === "status" && event.state === "idle")).toBeGreaterThan(required);
+      const required = events.findIndex((event) => event.type === "approval_request" || event.type === "input_required" || event.type === "native_approval");
+      expect(required).toBeGreaterThan(-1);
+      expect(events.filter((event) => event.type === "status" && event.state === "idle")).toHaveLength(["approval", "manual-step"].includes(scenario) ? 0 : 1);
     } else {
       expect(result.status.state).toBe("completed");
       expect(result.artifacts[0].parts[0].text).toBe("First Grok bubble\n\nFinal Grok result");
     }
     expect(events.filter((event) => event.type === "message" && event.reply_to === "message_1")).toHaveLength(2);
-    expect(events.filter((event) => event.type === "status" && event.state === "idle")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "status" && event.state === "idle")).toHaveLength(["approval", "manual-step"].includes(scenario) ? 0 : 1);
   });
 
   it("coalesces stop and rejects late writes from a previous manager after the next launch", async () => {
@@ -466,13 +478,15 @@ describe("real connector personal-turn association with synthetic providers", ()
       providerId = input.message_id!; if (fail) throw new Error("synthetic send failure"); return { dispatched: true };
     }) } as unknown as GrokClient;
     const connector = new GrokBotConnector({ ...GROK_DEFAULTS, pollActiveMs: 100, pollIdleMs: 100 }, { accessToken: "synthetic", refreshToken: "synthetic", machineId: "synthetic", agent: { id: "agent", name: "Fake", description: "", sessionId: "provider_conversation" } }, client, () => {}, async () => null);
-    const harness = connector as unknown as { emitter: Emitter; process(entries: unknown[]): void };
+    const harness = connector as unknown as { emitter: Emitter; process(entries: unknown[]): void; settlePersonalTurn(before: any, after: any): void };
     harness.emitter = emitter;
     await connector.send(message);
     const reply = [old, entry(2, "user", message.text, providerId), entry(3, "assistant", "new answer")];
     harness.process(reply); harness.process(reply);
     expect(events).toContainEqual({ type: "message", text: "new answer", reply_to: message.message_id });
     expect(events).not.toContainEqual(expect.objectContaining({ text: "old answer" }));
+    const settled = { agent_id: "agent", live: { session_id: "provider_conversation", last_turn_settlement: { turn_id: providerId, outcome: "success" } } };
+    harness.settlePersonalTurn(settled, settled);
     await connector.send({ ...message, message_id: "second_message" });
     const interrupted = [entry(4, "user", "manual input"), entry(5, "assistant", "manual reply")];
     harness.process(interrupted); harness.process(interrupted);
@@ -604,4 +618,87 @@ describe("workspace switch readiness", () => {
     await f.send(); expect(f.services.hasUnresolvedTasks()).toBe(true);
     await finish(f); expect(f.services.hasUnresolvedTasks()).toBe(false);
   });
+});
+
+it("syncs independent approvals and durably deduplicates responses across restart", async () => {
+  const f = await fixture(); await f.services.list();
+  const card = { id: "provider_card", revision: "a".repeat(64), title: "QA?", choices: [{ key: "opaque", label: "Reject QA" }], state: "pending" as const };
+  f.manager().emitters.get("fake_grok")!.approval!(card); await eventTurn();
+  const list: any = await (await f.rpc("agentstudio/approvals/list", {})).json();
+  expect(list.result.approvals).toMatchObject([card]);
+  const params = { id: card.id, revision: card.revision, choice: "opaque", requestId: "response_1" };
+  f.manager().onDecide = async () => { throw new Error("lost response"); };
+  expect((await (await f.rpc("agentstudio/approvals/respond", params)).json() as any).result.state).toBe("unknown");
+  await f.rpc("agentstudio/approvals/respond", params); expect(f.manager().decisions).toHaveLength(1);
+  const revised = { ...card, revision: "b".repeat(64) }; f.manager().emitters.get("fake_grok")!.approval!(revised);
+  const retry: any = await (await f.rpc("agentstudio/approvals/respond", { ...params, revision: revised.revision, requestId: "response_2" })).json();
+  expect(retry.error).toBeTruthy(); expect(f.manager().decisions).toHaveLength(1);
+  const conflict: any = await (await f.rpc("agentstudio/approvals/respond", { ...params, choice: "changed" })).json(); expect(conflict.error).toBeTruthy();
+  await f.services.stop(); const restored = await fixture(f.directory); await restored.services.restore();
+  expect((await (await restored.rpc("agentstudio/approvals/respond", params)).json() as any).result.state).toBe("unknown");
+  expect(restored.manager().decisions).toHaveLength(0);
+});
+it.each([
+  { receipt: "accepted", incoming: "same", expected: "agentroom" },
+  { receipt: "unknown", incoming: "same", expected: "original" },
+  { receipt: "absent", incoming: "same", expected: "original" },
+  { receipt: "accepted", incoming: "changed", expected: "original" },
+  { receipt: "accepted", incoming: "duplicate", expected: "original" },
+  { receipt: "accepted", incoming: "pending", expected: undefined },
+])("keeps proven response provenance across restart ($receipt / $incoming)", async ({ receipt, incoming, expected }) => {
+  const f = await fixture(); await f.services.list();
+  const card = { id: "provenance_card", revision: "a".repeat(64), title: "QA?", choices: [{ key: "opaque", label: "Continue" }], state: "pending" as const };
+  const emitter = f.manager().emitters.get("fake_grok")!; emitter.approval!(card);
+  if (receipt !== "absent") {
+    if (receipt === "unknown") f.manager().onDecide = async () => { throw new Error("lost receipt"); };
+    await f.rpc("agentstudio/approvals/respond", { id: card.id, revision: card.revision, choice: "opaque", requestId: "provenance_answer" });
+  }
+  emitter.approval!({ ...card, state: "resolved", source: "agentroom", choiceLabel: "Continue" });
+  await f.services.stop();
+  const restored = await fixture(f.directory); await restored.services.restore();
+  // Readback advances the provider revision and infers original by default.
+  const refreshed = { ...card, revision: "b".repeat(64), state: "resolved" as "resolved" | "pending", source: "original" as "original" | undefined, choiceLabel: "Continue" as string | undefined };
+  if (incoming === "changed") refreshed.choiceLabel = "Other";
+  if (incoming === "duplicate") refreshed.choices.push({ key: "second", label: "Continue" });
+  if (incoming === "pending") { refreshed.state = "pending"; refreshed.source = undefined; refreshed.choiceLabel = undefined; }
+  restored.manager().emitters.get("fake_grok")!.approval!(refreshed);
+  const result: any = await (await restored.rpc("agentstudio/approvals/list", {})).json();
+  expect(result.result.approvals[0].source).toBe(expected);
+  expect(restored.manager().decisions).toHaveLength(0);
+  expect(restored.manager().sends).toHaveLength(0);
+});
+it("restores a proven approval wait and requires fresh post-approval text to complete", async () => {
+ const f=await fixture();const sent=await f.send();await expect.poll(async()=>(await f.get(sent.result.id)).result.status.state).toBe("working");
+ const card={id:"approval",revision:"a".repeat(64),state:"pending" as const,title:"QA?",choices:[{key:"opaque",label:"Continue"}],replyTo:"message_1"};
+ f.manager().emitters.get("fake_grok")!.approval!(card);await eventTurn();expect((await f.get(sent.result.id)).result.status.state).toBe("input-required");
+ await f.services.stop();const restored=await fixture(f.directory);await restored.services.restore();
+ expect((await restored.get(sent.result.id)).result.status.state).toBe("input-required");
+ const emitter=restored.manager().emitters.get("fake_grok")!;emitter.approval!({...card,state:"resolved",source:"original",choiceLabel:"Continue"});
+ emitter.emit({type:"status",state:"working"});emitter.emit({type:"message",reply_to:"message_1",text:"old partial",provisional:true});emitter.emit({type:"status",state:"idle"});await eventTurn();
+ expect((await restored.get(sent.result.id)).result.status.state).toBe("working");
+ emitter.emit({type:"message",reply_to:"message_1",text:"fresh final"});emitter.emit({type:"status",state:"idle"});await eventTurn();
+ expect((await restored.get(sent.result.id)).result.status.state).toBe("completed");expect(restored.manager().sends).toHaveLength(0);
+});
+it("restores a correlated approval continuation after text arrived but before terminal readback", async () => {
+ const f=await fixture(),sent=await f.send();await expect.poll(()=>f.manager().sends.length).toBe(1);
+ const card={id:"approval",revision:"a".repeat(64),state:"pending" as const,title:"QA?",choices:[{key:"opaque",label:"Continue"}],replyTo:"message_1"};
+ const e=f.manager().emitters.get("fake_grok")!;e.approval!(card);e.approval!({...card,state:"resolved",source:"original"});e.emit({type:"status",state:"working"});e.emit({type:"message",reply_to:"message_1",text:"verified continuation"});await eventTurn();await f.services.stop();
+ const restored=await fixture(f.directory);await restored.services.restore();expect((await restored.get(sent.result.id)).result.status.state).toBe("working");
+ restored.manager().emitters.get("fake_grok")!.approval!({...card,state:"resolved",replyTo:undefined});await eventTurn();
+ const cards:any=await (await restored.rpc("agentstudio/approvals/list",{})).json();expect(cards.result.approvals[0].replyTo).toBe("message_1");
+ restored.manager().emitters.get("fake_grok")!.emit({type:"status",state:"idle"});await eventTurn();
+ const result=(await restored.get(sent.result.id)).result;expect(result.status.state).toBe("completed");expect(result.artifacts[0].parts[0].text).toBe("verified continuation");expect(restored.manager().sends).toHaveLength(0);
+ restored.manager().emitters.get("fake_grok")!.approval!({...card,id:"later_approval"});await eventTurn();
+ expect((await restored.get(sent.result.id)).result.status.state).toBe("input-required");expect(restored.manager().sends).toHaveLength(0);
+});
+it("exposes only the original public Grok start link and distinguishes an expired login", async()=>{
+ const f=await fixture();await f.services.list();
+ f.manager().nextProgress={state:"waiting",message:"Waiting for Grok sign-in receipt",link:{label:"Start",url:"https://cursor.com/loginDeepControl?uuid=synthetic&challenge=public&mode=login&redirectTarget=sand"},expiresAt:"2026-11-11T12:00:00Z"};
+ expect(await f.services.publicProgress("flow_grokbot")).toMatchObject({state:"waiting",link:{label:"本次 Grok 登录链接"},expiresAt:"2026-11-11T12:00:00Z"});
+ f.manager().nextProgress={state:"waiting",message:"Waiting for Grok sign-in receipt",link:{label:"bad",url:"https://cursor.com/loginDeepControl?uuid=x&challenge=y&verifier=private"}};
+ expect(await f.services.publicProgress("flow_grokbot")).not.toHaveProperty("link");
+ f.manager().nextProgress={state:"waiting",message:"Waiting for Grok sign-in receipt",link:{label:"bad",url:"https://other.example/loginDeepControl?uuid=x&challenge=y"}};
+ expect(await f.services.publicProgress("flow_grokbot")).not.toHaveProperty("link");
+ f.manager().nextProgress={state:"failed",message:"Grok sign-in timed out; the old login link has expired"};
+ expect((await f.services.publicProgress("flow_grokbot")) as any).toMatchObject({state:"failed",message:expect.stringContaining("已超时")});
 });

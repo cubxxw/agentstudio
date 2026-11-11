@@ -23,7 +23,7 @@ flowchart LR
 | --- | --- |
 | Renderer | `out/renderer/personal/index.html`, separate `out/preload/personal.js`, `window.agentStudioPersonal`; production CSP has `connect-src 'none'`, so API HTTP stays outside the renderer. |
 | Main | Accepts fixed JSON routes only from its trusted top-level personal document; native save dialog writes artifact bytes and verifies their hash. It rejects legacy session/connector IPC in personal mode. |
-| Utility | `out/main/personal/worker.mjs` plus nineteen copied backend ESM files; Electron-bundled Node/SQLite, one workspace, port 0, owner/workspace handshake. It never attaches to an existing port 18740 service. |
+| Utility | `out/main/personal/worker.mjs` plus the copied backend ESM modules listed in `apps/desktop/electron.vite.config.ts`; Electron-bundled Node/SQLite, one workspace, port 0, owner/workspace handshake. It never attaches to an existing port 18740 service. |
 | Data | `app.getPath('userData')/personal`, normally `~/Library/Application Support/AgentStudio/personal`; `AGENTSTUDIO_PERSONAL_DATA_DIR` selects an explicit directory. A separate SQLite lock rejects a second worker. No automatic import from Matrix, `.local/personal` or browser accounts. |
 
 Closing the Mac window hides it while the utility continues. Quitting closes only the owned utility; recovery resumes queued work but preserves uncertain remote effects for reconciliation. One unexpected crash restart is bounded; requests are not automatically resubmitted. Concurrent explicit restarts coalesce, and a later shutdown supersedes an older restart. Forced PID termination requires the same captured and current utility identity. Source provenance records Git HEAD with `-dirty` when applicable.
@@ -151,3 +151,5 @@ dev/                      local stack: stack manager (stack.mjs), config templat
 - **Determinism for tests.** The `demo` bridge and the `concierge` agent behave deterministically, so e2e runs without real accounts.
 
 Historical personal tasks and current direct/group chats use the same Messenger renderer. `workspace=tasks` is a compatible old URL parameter, not a separate UI. Shared conversation tools own reading, connection preferences and precise approval; history keeps its existing thread IDs and protocols.
+
+Personal Grok approvals use the existing main-owned adapter plus an independent utility watcher (`server/provider-approvals.mjs`). Only owner-bound utility IPC registers native sources. Main owns raw provider choices and a durable response ledger; the utility projects public cards into existing Decisions, with optional original-run correlation. Waiting does not hold the model worker. Known pending approvals resume by readback; uncertain writes are retained without replay. See [connector boundaries](connectors.md#personal-grok-bot-approval-synchronization).
