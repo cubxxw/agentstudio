@@ -14,6 +14,19 @@ The empty chats home offers onboarding without blocking sidebar navigation or le
 
 `node dev/agentroom-acceptance.mjs` and `--native` cover welcome persistence, reopen, profile isolation and recovery using synthetic data. Details: [testing](personal/testing.md).
 
+## Local quick add and Agent cards (GET-498)
+
+Welcome's primary action opens the shared local picker; skipping still enters the existing new-chat flow. Contacts expose the same picker. Installed candidates show actual configuration/login status, selection and an explicit add action. Unsupported adapters cannot be selected. Adding does not send a greeting or start a model; success offers a chat. Existing added contacts remain visible; new unadopted backends only appear in discovery and backend configuration.
+
+| Surface | `data-testid` |
+| --- | --- |
+| Welcome / contacts entry | `workspace-welcome-local`, `im-local-add-entry` |
+| Picker / fresh check / selection | `im-local-picker`, `im-local-refresh`, `im-local-select-<agentId>` |
+| Add / saved result / open chat / empty | `im-local-add`, `im-local-result`, `im-local-chat`, `im-local-empty` |
+| Shared contact/profile card | `im-agent-card`, `im-agent-card-model`, `im-agent-card-quota`, `im-agent-card-capabilities` |
+
+The card is shared by contact details and the chat-header profile. It describes next-message configuration and adapter capabilities, not a verified execution or cross-model intelligence score. Unknown quota is “暂不可获取”; common accounts may share quota. Multi-computer pairing and friend sharing are future phases, with no active controls in this release. Isolated synthetic acceptance: `node dev/local-agent-cards-acceptance.mjs` (or `--native`), output selected through `AGENTROOM_CARDS_EVIDENCE_DIR`.
+
 ## Personal conversation workspace
 
 The Mac Electron app opens the personal workspace by default. Its renderer shares `apps/personal` UI, uses the dedicated `window.agentStudioPersonal` preload and fixed IPC, and leaves API HTTP to its owned utility. It does not read the old session or start legacy connectors. Personal data belongs to the Electron profile's `personal` directory; the auxiliary web build has separate `.local/personal` data. See [setup](personal/README.md) and [the IPC contract](api.md#default-personal-desktop-ipc).
@@ -51,7 +64,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 
 Every personal conversation uses this Messenger shell, including old `?workspace=tasks&thread=…` links and scratch drafts (`?thread=new`). The old workspace parameter is removed without replacing the shell. Historical threads retain their IDs, mode/connection and draft recovery keys; no message is sent during migration. The conversation title opens its contact/group information; the single `im-results` information button opens result versions and execution records. `im-new-notes` continues the old unsent scratch draft or starts local organization. Native New Chat opens the conversation picker.
 
-Completed replies display their Markdown content without a sender name, model, per-message time, delivery checkmark or original-artifact link. Direct replies have no repeated avatar; groups retain an avatar button with the sender's accessible name and hover title. Incomplete replies, local-only human delivery and actionable run states remain visible. Reply/copy tools appear on hover or keyboard focus; touch devices give them a separate row. Day separators and sidebar update times remain orientation aids. Normal connected status and composer keyboard hints are omitted. Focus mode hides the conversation list while keeping the navigation rail available; its toolbar button and shortcuts reveal the list before changing screens.
+Completed replies display their Markdown content without a sender name, model, per-message time, delivery checkmark or original-artifact link. Direct replies have no repeated avatar; groups retain an avatar button with the sender's accessible name and hover title. Incomplete replies, local-only human delivery and actionable run states remain visible. Reply/copy tools appear on hover or keyboard focus; touch devices give them a separate row. Day separators and sidebar update times remain orientation aids. Normal connected status and composer keyboard hints are omitted. Focus mode hides the conversation list while keeping the navigation rail available; its toolbar button and shortcuts reveal the list before changing screens. The message timeline uses a slim, rounded scrollbar with a transparent track (6 CSS pixels in Electron), a muted thumb that becomes clearer on hover or keyboard focus, and stronger visibility in increased-contrast or forced-color modes.
 
 The left rail contains the owner's profile, chats, contacts and approvals, with refresh and settings at the bottom. The owner opens the existing settings dialog. Selection uses icon color and a soft rounded surface, with no leading bar. The native personal window reserves a 42px drag strip above the three panes for its system traffic lights; all panes start below it, including focus and narrow detail views. The list has no redundant screen heading. Its top row combines a search input, a separate filter disclosure inside the same field surface, and an adjacent plus button. Search and filtering compose without opening each other; opening a conversation preserves the current chat query and filter. Contacts and approvals have their own filter choices, reset when switching screens.
 

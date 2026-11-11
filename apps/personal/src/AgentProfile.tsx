@@ -6,6 +6,7 @@ import { Avatar, availabilityText } from "./MessengerDialogs";
 import type { AgentControl, AgentGoal, AgentSchedule } from "./agent-control-types";
 import type { Contact } from "./types";
 import "./agent-profile.css";
+import { AgentCard } from "./AgentCard";
 
 type Settings = { goal: AgentGoal; scheduler: AgentSchedule };
 const stateLabels: Record<AgentControl["state"], string> = {
@@ -109,6 +110,7 @@ export function AgentProfile({ contact, onClose, onEdit, onChanged, onOpenThread
     <div className="im-agent-profile" data-testid="im-agent-profile" data-contact-id={contact.id}>
       <div className="im-agent-profile-identity"><Avatar contact={contact} size="large" /><div><h3>{contact.name}</h3><span>@{contact.handle}</span><small><i className={contact.availability === "ready" ? "im-online-dot" : "im-offline-dot"} />{availabilityText[contact.availability]}</small></div></div>
       {contact.description && <p className="im-agent-description">{contact.description}</p>}
+      {contact.kind === "agent" && <AgentCard contact={contact} />}
       <button type="button" className="im-agent-basic" data-testid="im-agent-basic" onClick={onEdit}><Settings2 size={17} /><span>身份与基本设置<small>{contact.kind === "agent" ? `${contact.providerName || "助手"} · ${contact.execution?.model || "默认模型"}${contact.execution?.thinking ? ` · ${contact.execution.thinking}` : ""}` : "名称、简介与头像"}</small></span><ChevronRight size={16} /></button>
       {contact.kind === "human" ? <p className="im-field-hint">这位联系人保存在本机，尚未接入消息网络。</p> : <>
         {loading && !control && <p className="im-agent-loading" role="status"><Loader2 size={16} className="working" />正在读取目标与调度…</p>}

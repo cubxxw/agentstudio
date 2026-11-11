@@ -1,3 +1,4 @@
+import { seedLegacyAgentContacts } from "./legacy-agent-fixture.mjs";
 import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Synthetic design acceptance. No real model, account or existing profile is used.
 import { createRequire } from 'node:module';
@@ -41,6 +42,7 @@ const request = async (path, body) => {
   return response.json();
 };
 
+seedLegacyAgentContacts(native ? join(output, "profile", "personal") : join(output, "data"));
 try {
   if (native) {
     const env = { ...process.env, CODEX_HOME: output, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: missing, AGENTSTUDIO_CLAUDE_BIN: missing, AGENTSTUDIO_PI_BIN: missing, AGENTSTUDIO_MOCK_KEYCHAIN: '1' };
@@ -105,6 +107,9 @@ try {
   }
   const pinnedOrder = () => page.getByTestId('im-pinned').evaluate(node => [...node.querySelectorAll('button')].map(item => item.dataset.testid));
   await expect.poll(pinnedOrder).toEqual([first, group, direct].map(chat => `im-pinned-${chat.id}`));
+  // A real click settles the preceding pin action's deferred focus restoration.
+  await page.getByTestId(`im-pinned-${direct.id}`).click();
+  await expect(page.getByTestId(`im-pinned-${direct.id}`)).toBeFocused();
   await page.getByTestId(`im-pinned-${direct.id}`).press('Alt+ArrowLeft');
   await expect.poll(pinnedOrder).toEqual([first, direct, group].map(chat => `im-pinned-${chat.id}`));
   await page.reload();
