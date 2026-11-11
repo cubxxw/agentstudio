@@ -86,6 +86,7 @@ try {
   });
   await page.getByTestId('im-settings').click();
   await expect(page.getByTestId('personal-connections')).toBeVisible();
+  if (!baseline) await expect(page.getByTestId('personal-local-use-codex')).toHaveCSS('opacity', '1');
   await shot('03-settings-light');
   if (!baseline) {
     const group = page.getByTestId('personal-service-instances-toggle-grokbot');

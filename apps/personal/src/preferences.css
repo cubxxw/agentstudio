@@ -13,6 +13,7 @@
 .integration-jumps { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; padding: 14px 0; margin: -10px 0 16px; border-bottom: 1px solid var(--im-line); background: var(--im-paper); }
 .integration-jumps button { min-height: 32px; padding: 6px 10px; border-radius: 7px; color: var(--im-muted); background: var(--im-hover); font-size: 12px; }
 .integration-jumps button:hover { color: var(--im-blue); background: var(--im-blue-soft); }
+.im-app .integration-button.is-selected:disabled { opacity: 1; }
 .connections h3 { scroll-margin-top: 70px; }
 .integration-instances { margin: 0 0 12px 48px; border-left: 1px solid var(--im-line); padding-left: 12px; }
 .integration-instances > summary { cursor: pointer; padding: 8px 0; color: var(--im-blue); font-size: 12px; line-height: 1.7; }
