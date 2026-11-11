@@ -280,7 +280,7 @@ export class ConnectorManager {
   // ---- internals -------------------------------------------------------------------
 
   private openSignInWindow = async (url: string, signal?: AbortSignal) => {
-    for (const [window, owner] of this.loginWindows) if (owner === signal && !window.isDestroyed()) { window.show(); window.focus(); return; }
+    if (signal) for (const [window, owner] of this.loginWindows) if (owner === signal && !window.isDestroyed()) { window.show(); window.focus(); return; }
     const target = new URL(url);
     if (target.protocol !== "https:" && !(target.protocol === "http:" && target.hostname === "127.0.0.1")) throw new Error("Invalid sign-in URL");
     if (signal?.aborted) throw new Error("cancelled");
