@@ -72,6 +72,7 @@ jobs:
           node dev/messenger-acceptance.mjs
           node dev/agentroom-acceptance.mjs
           node dev/agent-onboarding-acceptance.mjs
+          node dev/group-im-acceptance.mjs
           node dev/agent-profile-ui-acceptance.mjs
           AGENTROOM_CARDS_EVIDENCE_DIR=output/playwright/local-agent-cards node dev/local-agent-cards-acceptance.mjs
           node dev/conversation-acceptance.mjs
@@ -86,6 +87,7 @@ jobs:
             output/playwright/messenger/
             output/playwright/agentroom/
             output/playwright/agent-onboarding/
+            output/playwright/group-im/
             output/playwright/agent-profile-ui/
             output/playwright/local-agent-cards/
             output/playwright/conversations/

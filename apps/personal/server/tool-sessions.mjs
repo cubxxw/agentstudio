@@ -13,11 +13,20 @@ export class ToolSessions {
     this.server.requestTimeout = 15000; this.server.headersTimeout = 10000;
   }
   async listen() {
+    if (this.closed) throw new Error('Tool broker is closed');
+    if (this.listenPromise) return this.listenPromise;
     if (this.server.listening) return;
-    await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve); });
+    this.listenPromise = new Promise((resolve, reject) => {
+      const fail = error => { this.server.off('listening', ready); reject(error); };
+      const ready = () => { this.server.off('error', fail); resolve(); };
+      this.server.once('error', fail); this.server.once('listening', ready);
+      try { this.server.listen(0, '127.0.0.1'); }
+      catch (error) { this.server.off('error', fail); fail(error); }
+    }).finally(() => { this.listenPromise = null; });
+    return this.listenPromise;
   }
   open(context, tools, handler, { validate = () => {}, retainResult = () => true } = {}) {
-    if (!this.server.listening) throw new Error('Tool broker is not listening');
+    if (this.closed || !this.server.listening) throw new Error('Tool broker is not listening');
     const key = randomBytes(24).toString('hex'), token = randomBytes(32).toString('base64url');
     const controller = new AbortController();
     const entry = { context: Object.freeze(structuredClone(context)), tools: structuredClone(tools), handler, validate, retainResult, controller,
@@ -60,6 +69,8 @@ export class ToolSessions {
     } catch (error) { send(error.status || 500, { error: { code: error.code || 'tool_failed', message: error.status ? error.message : '工具执行未完成，请查看运行记录' } }); }
   }
   async close() {
+    this.closed = true;
+    await this.listenPromise?.catch(() => {});
     for (const entry of this.sessions.values()) entry.controller.abort();
     this.sessions.clear(); this.server.closeAllConnections();
     if (this.server.listening) await new Promise(resolve => this.server.close(resolve));

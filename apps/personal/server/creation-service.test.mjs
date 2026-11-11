@@ -7,7 +7,7 @@ import { PersonalStore } from './store.mjs';
 import { Messenger } from './messenger.mjs';
 import { CreationService } from './creation-service.mjs';
 import { ArtifactAPI } from './artifact-api.mjs';
-import { PersonalWorker } from './runtime.mjs';
+import { PersonalWorker, threadContext } from './runtime.mjs';
 
 function fixture(t) {
   const directory = mkdtempSync(join(tmpdir(), 'creation-service-')), store = new PersonalStore(directory), messenger = new Messenger(store);
@@ -177,7 +177,7 @@ test('cached file results are denied when a shared path is revoked', t => {
   assert.equal(f.service.canPublishConversation(ctx.threadId, ctx.runId), false);
 });
 
-test('the existing single worker uses native conversation tools and then executes approved steps', async t => {
+test('concurrent conversation reads use native tools while approved creation steps remain exclusive', async t => {
   const f = fixture(t); let sequence = 0, active = 0, maximum = 0;
   const execute = async input => {
     maximum = Math.max(maximum, ++active);
@@ -204,6 +204,7 @@ test('the existing single worker uses native conversation tools and then execute
   await worker.drain();
   const proposal = f.store.list('creation_proposal')[0];
   assert.equal(proposal?.state, 'ready'); assert.equal(proposal.contributors.length, 2);
+  assert.equal(maximum, 2, 'independent chat members overlap'); maximum = 0;
   f.service.decide(proposal.id, { version: proposal.version, choice: 'approve', clientId: 'worker-flow-approve' });
   await worker.drain();
   assert.equal(f.store.list('collaboration')[0].status, 'completed'); assert.equal(maximum, 1);
@@ -351,6 +352,46 @@ test('revoked read data cannot be written into a new public proposal after final
   const link = f.store.list('artifact_link').find(link => link.threadId === f.group.id && link.artifactId === artifact.id);
   f.service.share(artifact.id, { threadId: f.group.id, revoke: true, expectedVersion: link.version });
   assert.throws(() => f.call(ctx, 'creation_propose', { title: 'Private title', kind: 'document', goal: 'PRIVATE_SOURCE_VALUE', task: 'Publish read bytes', writePaths: ['**'] }), errorCode('permission_required'));
+});
+
+test('artifact dependencies carried by a reaction propagate before another member can publish', t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f); f.send();
+  const first = f.context('agent_codex');
+  f.call(first, 'artifact_read', { artifactId: artifact.id, revisionId: artifact.headRevisionId, paths: ['design.md'] });
+  const source = f.store.require('thread', f.group.id), firstRun = source.runs.find(run => run.id === first.runId);
+  f.store.updateThread(f.group.id, thread => {
+    thread.messages.find(message => message.id === firstRun.messageId).reactions = [{ contactId: 'agent_codex', emoji: '✅', artifactReads: firstRun.artifactReads, recipientIds: [...thread.memberIds] }];
+  });
+  const second = f.context('agent_pi'), current = f.store.require('thread', f.group.id), secondRun = current.runs.find(run => run.id === second.runId);
+  assert.equal(secondRun.artifactReads?.length || 0, 0);
+  const supplied = threadContext(f.store, current, secondRun, f.service);
+  assert.equal(supplied.messages.at(-1).reactions[0].emoji, '✅');
+  assert.deepEqual(f.store.require('thread', f.group.id).runs.find(run => run.id === second.runId).artifactReads, firstRun.artifactReads);
+  const link = f.store.list('artifact_link').find(link => link.threadId === f.group.id && link.artifactId === artifact.id);
+  f.service.share(artifact.id, { threadId: f.group.id, revoke: true, expectedVersion: link.version });
+  assert.equal(f.service.canPublishConversation(f.group.id, second.runId), false);
+});
+
+test('remote contact publication accepts valid shared dependencies and rejects their later revocation', t => {
+  const f = fixture(t), artifact = completedFixtureArtifact(f);
+  f.store.put('connection', { id: 'synthetic-remote', type: 'a2a', url: 'https://example.invalid/owned' });
+  const remote = f.messenger.saveContact({ kind: 'agent', name: '远端伙伴', handle: 'remote-reader', binding: { type: 'connection', connectionId: 'synthetic-remote' } });
+  const chat = f.messenger.createChat({ kind: 'group', title: '含远端成员的共享群', memberIds: ['agent_codex', remote.id] });
+  const link = f.service.share(artifact.id, { threadId: chat.id, revisionId: artifact.headRevisionId, paths: ['design.md'] });
+  f.send(chat.id);
+  const local = f.context('agent_codex', chat.id);
+  f.call(local, 'artifact_read', { artifactId: artifact.id, revisionId: artifact.headRevisionId, paths: ['design.md'] });
+  f.store.updateThread(chat.id, thread => {
+    const source = thread.runs.find(run => run.id === local.runId);
+    thread.messages.find(message => message.id === source.messageId).reactions = [{ contactId: 'agent_codex', emoji: '✅', artifactReads: source.artifactReads, recipientIds: [...thread.memberIds] }];
+    thread.runs.find(run => run.contactId === remote.id).status = 'running';
+  });
+  const current = f.store.require('thread', chat.id), remoteRun = current.runs.find(run => run.contactId === remote.id);
+  threadContext(f.store, current, remoteRun, f.service);
+  assert.ok(f.store.require('thread', chat.id).runs.find(run => run.id === remoteRun.id).artifactReads.length);
+  assert.equal(f.service.canPublishConversation(chat.id, remoteRun.id), true);
+  f.service.share(artifact.id, { threadId: chat.id, revoke: true, expectedVersion: link.version });
+  assert.equal(f.service.canPublishConversation(chat.id, remoteRun.id), false);
 });
 
 test('queued approved DAGs recover after the decision commits before initial dispatch', t => {

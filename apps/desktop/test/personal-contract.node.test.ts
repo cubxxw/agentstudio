@@ -31,6 +31,12 @@ describe("personal IPC capabilities", () => {
     for (const path of ["/api/contacts/../../connection", "/api/contacts/contact_owned?account=other", "/api/chats/https://example.com", "/api/chats/thr_owned/members", "/api/approvals/bulk"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
   });
 
+  it("allows only fixed IM preferences and message reaction routes", () => {
+    expect(readPersonalRequest({ path: "/api/im/settings", method: "GET" }).path).toBe("/api/im/settings");
+    for (const path of ["/api/im/settings", "/api/threads/thr_owned/reactions"]) expect(readPersonalRequest({ path, method: "POST", body: { clientId: "owned-reaction" } }).path).toBe(path);
+    for (const path of ["/api/im/settings/execute", "/api/im/settings?url=https://example.com", "/api/threads/thr_owned/reactions/another", "/api/threads/../reactions"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
+  });
+
   it("exposes only bounded contact control and host discovery capabilities", () => {
     for (const path of ["/api/host/discovery", "/api/contacts/contact_owned/control"]) expect(readPersonalRequest({ path, method: "GET" }).path).toBe(path);
     for (const path of ["/api/contacts/contact_owned/control", "/api/contacts/contact_owned/run"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);

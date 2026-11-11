@@ -104,6 +104,20 @@
 .im-message.outgoing { justify-content: flex-end; }
 .im-bubble { position: relative; min-width: 0; overflow-wrap: anywhere; }
 .im-message.outgoing .im-bubble { background: var(--im-outgoing); }
+.im-reactions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.im-reactions button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 1px solid var(--im-line); border-radius: 14px; color: var(--im-ink); background: var(--im-paper); font-size: 15px; }
+.im-reactions button[aria-pressed="true"] { border-color: var(--im-blue); background: var(--im-blue-soft); }
+.im-reactions small { font-size: 11px; }
+.im-reaction-picker { position: relative; }
+.im-reaction-picker summary { list-style: none; cursor: pointer; }
+.im-reaction-picker summary::-webkit-details-marker { display: none; }
+.im-reaction-picker > div { position: absolute; z-index: 4; inset: auto 0 100% auto; display: flex; width: max-content; max-width: min(290px, 80vw); padding: 5px; gap: 2px; background: var(--im-paper); border: 1px solid var(--im-line); border-radius: 16px; box-shadow: 0 4px 18px rgb(25 30 43 / 12%); }
+.im-reaction-picker button { width: 31px; height: 32px; border-radius: 10px; font-size: 19px; }
+.im-reaction-picker button:hover { background: var(--im-hover); }
+.im-read-receipt { display: block; margin-top: 7px; opacity: .7; font-size: 10px; }
+.im-message.outgoing .im-read-receipt { color: rgb(255 255 255 / 80%); opacity: 1; }
+.im-message.outgoing .im-reaction-picker > div { left: 0; right: auto; }
+.im-silence-toggle { display: flex; align-items: center; gap: 10px; margin: 18px 0; }
 .im-bubble .prose { font-size: 14px; line-height: 1.75; color: var(--im-ink); }
 .im-bubble .prose p { margin: 0 0 9px; }
 .im-bubble .prose > :last-child { margin-bottom: 0; }

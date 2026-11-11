@@ -345,7 +345,9 @@ export class CreationService {
   canPublishConversation(threadId, runId) {
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
     if (!run?.artifactReads?.length) return true;
-    try { const context = this.context(threadId, runId); return this.readDependenciesAllowed(threadId, run.artifactReads, context.audienceIds); } catch { return false; }
+    const source = thread.messages.find(message => message.id === run.messageId);
+    const audience = (source?.recipientIds || run.participantSnapshot?.map(peer => peer.id) || thread.memberIds || []).filter(contactId => !thread.memberIds || thread.memberIds.includes(contactId));
+    try { return this.readDependenciesAllowed(threadId, run.artifactReads, audience); } catch { return false; }
   }
   inputReferences(thread, messageId) {
     const message = thread.messages.find(item => item.id === messageId);

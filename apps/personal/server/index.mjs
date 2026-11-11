@@ -105,7 +105,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -253,6 +253,17 @@ export async function createPersonalServer(options = {}) {
         notify(); return json(response, 200, result);
       }
       if (method === 'GET' && path === '/api/health') return json(response, 200, { ok: true, service: 'agentstudio-personal', durableQueue: true, build });
+      if (method === 'GET' && path === '/api/im/settings') return json(response, 200, messenger.settings());
+      if (method === 'POST' && path === '/api/im/settings') {
+        const body = await readJSON(request);
+        const result = store.idempotent('im:settings', body.clientId, body, () => messenger.saveSettings(body));
+        notify(); return json(response, 200, result);
+      }
+      if (method === 'POST' && (match = path.match(/^\/api\/threads\/([A-Za-z0-9_-]+)\/reactions$/))) {
+        const body = await readJSON(request);
+        const result = store.idempotent(`reaction:${match[1]}`, body.clientId, body, () => messenger.react(match[1], body));
+        notify({ threadId: match[1] }); return json(response, 200, result);
+      }
       if (method === 'GET' && path === '/api/contacts') return json(response, 200, { contacts: messenger.sync(await localAgents()) });
       if (method === 'GET' && path === '/api/host/discovery') {
         const detected = await localAgents();
@@ -370,7 +381,7 @@ export async function createPersonalServer(options = {}) {
             ...(kind ? { kind, memberIds, version } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
             pendingApprovals: decisions.filter(d => d.state === 'pending').length })),
           connections: store.list('connection').map(publicConnection), memories: store.list('memory'),
-          settings: { defaultMode: 'codex', codexAvailable: codex.available, codexVersion: codex.version,
+          settings: { im: messenger.settings(), defaultMode: 'codex', codexAvailable: codex.available, codexVersion: codex.version,
             localAgentId: store.get('setting', 'local-agent')?.agentId || 'codex' },
           runtime: { localOnly: true, database: 'SQLite WAL', queue: 'single-process', localMode: '本地统计与摘录，无需模型',
             codexBoundary: '继承本机 Codex 提供商配置，shell 使用 read-only；独立 cwd 不是文件系统隔离，CLI 已配置工具仍遵守其自身权限。结果仅证明文档已保存。',
@@ -452,7 +463,7 @@ export async function createPersonalServer(options = {}) {
               const message = thread.messages.find((item) => item.id === run.messageId);
               store.appendRun(thread, { ...message, mode: run.mode, localAgentId: run.localAgentId || 'codex', connectionId: run.connectionId, action: run.action, memoryIds: run.memoryIds, reuseMessageId: message.id,
                 executionSnapshot: run.executionSnapshot, contactId: run.contactId, contactSnapshot: run.contactSnapshot, participantSnapshot: run.participantSnapshot, conversationSnapshot: run.conversationSnapshot,
-                visibleAfterMessageId: run.visibleAfterMessageId, responsePolicy: run.responsePolicy, connectionIdentityId: run.id });
+                visibleAfterMessageId: run.visibleAfterMessageId, responsePolicy: run.responsePolicy, imPolicy: run.imPolicy, participantMemberships: run.participantMemberships, connectionIdentityId: run.id });
             }
           }
           store.refreshThread(thread);
