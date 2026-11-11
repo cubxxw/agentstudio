@@ -68,7 +68,8 @@ try {
   await expect(page.getByTestId('im-run-status')).toHaveCount(0);
   const messageId = observed.messages[0].id;
   await expect(page.getByTestId(`im-reaction-${messageId}-👍`)).toBeVisible();
-  await expect(page.getByTestId(`im-read-${messageId}`)).toHaveText('已阅 2');
+  await expect(page.getByTestId(`im-read-${messageId}`)).toHaveCount(0);
+  await expect(page.getByTestId(`im-reaction-${messageId}-👍`)).toHaveText('👍');
   check('reaction and silence complete while a slow group member remains running; no queued reply slots');
   await page.screenshot({ path: join(output, 'concurrent-group.png') });
   await writeFile(release, 'release synthetic reader');
@@ -76,8 +77,10 @@ try {
   await expect(page.getByTestId('im-message-content').filter({ hasText: '我已经核对了这条消息' })).toHaveCount(1);
   await page.getByTestId(`im-reaction-${messageId}-👍`).click();
   await expect(page.getByTestId(`im-reaction-${messageId}-👍`)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId(`im-reaction-${messageId}-👍`)).toHaveText('👍2');
   await page.getByTestId(`im-reaction-${messageId}-👍`).click();
   await expect(page.getByTestId(`im-reaction-${messageId}-👍`)).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId(`im-reaction-${messageId}-👍`)).toHaveText('👍');
   await page.getByTestId(`im-react-${messageId}`).click();
   await page.getByTestId(`im-react-choice-${messageId}-🎉`).click();
   await expect(page.getByTestId(`im-reaction-${messageId}-🎉`)).toBeVisible();
@@ -96,10 +99,11 @@ try {
   check('IM default and group override persist through native/API controls');
   await page.reload();
   await expect(page.getByTestId(`im-reaction-${messageId}-🎉`)).toBeVisible();
-  await expect(page.getByTestId(`im-read-${messageId}`)).toHaveText('已阅 3');
+  await expect(page.getByTestId(`im-read-${messageId}`)).toHaveCount(0);
+  await expect(page.getByTestId(`im-reaction-${messageId}-🎉`)).toHaveText('🎉');
   if (!native) await page.setViewportSize({ width: 460, height: 800 });
   await page.screenshot({ path: join(output, 'reactions-restored.png') });
-  expect(errors).toEqual([]); check('reactions and acknowledged readers survive reload with no renderer errors');
+  expect(errors).toEqual([]); check('reactions survive reload with single counts and read receipts hidden, with no renderer errors');
 } finally {
   await writeFile(release, 'release on cleanup');
   await writeFile(join(output, 'checks.json'), JSON.stringify({ native, checks, errors }, null, 2));
