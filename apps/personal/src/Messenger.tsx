@@ -273,6 +273,7 @@ function Messenger() {
   const mentionCandidates = thread?.kind === "group" && mentionMatch ? contacts.filter(c => c.kind === "agent" && thread.memberIds?.includes(c.id) && c.handle.startsWith((mentionMatch[1] || "").toLowerCase())) : [];
 
   return <div className={`im-app ${desktop ? "im-native" : ""} ${mobileDetail ? "im-show-detail" : ""} ${listHidden ? "im-focused" : ""}`} data-testid="im-app">
+    {desktop && <div className="im-window-drag" data-testid="im-window-drag" aria-hidden="true" />}
     <span className="workspace-mode-indicator" data-testid="workspace-mode" data-test-mode={desktop?.testMode || false} hidden={!desktop?.testMode} role="status">测试模式 · 独立资料</span>
     <a className="skip-link" data-testid="im-skip" href="#im-main">跳到聊天内容</a>
 
