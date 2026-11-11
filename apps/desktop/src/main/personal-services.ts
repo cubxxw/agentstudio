@@ -134,7 +134,7 @@ export class PersonalServices {
     }
     return { state: "cancelled" };
   }
-  async choose(flowId: string, choiceId: string) { await this.initialize(); this.manager!.choose(flowId, choiceId); }
+  async choose(flowId: string, choiceId: string) { await this.initialize(); await this.manager!.choose(flowId, choiceId); }
   async submit(flowId: string, value: string) {
     if (typeof value !== "string" || value.length > 8000 || /[\r\n\x00]/.test(value)) throw new Error("Invalid sign-in value");
     await this.initialize(); if (value) this.secrets.add(value); this.manager!.submit(flowId, value);

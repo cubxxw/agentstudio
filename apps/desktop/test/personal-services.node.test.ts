@@ -330,11 +330,11 @@ describe("durable local A2A dispatch", () => {
     const f = await fixture(); const first = await f.send(); await expect.poll(() => f.manager().sends.length).toBe(1);
     const emitter = f.manager().emitters.get("fake_grok")!;
     const events: DirectConnectorEvent[] = [];
-    const harness = Object.create(GrokBotConnector.prototype) as { process(entries: unknown[]): void };
+    const harness = Object.create(GrokBotConnector.prototype) as { process(entries: unknown[]): void; settlePersonalTurn(before: any, after: any): void };
     Object.assign(harness, {
       cfg: {}, data: { lastSeq: 0, agent: { id: "qa", sessionId: "qa" } }, nativeCards: new Map(), onChange() {},
       emitter: { ...emitter, approval: (card: any) => { events.push({ type: "native_approval", card }); emitter.approval!(card); }, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); }, inputRequired: (messageId: string) => { events.push({ type: "input_required", messageId }); emitter.inputRequired!(messageId); } },
-      ownTexts: new Set(), ownMessageIds: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true, startSeq: 0, cards: [] }, seen: new Map(),
+      ownTexts: new Set(), ownMessageIds: new Set(), personalReply: { messageId: "message_1", providerMessageId: "qa_nonce", sessionId: "qa", text: "Synthetic task", echoed: true, startSeq: 0, cards: [] }, seen: new Map(),
       pending: new Map([["entry_1", { updated: 1, text: "First Grok bubble", polls: 1 }], ...(scenario === "pending" ? [] : [["entry_2", { updated: 1, text: "Final Grok result", polls: 1 }] as const])]),
       widgets: new Set(), widgetAnswers: new Map(), widgetEchoCards: new Set(), pendingAsk: null,
     });
@@ -348,6 +348,8 @@ describe("durable local A2A dispatch", () => {
       expect(events.filter((event) => event.type === "status" && event.state === "idle")).toHaveLength(0);
       harness.process(entries); await eventTurn();
     }
+    const settled = { agent_id: "qa", live: { session_id: "qa", last_turn_settlement: { turn_id: "qa_nonce", outcome: "success" } } };
+    harness.settlePersonalTurn(settled, settled); await eventTurn();
     const result = (await f.get(first.result.id)).result;
     if (scenario === "approval" || scenario === "manual-step") {
       expect(result.status.state).toBe("input-required"); expect(result.artifacts).toBeUndefined();
@@ -440,13 +442,15 @@ describe("real connector personal-turn association with synthetic providers", ()
       providerId = input.message_id!; if (fail) throw new Error("synthetic send failure"); return { dispatched: true };
     }) } as unknown as GrokClient;
     const connector = new GrokBotConnector({ ...GROK_DEFAULTS, pollActiveMs: 100, pollIdleMs: 100 }, { accessToken: "synthetic", refreshToken: "synthetic", machineId: "synthetic", agent: { id: "agent", name: "Fake", description: "", sessionId: "provider_conversation" } }, client, () => {}, async () => null);
-    const harness = connector as unknown as { emitter: Emitter; process(entries: unknown[]): void };
+    const harness = connector as unknown as { emitter: Emitter; process(entries: unknown[]): void; settlePersonalTurn(before: any, after: any): void };
     harness.emitter = emitter;
     await connector.send(message);
     const reply = [old, entry(2, "user", message.text, providerId), entry(3, "assistant", "new answer")];
     harness.process(reply); harness.process(reply);
     expect(events).toContainEqual({ type: "message", text: "new answer", reply_to: message.message_id });
     expect(events).not.toContainEqual(expect.objectContaining({ text: "old answer" }));
+    const settled = { agent_id: "agent", live: { session_id: "provider_conversation", last_turn_settlement: { turn_id: providerId, outcome: "success" } } };
+    harness.settlePersonalTurn(settled, settled);
     await connector.send({ ...message, message_id: "second_message" });
     const interrupted = [entry(4, "user", "manual input"), entry(5, "assistant", "manual reply")];
     harness.process(interrupted); harness.process(interrupted);

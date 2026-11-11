@@ -6,7 +6,7 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { BrowserWindow, shell } from "electron";
+import { BrowserWindow, clipboard, shell } from "electron";
 import { ConnectorHost, newToken } from "./host";
 import { ConnectorStore, type InstanceRecord } from "./store";
 import { GROK_DEFAULTS, GrokBotConnector, GrokClient, grokLogin, type GrokConfig, type GrokData, type GrokLoginResult } from "./grokbot";
@@ -71,7 +71,7 @@ type Login = {
   progress: LoginProgress;
   abort: AbortController;
   /** Resolves the "choose" step (Grok Bot accounts with several bots). */
-  choose?: (choiceId: string) => void;
+  choose?: (choiceId: string) => void | Promise<void>;
   /** Resolves an "input" step (the Cue API key). */
   submit?: (value: string) => void;
 };
@@ -257,8 +257,9 @@ export class ConnectorManager {
     return this.logins.get(loginId)?.progress ?? { state: "failed", message: "Unknown connect flow" };
   }
 
-  choose(loginId: string, choiceId: string) {
-    this.logins.get(loginId)?.choose?.(choiceId);
+  async choose(loginId: string, choiceId: string) {
+    if (choiceId === "copy-login" && !this.logins.get(loginId)?.choose) throw new Error("本次登录链接已失效，请检查连接进度。");
+    await this.logins.get(loginId)?.choose?.(choiceId);
   }
 
   /** A link the OS opened AgentRoom with (open-url). True when a connector took it. */
@@ -392,7 +393,7 @@ export class ConnectorManager {
       actions: [{ id: "api-key", label: "Use an API key instead" }],
     };
     const switched = new Promise<"api-key">((resolve) => {
-      login.choose = (id) => id === "api-key" && resolve("api-key");
+      login.choose = (id) => { if (id === "api-key") resolve("api-key"); };
     });
     const signIn = cueWebSignIn(this.env.cue, this.openExternal, web.signal, this.env.openExternalInWindow ? null : join(this.userData, "link-catcher")).then((token) => ({ token }));
     signIn.catch(() => {}); // the user may switch to a key and close the window
@@ -512,9 +513,14 @@ export class ConnectorManager {
         opening = true; launchSignal = scope;
         try { await this.openExternal(url, scope); } finally { opening = false; }
       };
-      login.choose = choice => {
-        if (choice !== "open-login" || !startUrl || signal.aborted || login.progress.state !== "waiting") return;
-        void open(startUrl, launchSignal).catch(() => {});
+      login.choose = async choice => {
+        if (!startUrl || signal.aborted || login.progress.state !== "waiting" || login.progress.link?.url !== startUrl
+          || !login.progress.expiresAt || Date.parse(login.progress.expiresAt) <= Date.now()) {
+          if (choice === "copy-login") throw new Error("本次登录链接已失效，请检查连接进度。");
+          return;
+        }
+        if (choice === "copy-login") await clipboard.writeText(startUrl);
+        else if (choice === "open-login") await open(startUrl, launchSignal);
       };
       let res: GrokLoginResult;
       try { res = await grokLogin({ ...this.env.grok, trace: this.trace }, open, signal, {
