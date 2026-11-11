@@ -105,7 +105,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -377,8 +377,8 @@ export async function createPersonalServer(options = {}) {
       if (method === 'GET' && path === '/api/bootstrap') {
         return json(response, 200, {
           workspace: { onboardingCompleted: Boolean(store.get('setting', 'workspace-onboarding')?.completed), displayName: store.get('contact', 'self')?.name || '你' },
-          threads: store.list('thread').filter(t => t.purpose !== 'agent_onboarding').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
-            ...(kind ? { kind, memberIds, version } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
+          threads: store.list('thread').filter(t => t.purpose !== 'agent_onboarding').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, groupAvatar, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
+            ...(kind ? { kind, memberIds, version } : {}), ...(kind === 'group' ? { groupAvatar: groupAvatar ?? null } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
             pendingApprovals: decisions.filter(d => d.state === 'pending').length })),
           connections: store.list('connection').map(publicConnection), memories: store.list('memory'),
           settings: { im: messenger.settings(), defaultMode: 'codex', codexAvailable: codex.available, codexVersion: codex.version,

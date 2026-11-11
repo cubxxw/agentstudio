@@ -1,6 +1,7 @@
 import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
 import { APIError, id, now } from './store.mjs';
 import { imSettings, addReaction, REACTIONS } from './im-participation.mjs';
+import { validateGroupAvatar } from './group-avatar.mjs';
 
 const SELF = 'self';
 const policies = ['auto', 'mention', 'always', 'manual'];
@@ -128,6 +129,8 @@ export class Messenger {
   createChat(body) {
     if (body.allowSilence !== undefined && body.allowSilence !== null && typeof body.allowSilence !== 'boolean') fail('允许静默必须是开关或跟随 IM 设置');
     if (!['direct', 'group'].includes(body.kind)) fail('请选择私聊或群聊');
+    if (body.kind !== 'group' && body.groupAvatar !== undefined) fail('只有群聊可以设置群图标');
+    const groupAvatar = body.kind === 'group' ? validateGroupAvatar(body.groupAvatar) : null;
     const memberIds = this.members(body.memberIds);
     if (body.kind === 'direct' && memberIds.length !== 2) fail('私聊只能有你和一位联系人');
     if (body.kind === 'direct') {
@@ -138,7 +141,7 @@ export class Messenger {
     }
     const title = body.kind === 'direct' ? this.store.require('contact', memberIds.find(x => x !== SELF)).name : text(body.title, 80);
     if (!title) fail('请填写群名称');
-    const thread = { id: id('thr'), kind: body.kind, title, memberIds, version: 1,
+    const thread = { id: id('thr'), kind: body.kind, title, memberIds, version: 1, ...(body.kind === 'group' ? { groupAvatar } : {}),
       members: memberIds.map(contactId => ({ contactId, membershipId: id('membership'), visibleAfterMessageId: null })), responsePolicies: {}, allowSilence: body.allowSilence ?? null,
       status: 'completed', summary: '', createdAt: now(), updatedAt: now(), messages: [], runs: [], artifacts: [], decisions: [], events: [], memoryIds: [] };
     return this.store.put('thread', thread);
@@ -161,9 +164,10 @@ export class Messenger {
     }
     if (body.allowSilence !== undefined && body.allowSilence !== null && typeof body.allowSilence !== 'boolean') fail('允许静默必须是开关或跟随 IM 设置');
     const allowSilence = body.allowSilence === undefined ? thread.allowSilence ?? null : body.allowSilence;
+    const groupAvatar = body.groupAvatar === undefined ? thread.groupAvatar ?? null : validateGroupAvatar(body.groupAvatar);
     const title = body.title === undefined ? thread.title : text(body.title, 80);
     if (!title) fail('请填写群名称');
-    Object.assign(thread, { title, memberIds, members, responsePolicies, allowSilence, version: thread.version + 1, updatedAt: now() });
+    Object.assign(thread, { title, memberIds, members, responsePolicies, allowSilence, groupAvatar, version: thread.version + 1, updatedAt: now() });
     const saved = this.store.put('thread', thread);
     this.options.onGroupChanged?.(threadId);
     return saved;
