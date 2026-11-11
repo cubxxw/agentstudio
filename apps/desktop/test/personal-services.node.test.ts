@@ -598,3 +598,15 @@ it("syncs independent approvals and durably deduplicates responses across restar
   expect((await (await restored.rpc("agentstudio/approvals/respond", params)).json() as any).result.state).toBe("unknown");
   expect(restored.manager().decisions).toHaveLength(0);
 });
+it("restores a proven approval wait and requires fresh post-approval text to complete", async () => {
+ const f=await fixture();const sent=await f.send();await expect.poll(async()=>(await f.get(sent.result.id)).result.status.state).toBe("working");
+ const card={id:"approval",revision:"a".repeat(64),state:"pending" as const,title:"QA?",choices:[{key:"opaque",label:"Continue"}],replyTo:"message_1"};
+ f.manager().emitters.get("fake_grok")!.approval!(card);await eventTurn();expect((await f.get(sent.result.id)).result.status.state).toBe("input-required");
+ await f.services.stop();const restored=await fixture(f.directory);await restored.services.restore();
+ expect((await restored.get(sent.result.id)).result.status.state).toBe("input-required");
+ const emitter=restored.manager().emitters.get("fake_grok")!;emitter.approval!({...card,state:"resolved",source:"original",choiceLabel:"Continue"});
+ emitter.emit({type:"status",state:"working"});emitter.emit({type:"message",reply_to:"message_1",text:"old partial",provisional:true});emitter.emit({type:"status",state:"idle"});await eventTurn();
+ expect((await restored.get(sent.result.id)).result.status.state).toBe("working");
+ emitter.emit({type:"message",reply_to:"message_1",text:"fresh final"});emitter.emit({type:"status",state:"idle"});await eventTurn();
+ expect((await restored.get(sent.result.id)).result.status.state).toBe("completed");expect(restored.manager().sends).toHaveLength(0);
+});

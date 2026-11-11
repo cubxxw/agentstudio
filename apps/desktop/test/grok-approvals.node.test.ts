@@ -52,3 +52,16 @@ it("does not regress a resolved original-app card on a late older snapshot", asy
  const f=await fixture();await f.poll();f.set([entry("r",4)]);await f.poll();f.set([entry(undefined,3)]);await f.poll();
  expect(f.cards.at(-1)).toMatchObject({state:"resolved",choiceLabel:"Reject QA"});
 });
+it("keeps the original turn while two cards are answered separately in Grok Bot", async () => {
+ const turn={messageId:"original",providerMessageId:"nonce",text:"QA",echoed:true,startSeq:1,sessionId:"session",waiting:true,cards:["card","card2"],resumeAfter:4};
+ const f=await fixture(turn), second={...entry(undefined,1),entry_id:"card2",seq:3};
+ const user=(seq:number)=>({entry_id:`user${seq}`,seq,updated_seq:1,entry_kind:"user-message",body:Buffer.from(JSON.stringify({kind:"user-message",text:"r"}))});
+ f.set([entry("r",2),second,user(5)]);await f.poll();
+ expect((f.connector as any).personalReply?.messageId).toBe("original");
+ expect(f.events.some(e=>e.type==="message"&&e.from_user)).toBe(false);
+ expect(f.events.some(e=>e.type==="status"&&e.state==="working")).toBe(false);
+ f.set([entry("r",2),{...entry("r",2),entry_id:"card2",seq:3},user(5),user(6)]);await f.poll();
+ expect((f.connector as any).personalReply?.messageId).toBe("original");
+ expect(f.events.filter(e=>e.type==="status"&&e.state==="working")).toHaveLength(1);
+ expect(f.events.some(e=>e.type==="message"&&e.from_user)).toBe(false);
+});
