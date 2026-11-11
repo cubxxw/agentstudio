@@ -179,21 +179,26 @@
 .im-ready-contacts > span { color: var(--im-muted); font-size: 10px; padding: 0 8px 7px; }
 .im-ready-contacts button { display: flex; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 8px; text-align: left; }
 .im-ready-contacts button:hover { background: var(--im-hover); }
-.im-ready-contacts button > span:nth-child(2) { flex: 1; font-size: 12px; }
+.im-ready-contacts button > span:nth-child(2) { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.im-ready-contacts button > svg { flex-shrink: 0; }
 .im-ready-contacts button > svg { color: #8ba2b4; }
-.im-contact-detail { flex: 1; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 50px 30px; background: var(--im-paper); }
-.im-contact-detail h2 { font-size: 24px; font-weight: 600; margin: 20px 0 4px; }
-.im-handle { color: var(--im-blue); font-size: 12px; }
+.im-contact-detail { flex: 1; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 28px 30px; background: var(--im-paper); }
+.im-contact-summary { display: flex; align-items: flex-start; gap: 20px; width: 100%; max-width: 720px; min-width: 0; }
+.im-contact-summary > div { flex: 1; min-width: 0; }
+.im-contact-summary .im-avatar.hero { width: 72px; height: 72px; border-radius: 22px; font-size: 28px; }
+.im-contact-detail h2 { font-size: 22px; line-height: 1.4; font-weight: 600; margin: 0 0 4px; overflow-wrap: anywhere; }
+.im-contact-summary p { margin-top: 10px; font-size: 13px; line-height: 1.8; color: var(--im-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.im-handle { color: var(--im-blue); font-size: 12px; overflow-wrap: anywhere; }
 .im-contact-detail > p { margin-top: 18px; text-align: center; max-width: 420px; font-size: 13px; color: var(--im-muted); white-space: pre-wrap; }
-.im-contact-status { display: flex; gap: 7px; align-items: center; color: var(--im-muted); font-size: 11px; margin: 12px 0 23px; }
-.im-profile-actions { display: flex; gap: 10px; }
-.im-profile-info { max-width: 450px; width: 100%; padding-top: 35px; margin-top: 35px; border-top: 1px solid var(--im-line); }
+.im-contact-status { display: flex; gap: 7px; align-items: center; color: var(--im-muted); font-size: 12px; margin-top: 10px; }
+.im-profile-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: 100%; max-width: 720px; margin-top: 20px; }
+.im-profile-info { max-width: 720px; width: 100%; padding-top: 22px; margin-top: 22px; border-top: 1px solid var(--im-line); }
 .im-profile-info h3 { font-size: 12px; font-weight: 600; color: var(--im-muted); }
 .im-profile-info > p { font-size: 13px; white-space: pre-wrap; line-height: 1.9; margin-top: 14px; }
 .im-profile-info dl { margin: 24px 0 14px; font-size: 11px; }
 .im-profile-info dl > div { display: flex; gap: 20px; padding: 10px 0; border-top: 1px solid var(--im-line); }
-.im-profile-info dt { width: 65px; color: var(--im-muted); }
-.im-profile-info dd { margin: 0; flex: 1; }
+.im-profile-info dt { width: 75px; flex-shrink: 0; color: var(--im-muted); }
+.im-profile-info dd { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .im-text-button { display: inline-flex; gap: 5px; align-items: center; color: var(--im-blue); font-size: 12px; padding: 5px 0; }
 .im-send-options { font-size: 11px; color: var(--im-muted); margin-top: 9px; }
 .im-send-options > summary { cursor: pointer; width: fit-content; display: flex; gap: 6px; align-items: center; padding: 3px 0; }
@@ -236,7 +241,7 @@
 .im-execution-record summary { cursor: pointer; padding: 4px 0; }
 .im-execution-record details p { line-height: 1.9; overflow-wrap: anywhere; margin: 8px 0; }
 .im-execution-record pre { max-width: 100%; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 8px; background: var(--im-bg); }
-.im-approval-content { flex: 1; overflow: auto; padding: 40px clamp(20px, 5vw, 70px); }
+.im-approval-content { flex: 1; overflow: auto; padding: 28px clamp(20px, 5vw, 70px); }
 .im-approval-content h2 { font-size: 22px; font-weight: 550; margin: 16px 0 12px; }
 .im-approval-content > p { color: var(--im-muted); font-size: 12px; line-height: 1.9; margin-bottom: 28px; max-width: 460px; }
 .im-app .im-approval-content .decision { background: var(--im-paper); border: 1px solid var(--im-line); box-shadow: var(--im-row-shadow); border-radius: 16px; padding: 23px; max-width: 660px; }
@@ -413,7 +418,10 @@
 .im-composer textarea { font-size: 15px; }
 .im-app .im-composer textarea:focus-visible { outline: none; box-shadow: none; }
 .im-composer-hint { font-size: 10px; }
-.im-chat-row { min-height: 78px; margin-bottom: 3px; border-radius: 11px; }
+.im-chat-row { min-height: 68px; padding-block: 10px; margin-bottom: 2px; border-radius: 10px; }
+.im-chat-row > .im-avatar { width: 40px; height: 40px; border-radius: 12px; font-size: 17px; }
+.im-chat-row > svg { flex-shrink: 0; }
+.im-row-title time { flex-shrink: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .im-row-copy strong { font-size: 14px; }
 .im-row-copy small, .im-row-preview { font-size: 12px; }
 @media (prefers-color-scheme: dark) {
@@ -556,6 +564,6 @@
 @media (max-width: 760px) { .workspace-welcome { padding: 12px 0; } .workspace-welcome-options { gap: 14px; } }
 .workspace-quick { margin: 0 auto 22px; color: var(--im-muted); font-size: 11px; }
 .workspace-quick > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 10px; }
-.workspace-quick button { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--im-ink); }
+.workspace-quick button { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 12px; color: var(--im-ink); overflow-wrap: anywhere; text-align: left; }
 .workspace-mode-indicator { position: fixed; z-index: 20; top: 9px; right: 18px; padding: 3px 10px; border: 1px solid var(--im-line); border-radius: 7px; background: var(--im-paper); color: var(--im-blue); font-size: 11px; font-weight: 600; pointer-events: none; }
 .workspace-mode-indicator[hidden] { display: none; }
