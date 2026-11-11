@@ -79,6 +79,7 @@ pnpm start:personal
 
 ## 文档与检查
 
+- [macOS 自动更新设计（GET-495）](../superpowers/specs/2026-11-11-macos-auto-update-design.md)与[交互预览](macos-update-preview.html)：左下角提示、悬浮版本变化和点击重启；目前仅为设计，正式签名升级尚未实现。
 - [设计裁决](design.md)
 - [Mac 决策记录](macos-decision.md)
 - [macOS 原生验收](macos-acceptance.md)

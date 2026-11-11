@@ -12,11 +12,26 @@ const thread: Thread = {
   runs: [{ id: "run", messageId: "input", connectionId: "con_original", mode: "connection", status: "completed", createdAt: "2026-11-11T00:00:00Z", contactSnapshot: sender }],
 };
 const render = (value = thread) => renderToStaticMarkup(createElement(ConversationTimeline, {
-  thread: value, contacts: [{ ...sender, binding: { type: "connection", connectionId: "con_new" }, avatarService: "grokbot" }], serviceAvatars: { con_original: "muse", con_new: "grokbot" }, limit: 80,
+  thread: value, contacts: [{ ...sender, binding: { type: "connection", connectionId: "con_new" }, avatarService: "grokbot", avatarDataUrl: "data:image/png;base64,iVBORw0KGgoNEW=" }], serviceAvatars: { con_original: "muse", con_new: "grokbot" }, serviceImages: { con_new: "data:image/png;base64,iVBORw0KGgoNEW=" }, limit: 80,
   onMore() {}, onReply() {}, onContact() {}, onSource() {}, onRun() {}, onError() {}, busy: "",
 }));
 
 describe("personal message presentation", () => {
+  it("shows a bot's own raster avatar before its service logo", () => {
+    const avatarDataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const html = renderToStaticMarkup(createElement(Avatar, { contact: { ...sender, avatarService: "grokbot", avatarDataUrl } }));
+    expect(html).toContain(`src="${avatarDataUrl}"`);
+    expect(html).toContain('data-avatar-source="bot"');
+  });
+  it("rejects arbitrary remote or active avatar URLs and preserves custom icons", () => {
+    for (const avatarDataUrl of ["https://example.com/private", "data:image/svg+xml,<svg/>", "javascript:alert(1)"]) {
+      const html = renderToStaticMarkup(createElement(Avatar, { contact: { ...sender, avatarService: "grokbot", avatarDataUrl } }));
+      expect(html).not.toContain(avatarDataUrl);
+      expect(html).toContain('data-avatar-source="grokbot"');
+    }
+    const html = renderToStaticMarkup(createElement(Avatar, { contact: { ...sender, icon: "research", avatarDataUrl: "data:image/png;base64,iVBORw0KGgo=" } }));
+    expect(html).not.toContain("<img");
+  });
   it("keeps a historical reply tied to its original connection after a contact is rebound", () => {
     const html = render();
     expect(html).toContain('data-avatar-source="muse"');

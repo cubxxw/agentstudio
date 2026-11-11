@@ -60,10 +60,12 @@ function Messenger() {
   const [data, setData] = useState<Bootstrap | null>(read("bootstrap", null));
   const [contactRecords, setContacts] = useState<Contact[]>(read("contacts", []));
   const [serviceAvatars, setServiceAvatars] = useState<Record<string, PersonalServiceId>>({});
+  const [serviceImages, setServiceImages] = useState<Record<string, string>>({});
   const contacts = useMemo(() => contactRecords.map(contact => {
-    const service = contact.binding?.type === "connection" ? serviceAvatars[contact.binding.connectionId] : undefined;
-    return service ? { ...contact, avatarService: service } : contact;
-  }), [contactRecords, serviceAvatars]);
+    const connectionId = contact.binding?.type === "connection" ? contact.binding.connectionId : undefined;
+    const service = connectionId ? serviceAvatars[connectionId] : undefined;
+    return service && connectionId ? { ...contact, avatarService: service, avatarDataUrl: serviceImages[connectionId] } : contact;
+  }), [contactRecords, serviceAvatars, serviceImages]);
   const [library, setLibrary] = useState<WorkspaceArtifact[]>([]);
   const [artifactRevision, setArtifactRevision] = useState<string | null>(() => new URL(location.href).searchParams.get("revision"));
   const [artifactId, setArtifactId] = useState<string | null>(() => new URL(location.href).searchParams.get("artifact"));
@@ -135,6 +137,7 @@ function Messenger() {
     void desktop?.nativeIntegration?.({ kind: "services" }).then(catalog => {
       if (!mounted.current || sequence !== syncing.current || catalog.state !== "catalog") return;
       setServiceAvatars(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && instance.service ? [[instance.connectionId, instance.service]] : [])));
+      setServiceImages(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && instance.avatarDataUrl ? [[instance.connectionId, instance.avatarDataUrl]] : [])));
     }).catch(() => { /* Keep the last known icons; core refresh works independently. */ });
     const results = await Promise.allSettled([api<Bootstrap>("/bootstrap"), api<{ contacts: Contact[] }>("/contacts"), api<{ approvals: Approval[] }>("/approvals"), api<{ artifacts: WorkspaceArtifact[] }>("/library/artifacts")]);
     if (!mounted.current || sequence !== syncing.current) return;
@@ -328,7 +331,7 @@ function Messenger() {
         {thread?.decisions.some(d => d.state === "pending") && <button className="im-pending-bar" data-testid="im-pending-bar" onClick={() => { setApprovalId(thread.decisions.find(d => d.state === "pending")!.id); setScreen("approvals"); }}><ShieldCheck size={17} /><span>{thread.decisions.filter(d => d.state === "pending").length} 项操作等待审批</span><ChevronRight size={17} /></button>}
         <div className="im-timeline" ref={timeline} data-testid="im-timeline" onScroll={e => { const node = e.currentTarget; nearBottom.current = node.scrollHeight - node.clientHeight - node.scrollTop < 100; if (nearBottom.current) setNewMessages(false); }}>
           {thread && thread.messages.length === 0 && <div className="im-conversation-start"><Avatar contact={directContact} group={thread.kind === "group"} size="large" /><h2>{thread.kind === "group" ? "伙伴到齐，开始聊吧。" : `和 ${directContact?.name || thread.title} 聊聊`}</h2><p>{thread.kind === "group" ? "成员会结合自己的角色选择回应；也可以 @ 指定一位伙伴。" : directContact?.instructions || directContact?.description || "发一条消息，开始这段对话。"}</p></div>}
-          {thread && <ConversationTimeline thread={{ ...thread, runs: thread.runs.filter(run => !run.collaboration) }} contacts={contacts} serviceAvatars={serviceAvatars} limit={messageLimit} onMore={() => setMessageLimit(value => value + 80)} onReply={message => { editDraft({ replyTo: message.id }); input.current?.focus(); }} onContact={id => { setContactId(id); setScreen("contacts"); setMobileDetail(true); }} onSource={setSource} onRun={(run, action) => void mutateRun(run, action)} onError={setError} busy={busy} />}
+          {thread && <ConversationTimeline thread={{ ...thread, runs: thread.runs.filter(run => !run.collaboration) }} contacts={contacts} serviceAvatars={serviceAvatars} serviceImages={serviceImages} limit={messageLimit} onMore={() => setMessageLimit(value => value + 80)} onReply={message => { editDraft({ replyTo: message.id }); input.current?.focus(); }} onContact={id => { setContactId(id); setScreen("contacts"); setMobileDetail(true); }} onSource={setSource} onRun={(run, action) => void mutateRun(run, action)} onError={setError} busy={busy} />}
           {thread && <CreationCards state={thread.creation} contacts={contacts} refresh={refresh} onOpen={openArtifact} onError={setError} />}
 
         </div>

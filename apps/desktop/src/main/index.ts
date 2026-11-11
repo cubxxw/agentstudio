@@ -398,7 +398,7 @@ function registerPersonalIpc() {
         const instances = await personalServices.list();
         return { state: "catalog", providers: personalServices.services(), instances: instances.map(instance => ({
           id: instance.id, service: instance.service, name: instance.name, status: instance.status,
-          canOpen: instance.canOpen, connectionId: nativeConnections.get(instance.id),
+          canOpen: instance.canOpen, connectionId: nativeConnections.get(instance.id), avatarDataUrl: instance.avatarDataUrl,
         })) };
       }
       if (action.kind === "connect") return { state: "waiting", flowId: await personalServices.begin(action.serviceId), message: "请按提示完成你自己的账号登录" };
@@ -564,7 +564,9 @@ if (!gotLock) {
       });
       connectors = new ConnectorManager(connectorsEnvFromProcess(), dir);
     } else {
-      personalServices = new PersonalServices({ userData: dir, env: connectorsEnvFromProcess() });
+      personalServices = new PersonalServices({ userData: dir, env: connectorsEnvFromProcess(),
+        onAvatarsChanged: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(PERSONAL_IPC.changed, {}); },
+      });
       localLogin = new LocalLoginHost({ onChanged: () => { mainWindow?.webContents.send(PERSONAL_IPC.changed, {}); } });
       personalHost = new PersonalHost({
         dataDir: workspaceProfile.personalData,

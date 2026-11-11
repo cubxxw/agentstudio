@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>AgentRoom · 更新交互预览</title>
+<style>
+  :root { color-scheme:light; --bg:#e9edf0; --sidebar:#f3f5f7; --paper:#fff; --ink:#27343e; --muted:#5d6b77; --line:#dce2e7; --blue:#35627b; --soft:#e1edf4; --well:#edf1f4; }
+  * { box-sizing:border-box; } [hidden] { display:none!important; }
+  body { margin:0; padding:40px; background:var(--bg); color:var(--ink); font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; }
+  body.dark { color-scheme:dark; --bg:#182027; --sidebar:#222c35; --paper:#293640; --ink:#e7edf2; --muted:#acbac6; --line:#3b4a57; --blue:#a5cee8; --soft:#344e62; --well:#24303a; }
+  header, .controls, .caption { max-width:1120px; margin:0 auto; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:22px; }
+  h1 { font-size:23px; font-weight:650; margin:0 0 3px; letter-spacing:-.5px; } p { margin:0; } .muted { color:var(--muted); }
+  .tag { font-size:12px; white-space:nowrap; border:1px solid var(--line); padding:5px 11px; border-radius:20px; }
+  button { font:inherit; cursor:pointer; border:0; color:inherit; background:none; } button:disabled { cursor:default; opacity:.6; }
+  button:focus-visible,select:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:18px; }
+  .controls>button, select { border:1px solid var(--line); border-radius:9px; padding:7px 12px; background:var(--paper); color:var(--muted); font:inherit; }
+  .controls>button[aria-pressed=true] { color:var(--blue); border-color:var(--blue); background:var(--soft); }
+  .controls .appearance { margin-left:auto; }
+  .window { position:relative; max-width:1120px; height:600px; margin:0 auto; overflow:hidden; border:1px solid var(--line); border-radius:17px; background:var(--sidebar); box-shadow:0 22px 70px #182a3b17; }
+  .titlebar { height:42px; display:flex; align-items:center; gap:8px; padding-left:18px; }
+  .light { width:12px;height:12px;border-radius:50%;background:#ff5f57;box-shadow:inset 0 0 0 .5px #0002; }.light:nth-child(2){background:#febc2e}.light:nth-child(3){background:#28c840}
+  .shell { height:calc(100% - 42px); display:grid; grid-template-columns:72px 280px 1fr; }
+  .rail { display:flex; flex-direction:column; align-items:center; padding:22px 10px 16px; }
+  .avatar { width:36px; height:36px; display:grid; place-items:center; border-radius:50%; background:#d6e6e1; color:#397565; font-size:14px; font-weight:600; }
+  .navs { display:flex; flex-direction:column; gap:13px; margin-top:25px; }.icon { display:grid;place-items:center;position:relative;width:40px;height:40px;border-radius:12px;color:var(--muted); }.icon:hover{background:var(--soft);color:var(--blue)}
+  .navs .icon{width:44px;height:44px;border-radius:14px}.navs .selected{background:var(--paper);color:var(--blue)}
+  svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .bottom { margin-top:auto;display:flex;flex-direction:column;gap:14px; }
+  .update-wrap{position:relative}.update.ready,.update.blocked{color:var(--blue);background:var(--soft)}.dot{position:absolute;right:6px;top:6px;width:5px;height:5px;border-radius:50%;background:var(--blue)}
+  .tooltip{position:absolute;left:50px;bottom:0;width:248px;padding:15px 17px;border:1px solid var(--line);border-radius:13px;background:var(--paper);box-shadow:0 8px 28px #13233420;z-index:10;pointer-events:none;opacity:0;visibility:hidden;transition:opacity .12s}
+  .tooltip:before{content:"";position:absolute;top:0;bottom:0;left:-12px;width:12px}.update-wrap:hover .tooltip,.update-wrap:focus-within .tooltip,.update-wrap.reveal .tooltip{opacity:1;visibility:visible;pointer-events:auto}.update-wrap.dismissed .tooltip{opacity:0;visibility:hidden;pointer-events:none}
+  .tooltip strong{display:block;font-size:13px;font-weight:600}.versions{display:flex;align-items:center;gap:12px;margin:8px 0 5px;font-size:16px;font-variant-numeric:tabular-nums}.versions span:first-child{color:var(--muted)}.versions span:last-child{color:var(--blue)}.tooltip p{font-size:12px;color:var(--muted)}
+  .list{margin:8px 0;border:1px solid var(--line);border-radius:16px;background:var(--sidebar);overflow:hidden}.search{margin:17px 14px 15px;background:var(--well);padding:8px 12px;border-radius:10px;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:8px}.search svg{width:15px}.search span{margin-left:auto}
+  .person{display:flex;gap:10px;padding:13px 14px;margin:0 8px;border-radius:12px}.person.active{background:var(--paper)}.person .avatar{border-radius:12px;background:#dddfe9;color:#626488;flex-shrink:0}.person strong{font-size:13px;font-weight:600}.person p{font-size:12px;color:var(--muted);margin-top:2px}.person small{margin-left:auto;font-size:10px;color:var(--muted)}
+  .main{background:var(--paper);margin:8px 8px 8px 6px;border:1px solid var(--line);border-radius:16px;display:flex;flex-direction:column;min-width:0}.chat-head{height:70px;padding:20px 26px;border-bottom:1px solid var(--line);font-size:14px;font-weight:600}.chat-head small{font-weight:400;color:var(--muted);font-size:11px;margin-left:10px}.reading{padding:34px 30px;flex:1}.day{text-align:center;color:var(--muted);font-size:11px;margin-bottom:26px}.bubble{margin-left:auto;max-width:270px;border-radius:14px;background:#294f68;color:#fff;padding:11px 15px;font-size:13px}.reply{margin-top:27px;max-width:440px;font-size:14px;line-height:1.9}.reply p+p{margin-top:12px}.composer{margin:16px 24px 22px;padding:16px;border:1px solid var(--line);border-radius:13px;color:var(--muted);font-size:12px;display:flex;justify-content:space-between}
+  .caption{font-size:12px;color:var(--muted);margin-top:16px}.caption strong{color:var(--ink);font-weight:500}.status{margin-top:6px;min-height:20px}
+  .backdrop{position:absolute;inset:42px 0 0;display:grid;place-items:center;background:#13233338;z-index:20;padding:20px}.panel{max-width:380px;width:100%;padding:24px;background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:0 16px 40px #0002}.panel h2{font-size:18px;margin:0 0 12px}.panel p{font-size:13px;color:var(--muted);margin:8px 0}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}.actions button{border-radius:8px;padding:7px 12px;background:var(--well)}.actions .primary{background:#35627b;color:#fff}.panel .versions{margin:15px 0}
+  .spinning{animation:spin 1.5s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){*,*:before{animation:none!important;transition:none!important}}
+  @media(max-width:900px){body{padding:22px}.shell{grid-template-columns:64px 230px 1fr}.rail{padding-inline:6px}.main .reading{padding:24px 20px}}
+  @media(max-width:680px){body{padding:14px}header{align-items:start;gap:8px}h1{font-size:19px}.tag{font-size:10px}.shell{grid-template-columns:60px 1fr}.list{display:none}.main{margin-left:0}.window{height:570px}.controls .appearance{margin-left:0}.tooltip{max-width:calc(100vw - 114px)}.reading{padding:20px!important}}
+</style>
+<svg style="display:none" aria-hidden="true"><!-- Lucide icon attribution. The paths below use Lucide/Feather icons.
+ISC License
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+---
+
+The following Lucide icons are derived from the Feather project:
+
+airplay, alert-circle, alert-octagon, alert-triangle, aperture, arrow-down-circle, arrow-down-left, arrow-down-right, arrow-down, arrow-left-circle, arrow-left, arrow-right-circle, arrow-right, arrow-up-circle, arrow-up-left, arrow-up-right, arrow-up, at-sign, calendar, cast, check, chevron-down, chevron-left, chevron-right, chevron-up, chevrons-down, chevrons-left, chevrons-right, chevrons-up, circle, clipboard, clock, code, columns, command, compass, corner-down-left, corner-down-right, corner-left-down, corner-left-up, corner-right-down, corner-right-up, corner-up-left, corner-up-right, crosshair, database, divide-circle, divide-square, dollar-sign, download, external-link, feather, frown, hash, headphones, help-circle, info, italic, key, layout, life-buoy, link-2, link, loader, lock, log-in, log-out, maximize, meh, minimize, minimize-2, minus-circle, minus-square, minus, monitor, moon, more-horizontal, more-vertical, move, music, navigation-2, navigation, octagon, pause-circle, percent, plus-circle, plus-square, plus, power, radio, rss, search, server, share, shopping-bag, sidebar, smartphone, smile, square, table-2, tablet, target, terminal, trash-2, trash, triangle, tv, type, upload, x-circle, x-octagon, x-square, x, zoom-in, zoom-out
+
+The MIT License (MIT) (for the icons listed above)
+
+Copyright (c) 2013-present Cole Bemis
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-->
+  <symbol id="chat" viewBox="0 0 24 24"><path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/></symbol>
+  <symbol id="people" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="9" cy="7" r="4"/></symbol>
+  <symbol id="shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8m0-5v5h-5m5 4a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16m5 0H3v5"/></symbol>
+  <symbol id="settings" viewBox="0 0 24 24"><path d="M14 17H5M19 7h-9"/><circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/></symbol>
+  <symbol id="up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4m4 4V8"/></symbol>
+  <symbol id="download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m4-5 5 5 5-5m-5 5V3"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+</svg>
+<header><div><h1>更新，在你准备好时</h1><p class="muted">左下角提示，悬浮看版本，点击重启更新。</p></div><span class="tag">GET-495 · 交互示意</span></header>
+<div class="controls" aria-label="切换演示状态">
+  <button data-testid="preview-ready" data-state="ready" aria-pressed="true">已就绪</button><button data-testid="preview-downloading" data-state="downloading" aria-pressed="false">下载中</button><button data-testid="preview-blocked" data-state="blocked" aria-pressed="false">任务进行中</button><button data-testid="preview-error" data-state="error" aria-pressed="false">下载失败</button><button data-testid="preview-idle" data-state="idle" aria-pressed="false">暂无更新</button>
+  <button class="appearance" data-testid="preview-appearance" aria-pressed="false">深色外观</button>
+</div>
+<section class="window" aria-label="AgentRoom 示例窗口">
+  <div class="titlebar" aria-hidden="true"><i class="light"></i><i class="light"></i><i class="light"></i></div>
+  <div class="shell">
+    <nav class="rail" aria-label="主导航示意"><div class="avatar" aria-hidden="true">我</div><div class="navs"><span class="icon selected" aria-label="聊天"><svg><use href="#chat"/></svg></span><span class="icon" aria-label="联系人"><svg><use href="#people"/></svg></span><span class="icon" aria-label="审批"><svg><use href="#shield"/></svg></span></div>
+      <div class="bottom"><div class="update-wrap reveal" data-testid="preview-update-wrap"><button class="icon update ready" aria-label="重启并更新，从 0.1.0 到 0.1.1" aria-describedby="update-tooltip" data-testid="im-update"><svg data-testid="preview-update-icon"><use href="#up"/></svg><span class="dot"></span></button><div class="tooltip" role="tooltip" id="update-tooltip" data-testid="im-update-tooltip"><strong data-testid="preview-tooltip-title">新版本已就绪</strong><div class="versions"><span data-testid="im-update-current">0.1.0</span><span aria-hidden="true">→</span><span data-testid="im-update-target">0.1.1</span></div><p data-testid="preview-tooltip-hint">点击重启并更新</p></div></div>
+        <span class="icon" aria-label="刷新"><svg><use href="#refresh"/></svg></span><span class="icon" aria-label="设置"><svg><use href="#settings"/></svg></span>
+      </div>
+    </nav>
+    <aside class="list" aria-label="演示会话列表"><div class="search"><svg><use href="#search"/></svg>搜索<span>＋</span></div><div class="person active"><div class="avatar">助</div><div><strong>演示助手</strong><p>保持专注，更新已准备好。</p></div><small>现在</small></div><div class="person"><div class="avatar" style="background:#e9e3d6;color:#897450">群</div><div><strong>计划小组</strong><p>本周安排已经整理好了</p></div></div></aside>
+    <main class="main"><div class="chat-head">演示助手<small>合成会话</small></div><div class="reading"><div class="day">今天</div><div class="bubble">帮我整理一下今天的安排。</div><div class="reply"><p>今天的安排已经整理好了。</p><p>你可以继续这段对话。更新包准备好后，左下角会留下一个小标识，等你方便时再重启。</p></div></div><div class="composer">写一条消息…<span>↵</span></div></main>
+  </div>
+  <div class="backdrop" data-testid="preview-dialog-backdrop" hidden><div class="panel" role="dialog" aria-modal="true" aria-labelledby="dialog-title" data-testid="update-panel"><h2 id="dialog-title" data-testid="preview-dialog-title"></h2><div class="versions"><span>0.1.0</span><span>→</span><span>0.1.1</span></div><p data-testid="preview-dialog-body"></p><div class="actions"><button data-testid="preview-dialog-close">稍后</button><button class="primary" data-testid="preview-dialog-action"></button></div></div></div>
+</section>
+<div class="caption"><strong>试一试：</strong>切换状态，悬浮或用 Tab 聚焦左下角标识，也可以直接点击。初始浮层为便于查看而展开，移动指针后按正常悬浮规则显示。<p>版本号与会话均为合成示例。此页不会下载、安装或重启应用。</p><p class="status" role="status" data-testid="preview-status"></p></div>
+<script>
+  const $ = id => document.querySelector(`[data-testid="${id}"]`);
+  const states = {
+    ready:{title:"新版本已就绪",hint:"点击重启并更新",icon:"up",label:"重启并更新，从 0.1.0 到 0.1.1"},
+    downloading:{title:"正在后台下载",hint:"准备好后可重启更新",icon:"download",label:"正在下载 0.1.1，查看更新进度"},
+    blocked:{title:"新版本已就绪",hint:"仍有任务或待确认结果，请处理后更新",icon:"up",label:"新版本 0.1.1 已就绪，查看更新前待处理任务"},
+    error:{title:"更新暂未下载完成",hint:"下载失败，点击重试",icon:"download",label:"0.1.1 下载失败，点击重试"},
+    idle:{title:"",hint:"",icon:"up",label:""}
+  };
+  let state="ready", dialogMode="", restoreFocus=null;
+  function setState(next) {
+    state=next;const info=states[next];
+    document.querySelectorAll("[data-state]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.state===next)));
+    $("preview-update-wrap").hidden=next==="idle";
+    $("preview-update-wrap").classList.remove("dismissed");
+    $("im-update").className=`icon update ${next}`;$("im-update").disabled=false;$("im-update").setAttribute("aria-label",info.label);
+    $("preview-update-icon").classList.remove("spinning");$("preview-update-icon").firstElementChild.setAttribute("href",`#${info.icon}`);
+    $("preview-tooltip-title").textContent=info.title;$("preview-tooltip-hint").textContent=info.hint;
+    $("im-update").querySelector(".dot").hidden=!["ready","blocked"].includes(next);
+    $("preview-status").textContent=next==="idle"?"当前版本 0.1.0，无更新时不显示额外标识。":"";
+  }
+  function closeDialog(){ $("preview-dialog-backdrop").hidden=true; if(restoreFocus?.isConnected&&!restoreFocus.hidden)restoreFocus.focus(); }
+  function showDialog(title,body,action,mode){restoreFocus=document.activeElement;dialogMode=mode;$("preview-dialog-title").textContent=title;$("preview-dialog-body").textContent=body;$("preview-dialog-action").textContent=action;$("preview-dialog-backdrop").hidden=false;$("preview-dialog-close").focus();}
+  document.querySelectorAll("[data-state]").forEach(button=>button.addEventListener("click",()=>setState(button.dataset.state)));
+  $("preview-appearance").addEventListener("click",()=>{const dark=document.body.classList.toggle("dark");$("preview-appearance").setAttribute("aria-pressed",String(dark));$("preview-appearance").textContent=dark?"浅色外观":"深色外观";});
+  $("preview-update-wrap").addEventListener("pointerleave",()=>$("preview-update-wrap").classList.remove("reveal","dismissed"));
+  $("preview-update-wrap").addEventListener("pointerenter",()=>$("preview-update-wrap").classList.remove("reveal","dismissed"));
+  $("im-update").addEventListener("blur",()=>$("preview-update-wrap").classList.remove("dismissed","reveal"));
+  $("im-update").addEventListener("click",()=>{
+    $("preview-update-wrap").classList.remove("reveal");
+    if(state==="ready") {$("im-update").disabled=true;$("preview-update-icon").classList.add("spinning");$("preview-tooltip-title").textContent="正在准备重启…";$("preview-tooltip-hint").textContent="保存草稿与当前会话，等待后台安全退出";showDialog("已进入更新准备","正式应用会先保存草稿、核对后台空闲并备份资料，再安装新版本。此预览已停在重启前，不操作本机应用。","完成演示","ready");}
+    if(state==="blocked")showDialog("先处理当前任务","演示助手仍在运行，另有一项审批待处理。更新包已保留，处理后再点击更新即可。","返回相关会话","blocked");
+    if(state==="downloading")showDialog("正在后台下载","0.1.1 的更新包还未准备好。你可以继续聊天，下载完成后这里会变成重启入口。","继续使用","downloading");
+    if(state==="error"){setState("downloading");$("preview-status").textContent="已演示重试：回到后台下载状态。可点“已就绪”查看下载完成后的入口。";}
+  });
+  $("preview-dialog-close").addEventListener("click",()=>{if(dialogMode==="ready")setState("ready");closeDialog();});
+  $("preview-dialog-action").addEventListener("click",()=>{if(dialogMode==="ready"){setState("ready");$("preview-status").textContent="演示结束。真实更新需安装后读回新版本与资料状态，才会显示更新成功。";}if(dialogMode==="blocked")$("preview-status").textContent="已返回演示会话。真实应用会定位待处理任务，不会自动结束任务。";closeDialog();});
+  document.addEventListener("keydown",event=>{if(event.key==="Escape"){if(!$("preview-dialog-backdrop").hidden){if(dialogMode==="ready")setState("ready");closeDialog();}$("preview-update-wrap").classList.add("dismissed");}if(event.key==="Tab"&&!$("preview-dialog-backdrop").hidden){const first=$("preview-dialog-close"),last=$("preview-dialog-action");if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
+</script>
+</html>

@@ -8,6 +8,8 @@ The macOS Electron app opens the personal messenger by default: contacts, direct
 
 ## Build and run the Mac app
 
+Automatic updates are currently a [design proposal (GET-495)](../../docs/superpowers/specs/2026-11-11-macos-auto-update-design.md), with a [standalone interaction preview](../../docs/personal/macos-update-preview.html). The design places a version-aware restart indicator above Refresh in the lower-left navigation rail. It does not enable updates in the current ad-hoc bundle; signed distribution and real upgrade acceptance remain separate implementation work.
+
 From the repository root, with Node 22.13+ and pnpm installed:
 
 ```sh
