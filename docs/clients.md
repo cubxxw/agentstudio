@@ -4,7 +4,7 @@
 
 The Mac Electron app opens the personal workspace by default. Its renderer shares `apps/personal` UI, uses the dedicated `window.agentStudioPersonal` preload and fixed IPC, and leaves API HTTP to its owned utility. It does not read the old session or start legacy connectors. Personal data belongs to the Electron profile's `personal` directory; the auxiliary web build has separate `.local/personal` data. See [setup](personal/README.md) and [the IPC contract](api.md#default-personal-desktop-ipc).
 
-The existing native window and traffic lights remain. Closing hides it while work continues; Dock activation reopens it, and quit closes its utility. Native menu commands are New (`⌘N`), Search (`⌘K`) and Settings (`⌘,`). The default is a Telegram-inspired messenger: navigation rail, contact/chat list, conversation; narrow widths use a single list or chat with Back. Reload/deep links restore the selected chat. A save action opens the native dialog, then reports the saved artifact's byte hash.
+The existing native window and traffic lights remain. Closing hides it while work continues; Dock activation reopens it, and quit closes its utility. Native menu commands are New (`⌘N`), Search (`⌘K`) and Settings (`⌘,`). The personal messenger takes its visual direction from macOS Messages: one sidebar with compact navigation along its bottom, a centered contact header, gray incoming bubbles and blue outgoing bubbles. There is no top-left app logo. Narrow widths use a single list or chat with Back. Reload/deep links restore the selected chat. A save action opens the native dialog, then reports the saved artifact's byte hash.
 
 | Messenger element | `data-testid` |
 | --- | --- |
@@ -19,16 +19,21 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Explicit Pi identity / avatar choices | `im-extract-identity`, `im-avatar-icon-<icon>` |
 | Live reply slot / partial / precise stop | `im-response-<runId>`, `im-streaming-message`, `im-run-stop-<runId>` |
 | Group editor / name / members / policy | `im-group-editor`, `im-group-name`, `im-group-search`, `im-member-<contactId>`, `im-policy-<contactId>`, `im-group-save` |
-| Conversation / information / create group | `im-main`, `im-chat-info`, `im-info`, `im-promote-group`, `im-back` |
-| Messages / metadata / actions / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-message-meta`, `im-message-actions`, `im-reply-message`, `im-run-status` |
+| Conversation / contact information / create group | `im-main`, `im-chat-info`, `im-promote-group`, `im-back` |
+| Messages / content / actions / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-message-content`, `im-message-actions`, `im-reply-message`, `im-run-status` |
+| Avatar / group sender profile | `im-avatar` (`data-avatar-source`), `im-message-avatar` |
 | Composer / text / send / file / mentions | `im-composer`, `im-message-input`, `im-send`, `im-attach`, `im-mention-<contactId>` |
-| Approvals / return / original artifact | `im-pending-bar`, `im-approval-open-chat`, `im-open-artifact` |
+| Approvals / return | `im-pending-bar`, `im-approval-open-chat` |
 | History / scratch / mode / recovery | `im-new-notes`, `im-send-options-toggle`, `im-task-mode`, `im-task-connection`, `im-send-recovery` |
 | Results / records / artifacts | `im-results`, `im-conversation-details`, `im-artifact`, `im-execution-record` |
 | Rail / list / skip | `im-rail`, `im-list-panel`, `im-skip` |
 | Focus reading / reveal list | `im-focus-toggle` (`aria-expanded`, `aria-controls`) |
 
-Every personal conversation uses this Messenger shell, including old `?workspace=tasks&thread=…` links and scratch drafts (`?thread=new`). The old workspace parameter is removed without replacing the shell. Historical threads retain their IDs, mode/connection and draft recovery keys; no message is sent during migration. The conversation title opens its contact/group information; `im-info` opens result versions and execution records. `im-new-notes` continues the old unsent scratch draft or starts local organization. Native New Chat opens the conversation picker.
+Every personal conversation uses this Messenger shell, including old `?workspace=tasks&thread=…` links and scratch drafts (`?thread=new`). The old workspace parameter is removed without replacing the shell. Historical threads retain their IDs, mode/connection and draft recovery keys; no message is sent during migration. The conversation title opens its contact/group information; the single `im-results` information button opens result versions and execution records. `im-new-notes` continues the old unsent scratch draft or starts local organization. Native New Chat opens the conversation picker.
+
+Completed replies display their Markdown content without a sender name, model, per-message time, delivery checkmark or original-artifact link. Direct replies have no repeated avatar; groups retain an avatar button with the sender's accessible name and hover title. Incomplete replies, local-only human delivery and actionable run states remain visible. Reply/copy tools appear on hover or keyboard focus; touch devices give them a separate row. Day separators and sidebar update times remain orientation aids. Normal connected status and composer keyboard hints are omitted. Focus mode hides the whole sidebar; its toolbar button and shortcuts reveal it before changing screens.
+
+Automatic avatars use bundled official images for Codex/ChatGPT, Claude, Pi, Gemini CLI and OpenCode. Native personal-service identities use the existing catalog's exact connection ID to select Grok Bot, Muse, Dots or Cue images; display names are never used to guess a provider. Explicit custom icons and colors remain user-owned. Unknown contacts use name initials. Assets load locally without external avatar requests or changes to the renderer CSP. Brand provenance lives in `packages/brand/README.md`. These are product marks, not a claim that a provider verified a persona or supplied a live per-agent portrait.
 
 Above 760 CSS pixels, the sidebar button or `⌘\` (`Ctrl+\` off Mac) hides the list for focused reading. The preference survives reload. Search (`⌘K`) and rail navigation reveal it again; collapsing from inside the list moves keyboard focus to its toggle. Dialogs keep these shortcuts inactive. At 760 CSS pixels and below, the normal list/chat Back flow takes precedence, so a saved focus preference never removes navigation. Navigation uses neutral materials; the macOS personal window uses native sidebar vibrancy that follows window activity, while the reading pane stays opaque. Reduced transparency uses solid surfaces, reduced motion disables transitions, and increased contrast strengthens text and selection. See the [design reference and implementation order](personal/macos-design.md).
 
