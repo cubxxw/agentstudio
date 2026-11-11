@@ -99,3 +99,7 @@ pnpm --filter @agentstudio/desktop build
 后端测试使用独立临时 SQLite、假 CLI 和本机合成 HTTP 服务。桌面 host 测试检查信任边界、并发重启、关闭优先级和进程身份。真实 CLI、公开 MCP、私人第三方账号、原生包、辅助浏览器与旧客户端检查分别记录，见 [macOS 账本](macos-acceptance.md)及[首轮 Web 历史](acceptance.md)。
 
 浏览器验收复用仓库现有 Playwright（需已安装 desktop 开发依赖和 Chromium / Chrome）：先在一个终端运行 `node dev/personal-qa.mjs`，再运行 `node dev/personal-browser.mjs` 和 `node dev/personal-browser.mjs edges`。隔离入口在 18745，合成远端在 18746；故意没有真实模型配置。截图、检查 JSON 与 trace 保存在 `output/playwright/personal`，CI 配置运行同一过程；本地通过与远端 CI 结果分别记录。不要把这个合成服务用作日常入口。
+
+## 其他服务器上的 Agent
+
+支持通过 Tailscale 私有 HTTPS 加入多台服务器的 Codex / Claude / Pi，添加后作为联系人参与私聊和群聊。每台服务器保持自己的登录，任务和结果在节点持久化；Mac 保持统一聊天记录。详见[节点准备、接入及恢复](remote-nodes.md)。这不包含多台桌面的聊天数据库同步。

@@ -7,6 +7,7 @@ import cueIcon from "@agentstudio/brand/assets/cue.png";
 import { api, key } from "./api";
 import { desktopBridge } from "./native";
 import { Avatar } from "./ContactAvatar";
+import { RemoteNodes } from "./RemoteNodes";
 import type { NativeIntegrationReply, NativeIntegrationRequest, PersonalServiceId } from "./desktop-contract";
 import type { Bootstrap, Integrations, LocalAgent } from "./types";
 
@@ -84,16 +85,17 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
   };
   const reload = useCallback(async (force = false) => {
     const version = ++loadVersion.current;
-    const results = await Promise.allSettled([
-      api<Integrations>(force ? "/integrations/refresh" : "/integrations", force ? {} : undefined),
-      nativeAvailable ? native({ kind: "services" }) : Promise.resolve(null),
-    ]);
-    if (!mounted.current || version !== loadVersion.current) return;
-    if (results[0].status === "fulfilled") setIntegrations(results[0].value);
-    else setError(message(results[0].reason));
-    if (results[1].status === "fulfilled") setCatalog(results[1].value);
-    else setError(message(results[1].reason));
-    setLoading(false);
+    const current = () => mounted.current && version === loadVersion.current;
+    // Native service enumeration can wait on an unrelated provider. It must
+    // not hold local discovery, server nodes or a completed enrollment hostage.
+    if (nativeAvailable) void native({ kind: "services" }).then(value => {
+      if (current()) setCatalog(value);
+    }).catch(error => { if (current()) setError(message(error)); });
+    try {
+      const value = await api<Integrations>(force ? "/integrations/refresh" : "/integrations", force ? {} : undefined);
+      if (current()) setIntegrations(value);
+    } catch (error) { if (current()) setError(message(error)); }
+    finally { if (current()) setLoading(false); }
   }, [native, nativeAvailable]);
   useEffect(() => {
     mounted.current = true; void reload();
@@ -183,7 +185,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
       : <button className="integration-button" disabled={Boolean(busy)} onClick={() => void perform("refresh", () => reload(true), false)}>检查登录</button>} />;
   const nativeIds = new Set((catalog?.instances || []).map(item => item.connectionId).filter(Boolean));
   const presetIds = new Set((integrations?.presets || []).map(item => item.connectionId).filter(Boolean));
-  const custom = data.connections.filter(item => !nativeIds.has(item.id) && !presetIds.has(item.id));
+  const custom = data.connections.filter(item => !item.node && !nativeIds.has(item.id) && !presetIds.has(item.id));
   const current = flow?.progress;
 
   return <div className="connections" data-testid="personal-connections">
@@ -235,6 +237,8 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
         {!terminal(current.state) && <button className="text-button" data-testid="personal-integration-cancel" disabled={Boolean(busy)} onClick={() => void perform("cancel-login", async () => { await applyProgress(await native({ kind: flow.scope === "local" ? "local-login-cancel" : "cancel", flowId: flow.flowId }), flow); setInputValue(""); }, false)}>取消这次连接</button>}
       </div>}
     </section>
+
+    <RemoteNodes nodes={integrations?.nodes || []} onRefresh={() => refresh()} />
 
     <section className="integration-section" aria-labelledby="connections-tools-title">
       <div className="integration-section-heading"><h3 id="connections-tools-title">常用能力</h3></div>

@@ -336,3 +336,7 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
 | 上手耗时 | 从 `git clone` 到完成第一次批准 | 小于 15 分钟（不含下载） |
 | 审批响应时间 | 从 agent 发出到用户处理完 | 有提醒后明显缩短 |
 | 7 日留存 | 装了一周后还在用的用户比例 | P1 发布后开始跟踪 |
+
+### Tailscale server agents
+
+Personal workspaces support authenticated server-node enrollment, multiple agents per server, existing contact/group execution, and durable A2A task reconciliation. Desktop database synchronization, server-initiated inbox delivery and high availability remain future work. See [remote nodes](personal/remote-nodes.md).
