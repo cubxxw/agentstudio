@@ -107,6 +107,10 @@ try {
   }
   const pinnedOrder = () => page.getByTestId('im-pinned').evaluate(node => [...node.querySelectorAll('button')].map(item => item.dataset.testid));
   await expect.poll(pinnedOrder).toEqual([first, group, direct].map(chat => `im-pinned-${chat.id}`));
+  // Pin clicks restore their trigger on the next frame. Wait for that focus
+  // operation before moving focus to the keyboard shortcut; otherwise it can
+  // steal the key event on a busy CI renderer.
+  await expect.poll(() => page.getByTestId(`im-pin-${direct.id}`).evaluate(node => new Promise(resolve => requestAnimationFrame(() => resolve(document.activeElement === node))))).toBe(true);
   // A real click settles the preceding pin action's deferred focus restoration.
   await page.getByTestId(`im-pinned-${direct.id}`).click();
   await expect(page.getByTestId(`im-pinned-${direct.id}`)).toBeFocused();

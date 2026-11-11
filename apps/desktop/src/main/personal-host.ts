@@ -45,6 +45,8 @@ export class PersonalHost {
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private error = "本机后台尚未启动";
   private runtime: RuntimeInfo | null = null;
+  private ownerId: string | null = null;
+  private nativeSources = new Map<string, { connectionId: string; instanceId: string; service?: string }>();
 
   constructor(private readonly options: HostOptions) {}
 
@@ -78,7 +80,7 @@ export class PersonalHost {
     this.state = "starting";
     mkdirSync(this.options.dataDir, { recursive: true, mode: 0o700 });
     const env = { ...(this.options.env || process.env) }; delete env.ELECTRON_RUN_AS_NODE;
-    const ownerId = randomUUID();
+    const ownerId = randomUUID(); this.ownerId = ownerId;
     let child: OwnedChild;
     try { child = this.options.fork(this.options.workerPath, [], { cwd: this.options.dataDir, env, stdio: "ignore", serviceName: "AgentRoom Personal Runtime" }); }
     catch { this.state = "failed"; this.error = "本机后台无法启动，请重试"; throw new Error(this.error); }
@@ -101,7 +103,8 @@ export class PersonalHost {
           if (data.workspace !== this.options.dataDir || !Number.isInteger(data.port) || Number(data.port) < 1 || Number(data.port) > 65535) { fail("本机后台返回了无效工作区或地址"); return; }
           this.captureIdentity(child);
           settled = true; clearTimeout(timer); this.origin = `http://127.0.0.1:${data.port}`; this.state = "ready";
-          this.runtime = data.runtime as RuntimeInfo; resolve(); this.options.onChanged({});
+          this.runtime = data.runtime as RuntimeInfo; resolve();
+          for (const source of this.nativeSources.values()) void this.registerNativeSource(source).catch(() => {}); this.options.onChanged({});
         } else if (data.type === "startup_error") fail(typeof data.message === "string" ? data.message.slice(0, 600) : "本机后台无法启动");
         else if (data.type === "changed" && this.state === "ready") {
           const event = data.event && typeof data.event === "object" ? data.event as PersonalChange : {};
@@ -148,6 +151,27 @@ export class PersonalHost {
       // The original POST may already be accepted. Never repeat it here.
       return unavailable("本次响应未能确认。已接受的任务会保留；请使用原请求标识核查或重试");
     }
+  }
+
+  /** Private owner-bound utility message, deliberately absent from preload/HTTP. */
+  async registerNativeSource(source: { connectionId: string; instanceId: string; service?: string }): Promise<void> {
+    if (source.service !== "grokbot") return;
+    await this.start();
+    const child = this.child, ownerId = this.ownerId, requestId = randomUUID();
+    if (!child || !ownerId) throw new Error("Native source runtime unavailable");
+    await new Promise<void>((resolveReady, reject) => {
+      const cleanup = () => { clearTimeout(timer); child.removeListener("message", received); child.removeListener("exit", exited); };
+      const exited = () => { cleanup(); reject(new Error("Native source runtime stopped")); };
+      const received = (value: unknown) => {
+        const data = value as { type?: string; ownerId?: string; requestId?: string; error?: boolean };
+        if (data?.type !== "native-source-ready" || data.ownerId !== ownerId || data.requestId !== requestId) return;
+        cleanup(); if (data.error) reject(new Error("Native source registration failed")); else resolveReady();
+      };
+      const timer = setTimeout(() => { cleanup(); reject(new Error("Native source registration timed out")); }, 10_000);
+      child.on("message", received); child.once("exit", exited);
+      try { child.postMessage({ type: "register-native-source", ownerId, requestId, source }); } catch { cleanup(); reject(new Error("Native source registration failed")); }
+    });
+    this.nativeSources.set(source.connectionId, source);
   }
 
   async saveArtifact(id: string): Promise<PersonalSaveResult> {

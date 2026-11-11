@@ -216,7 +216,7 @@ export class Messenger {
   approvals() {
     return this.store.list('thread').flatMap(thread => thread.decisions.map(decision => {
       const run = thread.runs.find(r => r.id === decision.runId);
-      return { ...decision, threadId: thread.id, threadTitle: thread.title, contact: run?.contactSnapshot || null };
+      return { ...decision, threadId: thread.id, threadTitle: thread.title, contact: run?.contactSnapshot || (decision.providerConnectionId ? this.publicContact(this.store.get('contact', `connection_${decision.providerConnectionId}`)) : null) };
     })).sort((a, b) => (a.state === 'pending' ? 0 : 1) - (b.state === 'pending' ? 0 : 1) || String(b.createdAt).localeCompare(String(a.createdAt)));
   }
 }

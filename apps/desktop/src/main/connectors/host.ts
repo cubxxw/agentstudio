@@ -88,7 +88,7 @@ export class ConnectorHost {
     return {
       emit,
       profileChanged: () => this.sendProfile(inst.id),
-      ...(this.eventSink ? { uncertain: (messageId: string) => this.eventSink!(inst.id, { type: "uncertain", messageId }), inputRequired: (messageId: string) => this.eventSink!(inst.id, { type: "input_required", messageId }) } : {}),
+      ...(this.eventSink ? { approval: (card) => this.eventSink!(inst.id, { type: "native_approval", card }), uncertain: (messageId: string) => this.eventSink!(inst.id, { type: "uncertain", messageId }), inputRequired: (messageId: string) => this.eventSink!(inst.id, { type: "input_required", messageId }) } : {}),
     };
   }
 

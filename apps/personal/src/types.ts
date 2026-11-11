@@ -92,6 +92,9 @@ export type Artifact = {
   body?: string;
 };
 export type Decision = {
+  kind?: "provider_approval";
+  choiceLabel?: string | null;
+  providerSource?: "original" | "agentroom" | null;
   identity?: {
     label: string;
     authentication: "none" | "bearer";

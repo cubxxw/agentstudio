@@ -11,6 +11,7 @@ import { Messenger } from './messenger.mjs';
 import { AgentOnboarding } from './agent-onboarding.mjs';
 import { AgentScheduler } from './agent-scheduler.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
+import { ProviderApprovals } from './provider-approvals.mjs';
 import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -100,7 +101,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'provider-approvals.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -127,6 +128,7 @@ export async function createPersonalServer(options = {}) {
   const onboarding = new AgentOnboarding(store, messenger, { execute: options.executeLocalAgent, deps: localAgentDeps, notify });
   onboarding.recover();
   const worker = new PersonalWorker(store, { ...options, localAgentDeps, executeOnboarding: (thread, run, signal) => onboarding.execute(thread, run, signal) }, notify);
+  const providerApprovals = new ProviderApprovals(store, messenger, notify, () => worker.kick(), options.providerApprovals);
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
@@ -196,7 +198,7 @@ export async function createPersonalServer(options = {}) {
 
   let switchPrepared = false, activeMutations = 0;
   const blockingRuns = () => store.list('thread').flatMap(thread => thread.runs || []).filter(run =>
-    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length;
+    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length;
   const cancelWorkspaceSwitch = () => {
     if (!switchPrepared || shuttingDown) return;
     switchPrepared = false; scheduler.closed = false; scheduler.start(options.schedulerTickMs ?? 30_000);
@@ -449,6 +451,7 @@ export async function createPersonalServer(options = {}) {
           const decision = thread.decisions.find((item) => item.id === decisionId);
           if (decision.version !== body.version) throw new APIError(409, 'version_conflict', '确认卡已更新，请刷新后操作');
           if (decision.state !== 'pending') throw new APIError(409, 'already_decided', '这条确认已经处理');
+          if (decision.kind === 'provider_approval') return store.put('thread', providerApprovals.choose(thread, decision, body));
           if (!['approve', 'reject'].includes(body.choice)) invalid('choice 必须是 approve 或 reject');
           const run = thread.runs.find((item) => item.id === decision.runId);
           if (run.status !== 'needs_input') throw new APIError(409, 'inactive_decision', '任务当前无法接收确认');
@@ -460,7 +463,7 @@ export async function createPersonalServer(options = {}) {
           store.refreshThread(thread);
           thread.updatedAt = now(); return store.put('thread', thread);
         });
-        notify({ threadId: result.id }); worker.kick(); return json(response, 200, result);
+        notify({ threadId: result.id }); worker.kick(); void providerApprovals.tick(); return json(response, 200, result);
       }
       if (method === 'GET' && (match = path.match(/^\/api\/artifacts\/([^/]+)(\/download)?$/))) {
         const artifact = store.require('artifact', match[1]);
@@ -483,6 +486,7 @@ export async function createPersonalServer(options = {}) {
       if (method === 'POST' && path === '/api/connections') return json(response, 201, await saveConnection(await readJSON(request)));
       if (method === 'DELETE' && (match = path.match(/^\/api\/connections\/([^/]+)$/))) {
         const connectionId = match[1];
+        if (store.list('thread').some(thread => thread.decisions.some(decision => decision.kind === 'provider_approval' && decision.providerConnectionId === connectionId && ['pending','sending','unknown'].includes(decision.state))) || store.list('provider_answer').some(answer => answer.connectionId === connectionId && ['queued','sending','unknown'].includes(answer.state))) throw new APIError(409, 'connection_in_use', '此连接仍有审批或待核查的选择，请先在原服务处理');
         if (store.list('thread').some((thread) => thread.runs.some((run) => run.connectionId === connectionId &&
           (!['completed', 'failed', 'cancelled'].includes(run.status) || (run.status === 'cancelled' && ['sending', 'delivered', 'unknown'].includes(run.deliveryState) && !['canceled', 'cancelled'].includes(run.remoteStatus)))))) {
           throw new APIError(409, 'connection_in_use', '此连接仍有进行中或待核查任务，请先处理任务');
@@ -519,9 +523,11 @@ export async function createPersonalServer(options = {}) {
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   worker.start();
+  providerApprovals.start();
   scheduler.start(options.schedulerTickMs ?? 30_000);
   return {
-    server, store, worker, scheduler,
+    server, store, worker, scheduler, providerApprovals,
+    registerNativeSource: (source) => providerApprovals.register(source),
     cancelWorkspaceSwitch,
     async prepareWorkspaceSwitch() {
       if (switchPrepared || shuttingDown) throw new Error('Workspace is already switching');
@@ -549,7 +555,7 @@ export async function createPersonalServer(options = {}) {
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
-      stopProfileWatch(); await scheduler.close(); await worker.close(); await stopped; store.close();
+      stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await stopped; store.close();
     },
   };
 }

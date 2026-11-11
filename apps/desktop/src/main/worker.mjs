@@ -14,6 +14,11 @@ async function close() {
 }
 
 process.parentPort.on('message', async ({ data }) => {
+  if (data?.type === 'register-native-source' && application && data.ownerId === ownerId && !closing) {
+    try { application.registerNativeSource(data.source); send({ type: 'native-source-ready', requestId: data.requestId }); }
+    catch { send({ type: 'native-source-ready', requestId: data.requestId, error: true }); }
+    return;
+  }
   if (data?.type === 'cancel-switch') { application?.cancelWorkspaceSwitch(); return; }
   if (data?.type === 'prepare-switch' && application && !closing) {
     try { send({ type: 'switch-ready', requestId: data.requestId, ...await application.prepareWorkspaceSwitch() }); }

@@ -20,8 +20,10 @@ export interface Emitter {
   /** Private personal adapter signal; legacy bridge emitters may omit it. */
   uncertain?(messageId: string): void;
   inputRequired?(messageId: string): void;
+  approval?(card: NativeApproval): void;
 }
-export type DirectConnectorEvent = AgentEvent | { type: "uncertain" | "input_required"; messageId: string };
+export type NativeApproval = { id: string; revision: string; title: string; choices: { key: string; label: string }[]; state: "pending" | "resolved"; replyTo?: string; choiceLabel?: string; source?: "original" | "agentroom"; originalAppOnly?: boolean };
+export type DirectConnectorEvent = { type: "native_approval"; card: NativeApproval } | AgentEvent | { type: "uncertain" | "input_required"; messageId: string };
 
 export type AvatarImage = { mime: string; data: Buffer };
 
@@ -50,11 +52,13 @@ export class UnknownApprovalError extends Error {
     super("unknown approval");
   }
 }
+/** A connector proved that a local preflight stopped before provider mutation. */
+export class NotSentError extends Error { override name = "NotSentError"; }
 
 /** Progress of a connect flow, polled by the renderer. */
 export type LoginProgress =
   /** actions: buttons the user can press meanwhile; answer with choose(loginId, id). */
-  | { state: "waiting"; message: string; actions?: { id: string; label: string }[] }
+  | { state: "waiting"; message: string; actions?: { id: string; label: string }[]; link?: { label: string; url: string }; expiresAt?: string }
   | { state: "choose"; message: string; choices: { id: string; label: string }[] }
   /** The user has to type something (a Cue API key); answer with submit(loginId, value). */
   | { state: "input"; message: string; label: string; secret: boolean; link?: { label: string; url: string }; error?: string }
