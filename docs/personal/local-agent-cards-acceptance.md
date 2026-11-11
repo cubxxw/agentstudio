@@ -22,10 +22,12 @@ Temporary detailed evidence: `/private/tmp/ai-test-get-498.Lk4L7a` (browser `ui-
 
 ## Validation results
 
-- Personal host suite: 139 passed; desktop: 150 passed; core: 99 passed and 1 environment-gated integration test skipped; dev scripts: 14 passed. Go `go test -tags nocrypto -p 2 ./...` passed.
+- Personal host suite: 139 passed (initial full run and final serialized full run); desktop: 150 passed; core: 99 passed and 1 environment-gated integration test skipped; dev scripts: 14 passed. Go `go test -tags nocrypto -p 2 ./...` passed.
 - Personal TypeScript/build, core build and desktop Node/web TypeScript/build passed. Existing large-chunk/dynamic-import and Node experimental-SQLite warnings remain.
 - Existing synthetic messenger (18 checks), onboarding (6), profile controls, live conversations (9), macOS design and welcome journeys all passed serially.
 - Actual host discovery at 2026-11-11 19:27 Asia/Shanghai reported installed/configured/executable adapters for Codex, Claude Code and Pi; Gemini/OpenCode were absent. This was read-only discovery and no model call, so it proves neither live provider execution nor available quota.
+
+One later parallel full-suite run recorded 138/139: the unchanged `OS SQLite worker lock admits exactly one racing process and releases after a crash` case returned two busy contenders. Its isolated rerun passed, and the final `node --test --test-concurrency=1 apps/personal/server/*.test.mjs` passed 139/139. The original failed receipt is retained; this change does not modify the SQLite lock implementation. Latest hosted CI remains the merge gate.
 
 ## Independent review
 
