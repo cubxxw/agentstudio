@@ -59,12 +59,12 @@
 
 **Interfaces:** `CreationService` owns draft/ready/decision records and audience grants; `CollaborationRuntime` owns durable steps and checkpoints; `artifactTools(context)` returns the shared catalog; `callArtifactTool(context,name,args,callId)` checks scope and idempotency before work.
 
-- [ ] Write tests for two proposals joining one intent, version-bound approval, denial/duplicate clicks, participant binding changes, pinned sharing, blocked future heads, group audience intersection, member removal and single-slot yield/delegation.
-- [ ] Run the new creation/runtime tests; expect RED.
-- [ ] Implement the shared intent, canonical plan decisions, scoped grants, DAG/checkpoints, read fingerprints, late-callback protection and minimal safe group notifications.
-- [ ] Integrate conversation-tools for capable local agents without keyword routing; native calls and reply/silence remain distinct. Preserve existing tests through the compatibility path.
-- [ ] Run new tests plus existing messenger/group participation/local adapter tests; expect PASS.
-- [ ] Commit the durable collaboration flow.
+- [x] Write tests for two proposals joining one intent, version-bound approval, denial/duplicate clicks, participant binding changes, pinned sharing, blocked future heads, group audience intersection, member removal and single-slot yield/delegation.
+- [x] Run the new creation/runtime tests; expect RED.
+- [x] Implement the shared intent, canonical plan decisions, scoped grants, DAG/checkpoints, read fingerprints, late-callback protection and minimal safe group notifications.
+- [x] Integrate conversation-tools for capable local agents without keyword routing; native calls and reply/silence remain distinct. Preserve existing tests through the compatibility path.
+- [x] Run new tests plus existing messenger/group participation/local adapter tests; expect PASS.
+- [x] Commit the durable collaboration flow.
 
 ### Task 4: API, desktop IPC and lifecycle
 

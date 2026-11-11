@@ -40,6 +40,17 @@ test('malformed and oversized tool inputs are rejected before the handler can mu
   assert.equal(f.calls.length, 0);
 });
 
+test('a cached tool result still requires current policy authorization on replay', async t => {
+  const broker = new ToolSessions(); await broker.listen(); t.after(() => broker.close());
+  let authorized = true, calls = 0;
+  const session = broker.open({ contactId: 'reader' }, tools, async () => { calls++; return { value: 'private result' }; }, {
+    validate() { if (!authorized) { const error = new Error('Access revoked'); error.status = 403; error.code = 'grant_revoked'; throw error; } },
+  });
+  const request = () => fetch(session.endpoint, { method: 'POST', headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'artifact_probe', arguments: {}, callId: 'same-read' }) });
+  assert.equal((await request()).status, 200); authorized = false;
+  assert.equal((await request()).status, 403); assert.equal(calls, 1);
+});
+
 test('stdio MCP proxy negotiates, lists only session tools and returns structured real broker results', async t => {
   const f = await fixture(t);
   const child = spawn(process.execPath, [new URL('./agentroom-tool-proxy.mjs', import.meta.url).pathname], {

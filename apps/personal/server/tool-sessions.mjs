@@ -16,11 +16,11 @@ export class ToolSessions {
     if (this.server.listening) return;
     await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve); });
   }
-  open(context, tools, handler) {
+  open(context, tools, handler, { validate = () => {} } = {}) {
     if (!this.server.listening) throw new Error('Tool broker is not listening');
     const key = randomBytes(24).toString('hex'), token = randomBytes(32).toString('base64url');
     const controller = new AbortController();
-    const entry = { context: Object.freeze(structuredClone(context)), tools: structuredClone(tools), handler, controller,
+    const entry = { context: Object.freeze(structuredClone(context)), tools: structuredClone(tools), handler, validate, controller,
       tokenHash: fingerprint(token), expires: Date.now() + 30 * 60000, calls: new Map() };
     this.sessions.set(key, entry);
     return { endpoint: `http://127.0.0.1:${this.server.address().port}/s/${key}`, token, toolNames: tools.map(tool => tool.name),
@@ -42,6 +42,7 @@ export class ToolSessions {
       try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail(400, 'invalid_json', '工具输入不是有效 JSON'); }
       if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(k => !['name', 'arguments', 'callId'].includes(k)) || typeof input.callId !== 'string' || !input.callId || input.callId.length > 200 || !input.arguments || typeof input.arguments !== 'object' || Array.isArray(input.arguments)) fail(400, 'invalid_request', '工具调用缺少名称、参数或调用标识');
       if (!entry.tools.some(tool => tool.name === input.name)) fail(403, 'tool_unavailable', '本次会话没有这个工具');
+      entry.validate(entry.context, input.name, input.arguments, input.callId);
       const hash = fingerprint(JSON.stringify({ name: input.name, arguments: input.arguments })).toString('hex');
       const previous = entry.calls.get(input.callId);
       if (previous && previous.hash !== hash) fail(409, 'idempotency_conflict', '同一工具调用标识的参数发生变化');
@@ -54,7 +55,9 @@ export class ToolSessions {
         // Retain failures too: an uncertain operation must never be replayed implicitly.
         entry.calls.set(input.callId, { hash, result });
       }
-      send(200, { result: await entry.calls.get(input.callId).result });
+      const result = await entry.calls.get(input.callId).result;
+      entry.validate(entry.context, input.name, input.arguments, input.callId);
+      send(200, { result });
     } catch (error) { send(error.status || 500, { error: { code: error.code || 'tool_failed', message: error.status ? error.message : '工具执行未完成，请查看运行记录' } }); }
   }
   async close() {

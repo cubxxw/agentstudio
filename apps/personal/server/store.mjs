@@ -175,7 +175,7 @@ export class PersonalStore {
       throw new APIError(409, 'unknown_execution', '原任务执行结果尚未确认，请先核查，补充内容不会重新提交该操作');
     }
     const pending = thread.runs.filter((run) => run.status === 'needs_input' && (thread.kind !== 'group' || run.contactId === input.contactId));
-    if (!input.reuseMessageId || (thread.kind === 'group' && input.contactId)) for (const previous of pending) {
+    if (!input.preservePending && (!input.reuseMessageId || (thread.kind === 'group' && input.contactId))) for (const previous of pending) {
       previous.status = 'cancelled'; previous.finishedAt = now(); previous.cancellationReason = '用户补充了要求，旧预览已失效';
       for (const decision of thread.decisions.filter((item) => item.runId === previous.id && item.state === 'pending')) {
         decision.state = 'cancelled'; decision.version += 1; decision.cancellationReason = previous.cancellationReason;

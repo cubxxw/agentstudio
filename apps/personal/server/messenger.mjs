@@ -16,8 +16,8 @@ const identity = contact => ({ id: contact.id, kind: contact.kind, name: contact
 
 /** Personal, single-owner address book. Discovery updates capability facts, never a user's identity. */
 export class Messenger {
-  constructor(store) {
-    this.store = store;
+  constructor(store, options = {}) {
+    this.store = store; this.options = options;
     if (!store.get('contact', SELF)) store.put('contact', { id: SELF, kind: 'human', name: '你', handle: 'you',
       description: '这台 Mac 的使用者', instructions: '', color: 'blue', version: 1, availability: 'self', createdAt: now() });
   }
@@ -97,6 +97,7 @@ export class Messenger {
     const contact = this.store.put('contact', { ...previous, id: contactId || id('contact'), kind, name, handle,
       description: text(body.description ?? previous?.description, 300), instructions: kind === 'agent' ? text(body.instructions ?? previous?.instructions, 3000) : '',
       binding, color, icon, ...(kind === 'agent' ? { configuration, chatBackend: toolConnection ? chatBackend : null } : {}), version: (previous?.version || 0) + 1, createdAt: previous?.createdAt || now(), updatedAt: now() });
+    if (previous && JSON.stringify(previous.binding) !== JSON.stringify(contact.binding)) for (const thread of this.store.list('thread').filter(item => item.memberIds?.includes(contact.id))) this.options.onGroupChanged?.(thread.id);
     return this.publicContact(contact);
   }
 
@@ -128,7 +129,7 @@ export class Messenger {
     if (thread.kind !== 'group') fail('只有群聊可以修改成员和群响应策略');
     if (body.version !== thread.version) fail('群信息已更新，请重新打开后编辑', 409, 'version_conflict');
     const memberIds = body.memberIds === undefined ? thread.memberIds : this.members(body.memberIds);
-    // Removing a member does not cancel accepted work or grant visibility on rejoin.
+    // Ordinary accepted replies retain snapshots; artifact grants are rechecked below.
     const members = memberIds.map(contactId => thread.members.find(m => m.contactId === contactId) || { contactId, visibleAfterMessageId: thread.messages.at(-1)?.id || null });
     const responsePolicies = { ...thread.responsePolicies };
     if (body.responsePolicies !== undefined) {
@@ -141,7 +142,9 @@ export class Messenger {
     const title = body.title === undefined ? thread.title : text(body.title, 80);
     if (!title) fail('请填写群名称');
     Object.assign(thread, { title, memberIds, members, responsePolicies, version: thread.version + 1, updatedAt: now() });
-    return this.store.put('thread', thread);
+    const saved = this.store.put('thread', thread);
+    this.options.onGroupChanged?.(threadId);
+    return saved;
   }
 
   appendMessage(thread, body, validateInput) {
