@@ -56,6 +56,8 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/(contacts|chats)/${opaqueId}$`),
     new RegExp(`^/api/contacts/${opaqueId}/(control|run)$`),
     /^\/api\/integrations\/(refresh|connect)$/,
+    /^\/api\/nodes\/connect$/,
+    new RegExp(`^/api/nodes/${opaqueId}/check$`),
     /^\/api\/integrations\/local\/(codex|claude|pi)$/,
     /^\/api\/integrations\/local\/pi\/identity$/,
     new RegExp(`^/api/threads/${opaqueId}/(messages|retry|reconcile|cancel)$`),

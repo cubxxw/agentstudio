@@ -140,3 +140,7 @@ Pi execution pins provider/model/thinking and uses JSON print, no session/tools/
 ## IM participation
 
 Versioned IM preferences default to allowing silence; groups can override the setting and accepted runs freeze it. Auto local agents choose validated text, reaction or silence output. Direct chat remains Markdown compatible, with optional structured reaction/silence. Reactions target the input message, preserve identity and visibility, carry artifact dependencies, and never invoke peers. Input receipts distinguish supplied context from acknowledged completion; group UI does not reserve a reply slot for every queued reader. See the [API contract](../../../docs/api.md) and [acceptance ledger](../../../docs/personal/concurrent-im-acceptance.md).
+
+## Tailscale server nodes
+
+`agent-node.mjs` is the independent server execution boundary; `dev/agent-node.mjs` initializes private state and runs it without pnpm dependencies. `remote-nodes.mjs` handles authenticated desktop enrollment and belongs in the desktop copied-runtime list and runtime source fingerprints. It does not expose the personal HTTP API remotely. See [setup and lifecycle](../../../docs/personal/remote-nodes.md).

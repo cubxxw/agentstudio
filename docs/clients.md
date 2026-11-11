@@ -347,3 +347,13 @@ The `im-nav-library` entry opens the independent artifact library. `library-arti
 `artifact-tool-activity` lists actual scoped tool operations. `artifact-permission-card` opens `artifact-permission-review` into owner-only `artifact-owner-permission`; `artifact-permission-audience` lists exact recipients and `artifact-permission-approve/reject/revoke` decides scope. Private work details use `collaboration-owner-review` / `artifact-owner-work`; `collaboration-stopped-confirm`, `collaboration-abandon` and `collaboration-adopt-saved` reconcile unknown attempts after explicit owner review. `artifact-result-card`, `artifact-open`, `collaboration-stop` and `collaboration-retry` show real contributions and partial/unknown outcomes. Collaboration runs do not expose ordinary chat retry controls.
 
 The `artifact-workspace` contains `artifact-revision-select`, tabs `artifact-tab-preview/files/history/activity/permissions`, isolated `artifact-preview`, `artifact-file`, `artifact-file-content`, `artifact-editor`, `artifact-edit-save`, `artifact-revision`, `artifact-accept`, `artifact-restore` and `artifact-archive`. Native actions use `artifact-reveal` and `artifact-export`. Sharing uses `artifact-share`, `artifact-share-thread`, `artifact-share-paths`, `artifact-share-follow` (unchecked by default), `artifact-share-confirm`, `artifact-share-notice` and `artifact-share-revoke`. Group results and linked cards open their explicit revision in the URL (`artifact` + `revision`); invalid versions never fall back to head. The library alone defaults to head. `artifact-owner-operation` / `artifact-owner-abandon` exposes unknown owner file receipts. Human Finder changes appear in `artifact-local-warning` and are preserved until explicitly coordinated.
+
+### Personal remote server nodes
+
+| Control | data-testid |
+| --- | --- |
+| Server settings section / add | `personal-remote-nodes`, `personal-node-add` |
+| Enrollment form / address / private token / save | `personal-node-form`, `personal-node-url`, `personal-node-token`, `personal-node-save` |
+| Node / check / remove agent / error | `personal-node-row`, `personal-node-check`, `personal-node-agent-remove`, `personal-node-error` |
+
+Added agents use the existing contact, direct-message and group test IDs. Connectivity labels are last-check observations rather than continuous presence.

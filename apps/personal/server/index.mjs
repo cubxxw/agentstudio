@@ -12,6 +12,7 @@ import { AgentOnboarding } from './agent-onboarding.mjs';
 import { CreationService } from './creation-service.mjs';
 import { ArtifactAPI } from './artifact-api.mjs';
 import { AgentScheduler } from './agent-scheduler.mjs';
+import { RemoteNodes } from './remote-nodes.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
 import { ProviderApprovals } from './provider-approvals.mjs';
 import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
@@ -96,6 +97,7 @@ async function readJSON(request) {
 
 function publicConnection(connection) {
   return { id: connection.id, name: connection.name, type: connection.type, url: connection.url, createdAt: connection.createdAt,
+    ...(connection.node ? { node: connection.node } : {}),
     auth: { type: connection.credentialRef ? 'bearer' : 'none', configured: Boolean(connection.credentialRef), identityVerified: false },
     status: connection.checkedAt ? 'checked' : 'configured', checkedAt: connection.checkedAt || null, presetId: connection.presetId,
     capabilities: connection.type === 'a2a' ? ['message/send', 'tasks/get'] : ['tools/list', 'approved tools/call'] };
@@ -103,7 +105,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -120,6 +122,7 @@ export async function createPersonalServer(options = {}) {
   }
   let creation;
   const messenger = new Messenger(store, { onGroupChanged: threadId => creation?.reconcileMembership(threadId) });
+  const remoteNodes = new RemoteNodes(store, publicConnection);
   const clients = new Set();
   const notify = (event = {}) => {
     options.onChange?.(event);
@@ -316,9 +319,18 @@ export async function createPersonalServer(options = {}) {
       if ((method === 'GET' && path === '/api/integrations') || (method === 'POST' && path === '/api/integrations/refresh')) {
         if (method === 'POST') await readJSON(request);
         const detected = await localAgents(method === 'POST');
-        return json(response, 200, { ...detected, selectedLocalAgentId: store.get('setting', 'local-agent')?.agentId || 'codex',
+        return json(response, 200, { ...detected, nodes: remoteNodes.list(), selectedLocalAgentId: store.get('setting', 'local-agent')?.agentId || 'codex',
           presets: presets.map(({ id: presetId, name, description, account, url: endpoint }) => ({ id: presetId, name, description, account,
             connectionId: store.list('connection').find(item => item.type === 'mcp' && item.url === endpoint)?.id || null })) });
+      }
+      if (method === 'POST' && path === '/api/nodes/connect') {
+        const result = await remoteNodes.connect(await readJSON(request));
+        messenger.sync(await localAgents()); notify(); return json(response, 201, result);
+      }
+      if (method === 'POST' && (match = path.match(/^\/api\/nodes\/([A-Za-z0-9_-]+)\/check$/))) {
+        await readJSON(request);
+        try { return json(response, 200, await remoteNodes.check(match[1])); }
+        finally { notify(); }
       }
       if (method === 'POST' && (match = path.match(/^\/api\/integrations\/local\/(codex|claude|pi)$/))) {
         await readJSON(request);

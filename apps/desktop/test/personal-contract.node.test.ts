@@ -9,6 +9,11 @@ describe("personal IPC capabilities", () => {
     expect(readPersonalRequest({ path: "/api/connections/con_own", method: "DELETE" }).method).toBe("DELETE");
   });
 
+  it("allows node enrollment and checks without exposing server administration", () => {
+    for (const path of ["/api/nodes/connect", "/api/nodes/node_owned/check"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
+    for (const path of ["/api/nodes/node_owned/exec", "/api/nodes/../check", "/api/nodes/node_owned/check?url=https://other", "/api/nodes/node_owned/token"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
+  });
+
   it("rejects arbitrary destinations, headers, filesystem routes, streams and traversal", () => {
     for (const path of ["https://example.com/api/bootstrap", "//127.0.0.1:18740/api/bootstrap", "file:///etc/passwd", "/api/threads/../connections", "/api/threads/%2e%2e", "/api/events", "/api/artifacts/art_own/download", "/api/bootstrap?url=http://example.com", "/internal/admin"]) {
       expect(() => readPersonalRequest({ path, method: "GET" })).toThrow();

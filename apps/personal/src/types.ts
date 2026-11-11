@@ -33,6 +33,11 @@ export type Integrations = {
   agents: LocalAgent[];
   selectedLocalAgentId: LocalAgentId;
   presets: { id: string; name: string; description: string; account: string; connectionId: string | null }[];
+  nodes?: RemoteNode[];
+};
+export type RemoteNode = {
+  id: string; name: string; origin: string; status: "reachable" | "unreachable"; checkedAt: string;
+  agents: { id: string; name: string; url: string; availability: "configured" | "not_installed" | "login_required" | "unknown" | "withdrawn"; connectionId: string }[];
 };
 export type Attachment = {
   id?: string;
@@ -146,6 +151,7 @@ export type Connection = {
   name: string;
   type: "a2a" | "mcp";
   url: string;
+  node?: { id: string; name: string; agentId: string; origin: string; taskIdScheme: "messageId" };
   status?: string;
   capabilities?: unknown;
   error?: string;

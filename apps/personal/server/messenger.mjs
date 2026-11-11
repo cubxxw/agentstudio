@@ -36,7 +36,7 @@ export class Messenger {
       const contactId = `connection_${connection.id}`, previous = this.store.get('contact', contactId);
       const handle = `remote-${connection.id.replace(/[^a-z0-9]/gi, '').slice(-12).toLowerCase()}`;
       this.putDiscovered({ id: contactId, kind: 'agent', name: connection.name, handle,
-        description: connection.type === 'mcp' ? '已连接的工具助手' : '已连接的个人 Agent', instructions: '', color: 'teal',
+        description: connection.node ? `${connection.node.name} 上的助手` : connection.type === 'mcp' ? '已连接的工具助手' : '已连接的个人 Agent', instructions: '', color: 'teal',
         version: 1, createdAt: now(), ...previous, discovered: true,
         binding: { type: 'connection', connectionId: connection.id }, availability: 'ready', providerName: connection.name });
     }

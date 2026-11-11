@@ -51,7 +51,9 @@ jobs:
       - run: pnpm run test:dev
       - run: pnpm -r --if-present test
       - name: Install browser for personal workspace acceptance
-        run: pnpm --filter @agentstudio/desktop exec playwright install --with-deps chromium
+        # Hosted Ubuntu already supplies the Chromium runtime libraries. Avoid
+        # making every browser check depend on extra-font apt mirror availability.
+        run: pnpm --filter @agentstudio/desktop exec playwright install chromium
       - name: Check the complete personal workspace journey
         shell: bash
         run: |
