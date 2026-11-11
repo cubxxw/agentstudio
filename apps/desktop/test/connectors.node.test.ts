@@ -88,7 +88,7 @@ describe("grok bot transcript parsing", () => {
       const b = e.body as { message?: { type?: string }; role?: string };
       return [`${e.entry_kind}:${b.message?.type ?? b.role}`, parseEntry(e.entry_kind, json(e.body)).kind];
     });
-    // Nothing real falls into "AgentStudio can't show this".
+    // Nothing real falls into "AgentRoom can't show this".
     for (const [k, parsed] of kinds) expect([k, parsed]).not.toEqual([k, "notice"]);
     expect(Object.fromEntries(kinds)).toMatchObject({
       "send-message:text": "assistant",
@@ -97,7 +97,7 @@ describe("grok bot transcript parsing", () => {
       "send-message:widget": "other",
       "send-message:local-tool-permission": "other",
     });
-    // A pending permission request is announced; AgentStudio's own message is recognised by its nonce.
+    // A pending permission request is announced; AgentRoom's own message is recognised by its nonce.
     const ask = { kind: "send-message", message: { type: "local-tool-permission", ask: { action: "run a command", status: "pending" } }, timestampMs: 1762200000000 };
     expect(parseEntry("send-message", json(ask))).toMatchObject({ kind: "notice", text: expect.stringContaining("run a command"), ts: 1762200000000 });
     expect(parseEntry("message", json({ kind: "message", role: "user", content: "hi", clientNonce: "n-1" }))).toEqual({ kind: "user", text: "hi", nonce: "n-1" });
@@ -311,7 +311,7 @@ describe("cue", () => {
     expect(credits.inputs.reject).toEqual({ action: "reject" });
     expect(credits.choices.find((c) => c.key === "reject")?.category).toBe("deny");
 
-    // A schema AgentStudio can't fill is left for the Cue app.
+    // A schema AgentRoom can't fill is left for the Cue app.
     expect(confirmationChoices({ waiting_for_event_id: "e3", confirm_input_schema: { properties: { selectedAccountIds: { type: "array" } } } })).toBeNull();
   });
 

@@ -1,5 +1,19 @@
 # Clients: screens, behaviour and test ids
 
+## AgentRoom first-use and test mode
+
+The empty chats home offers onboarding without blocking sidebar navigation or legacy links. Settings adds a 测试与引导 tab. Test profiles show a persistent mode label. Test-only reset rotates to a fresh profile; the normal workspace never has that reset button.
+
+| Element | `data-testid` |
+| --- | --- |
+| Welcome / owner name | `workspace-welcome`, `workspace-owner-name` |
+| Start / role setup / connect | `im-welcome-start`, `workspace-welcome-agents`, `workspace-welcome-connect` |
+| Preferences / reopen | `personal-tab-testing`, `workspace-tools`, `workspace-reopen-welcome` |
+| Enter / reset / return | `workspace-enter-test`, `workspace-reset-test`, `workspace-leave-test` |
+| Persistent mode | `workspace-mode` (`data-test-mode`) |
+
+`node dev/agentroom-acceptance.mjs` and `--native` cover welcome persistence, reopen, profile isolation and recovery using synthetic data. Details: [testing](personal/testing.md).
+
 ## Personal conversation workspace
 
 The Mac Electron app opens the personal workspace by default. Its renderer shares `apps/personal` UI, uses the dedicated `window.agentStudioPersonal` preload and fixed IPC, and leaves API HTTP to its owned utility. It does not read the old session or start legacy connectors. Personal data belongs to the Electron profile's `personal` directory; the auxiliary web build has separate `.local/personal` data. See [setup](personal/README.md) and [the IPC contract](api.md#default-personal-desktop-ipc).
@@ -257,7 +271,7 @@ This is a section of the Connect screen for agents connected through the user's 
 Connecting signs in to the service:
 
 - **Grok Bot:** in the browser.
-- **Muse and Dots:** in an AgentStudio sign-in window.
+- **Muse and Dots:** in an AgentRoom sign-in window.
 
 The app then registers the connector with the agents bridge. After that the agent is a normal contact on every client, but it answers only while the Mac app runs.
 

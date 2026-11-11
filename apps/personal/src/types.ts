@@ -159,6 +159,7 @@ export type Contact = {
 };
 export type Approval = Decision & { threadId: string; threadTitle: string; contact: Contact | null };
 export type Bootstrap = {
+  workspace?: { onboardingCompleted: boolean; displayName: string };
   threads: ThreadSummary[];
   connections: Connection[];
   memories: Memory[];

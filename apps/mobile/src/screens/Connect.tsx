@@ -87,7 +87,7 @@ export function ConnectScreen() {
 
   return (
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScreenHeader title="Connect" subtitle="Bring your chat accounts and AI agents into AgentStudio." />
+      <ScreenHeader title="Connect" subtitle="Bring your chat accounts and AI agents into AgentRoom." />
       <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
         <ErrorText text={error} />
         <View style={s.grid}>

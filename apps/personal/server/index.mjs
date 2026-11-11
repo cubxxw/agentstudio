@@ -111,6 +111,10 @@ export async function createPersonalServer(options = {}) {
   const port = options.port ?? Number(process.env.PERSONAL_PORT || 18740);
   const store = new PersonalStore(dataDir);
   store.recover();
+  // Adopt existing populated workspaces without interrupting their normal entry.
+  if (!store.get('setting', 'workspace-onboarding') && (store.list('thread').length || store.list('connection').length || store.list('memory').length || store.list('contact').some(contact => contact.id !== 'self' && !contact.discovered))) {
+    store.put('setting', { id: 'workspace-onboarding', completed: true, adoptedAt: now() });
+  }
   const messenger = new Messenger(store);
   const clients = new Set();
   const notify = (event = {}) => {
@@ -190,12 +194,22 @@ export async function createPersonalServer(options = {}) {
     }
   }
 
+  let switchPrepared = false, activeMutations = 0;
+  const blockingRuns = () => store.list('thread').flatMap(thread => thread.runs || []).filter(run =>
+    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length;
+  const cancelWorkspaceSwitch = () => {
+    if (!switchPrepared || shuttingDown) return;
+    switchPrepared = false; scheduler.closed = false; scheduler.start(options.schedulerTickMs ?? 30_000);
+  };
   const server = http.createServer(async (request, response) => {
+    const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
+    if (mutating) activeMutations++;
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     try {
+      if (switchPrepared && mutating) throw new APIError(409, 'workspace_switching', '工作区正在切换，没有接受新的操作');
       const boundPort = server.address()?.port || port;
       const allowedHosts = new Set([`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`]);
       if (!allowedHosts.has(request.headers.host)) throw new APIError(403, 'forbidden_host', '仅允许本机访问');
@@ -208,6 +222,22 @@ export async function createPersonalServer(options = {}) {
       const path = url.pathname;
       const method = request.method;
       let match;
+      if (method === 'GET' && path === '/api/workspace/status') {
+        return json(response, 200, { blockingRuns: blockingRuns() });
+      }
+      if (method === 'POST' && path === '/api/workspace/onboarding') {
+        const body = await readJSON(request);
+        if (Object.keys(body).some(key => !['action', 'name', 'clientId'].includes(key)) || !['complete', 'restart'].includes(body.action)) invalid('请选择完成或重新查看引导');
+        const name = body.action === 'complete' ? textValue(body.name, '名称', 80) : null;
+        const result = store.idempotent('workspace:onboarding', body.clientId, body, () => {
+          if (name) {
+            const owner = store.require('contact', 'self');
+            store.put('contact', { ...owner, name, version: owner.version + 1, updatedAt: now() });
+          }
+          return store.put('setting', { id: 'workspace-onboarding', completed: body.action === 'complete', updatedAt: now() });
+        });
+        notify(); return json(response, 200, result);
+      }
       if (method === 'GET' && path === '/api/health') return json(response, 200, { ok: true, service: 'agentstudio-personal', durableQueue: true, build });
       if (method === 'GET' && path === '/api/contacts') return json(response, 200, { contacts: messenger.sync(await localAgents()) });
       if (method === 'GET' && path === '/api/host/discovery') {
@@ -304,6 +334,7 @@ export async function createPersonalServer(options = {}) {
       }
       if (method === 'GET' && path === '/api/bootstrap') {
         return json(response, 200, {
+          workspace: { onboardingCompleted: Boolean(store.get('setting', 'workspace-onboarding')?.completed), displayName: store.get('contact', 'self')?.name || '你' },
           threads: store.list('thread').filter(t => t.purpose !== 'agent_onboarding').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
             ...(kind ? { kind, memberIds, version } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
             pendingApprovals: decisions.filter(d => d.state === 'pending').length })),
@@ -475,7 +506,7 @@ export async function createPersonalServer(options = {}) {
       if (response.headersSent) { response.end(); return; }
       const expected = error instanceof APIError;
       json(response, expected ? error.status : 500, { error: { code: expected ? error.code : 'internal_error', message: expected ? error.message : '本机服务遇到错误，任务状态已保留，请刷新核查' } });
-    }
+    } finally { if (mutating) activeMutations--; }
   });
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
@@ -483,6 +514,22 @@ export async function createPersonalServer(options = {}) {
   scheduler.start(options.schedulerTickMs ?? 30_000);
   return {
     server, store, worker, scheduler,
+    cancelWorkspaceSwitch,
+    async prepareWorkspaceSwitch() {
+      if (switchPrepared || shuttingDown) throw new Error('Workspace is already switching');
+      switchPrepared = true;
+      try {
+        await scheduler.close();
+        const deadline = Date.now() + 5000;
+        while (activeMutations) {
+          if (Date.now() > deadline) throw new Error('Workspace still has pending requests');
+          await new Promise(resolveWait => setTimeout(resolveWait, 10));
+        }
+        const count = blockingRuns();
+        if (count) cancelWorkspaceSwitch();
+        return { blockingRuns: count };
+      } catch (error) { cancelWorkspaceSwitch(); throw error; }
+    },
     listen: () => new Promise((resolveListen, reject) => {
       server.once('error', reject);
       server.listen(port, host, () => { server.removeListener('error', reject); resolveListen(server.address()); });
@@ -503,7 +550,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const app = await createPersonalServer();
   try {
     const address = await app.listen();
-    console.log(`AgentStudio personal: http://127.0.0.1:${address.port}`);
+    console.log(`AgentRoom personal: http://127.0.0.1:${address.port}`);
   } catch (error) { await app.close(); throw error; }
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0); });
 }

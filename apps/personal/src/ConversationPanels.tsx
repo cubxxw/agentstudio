@@ -4,6 +4,7 @@ import { api, key } from "./api";
 import { desktopBridge } from "./native";
 import { RichText } from "./Markdown";
 import { Connections } from "./Connections";
+import { WorkspaceTools } from "./WorkspaceTools";
 import type { Artifact, Attachment, Bootstrap, Decision } from "./types";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : "暂时无法连接，内容已保留。";
@@ -237,13 +238,15 @@ export function Preferences({
   onRefresh,
   onClose,
   initialTab = "connections",
+  onWelcome,
 }: {
   data: Bootstrap;
   onRefresh: () => Promise<void>;
   onClose: () => void;
-  initialTab?: "connections" | "memory" | "about";
+  initialTab?: "connections" | "memory" | "about" | "testing";
+  onWelcome?: () => void;
 }) {
-  const [tab, setTab] = useState<"connections" | "memory" | "about">(
+  const [tab, setTab] = useState<"connections" | "memory" | "about" | "testing">(
     initialTab,
   );
   const [memory, setMemory] = useState("");
@@ -270,6 +273,7 @@ export function Preferences({
             ["connections", "连接"],
             ["memory", "记忆"],
             ["about", "运行说明"],
+            ["testing", "测试与引导"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -287,6 +291,7 @@ export function Preferences({
         ))}
       </div>
       <div className="preferences-content">
+        {tab === "testing" && <WorkspaceTools onRefresh={onRefresh} onWelcome={onWelcome} />}
         {tab === "connections" && (
           <Connections data={data} onRefresh={onRefresh} />
         )}
@@ -352,6 +357,7 @@ export function Preferences({
         )}
         {tab === "about" && (
           <div className="about-copy">
+            <h3>AgentRoom</h3>
             <h3>对话可以关闭，事情会留下。</h3>
             <p>
               浏览器关闭后，正在运行的本地服务会继续工作。电脑休眠、离线或服务停止期间，不能保证执行继续；回来后会读取真实状态。

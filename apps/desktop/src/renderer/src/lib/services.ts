@@ -10,5 +10,5 @@ export const api = new ApiClient({ baseUrl: serverUrl });
 export const sessions = new SessionManager({
   api,
   store: desktop.session,
-  deviceName: "AgentStudio Desktop (Mac)",
+  deviceName: "AgentRoom Desktop (Mac)",
 });

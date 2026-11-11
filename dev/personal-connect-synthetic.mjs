@@ -1,8 +1,9 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Native synthetic acceptance only: reuse the already-running e2e/fakes/agents.ts
 // on 127.0.0.1:19179. Never start/reset that server or use real service accounts.
 // Run after building: AGENTSTUDIO_DESKTOP_EVIDENCE_DIR=<registered artifact> \
 //   node dev/personal-connect-synthetic.mjs --synthetic
-// Optional: AGENTSTUDIO_PACKAGED_APP=/absolute/AgentStudio.app
+// Optional: AGENTSTUDIO_PACKAGED_APP=/absolute/AgentRoom.app
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -25,7 +26,7 @@ const packagedApp = process.env.AGENTSTUDIO_PACKAGED_APP ? resolve(process.env.A
 let executablePath;
 if (packagedApp) {
   if (!packagedApp.endsWith('.app')) throw new Error('AGENTSTUDIO_PACKAGED_APP must name an explicit .app bundle.');
-  executablePath = join(packagedApp, 'Contents/MacOS/AgentStudio');
+  executablePath = join(packagedApp, 'Contents/MacOS/AgentRoom');
 } else {
   const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8' }).trim();
   const mainRequire = createRequire(join(dirname(common), 'apps/desktop/package.json'));
@@ -52,6 +53,7 @@ const env = {
   AGENTSTUDIO_DOTS_URL: `${fakeOrigin}/dots/`,
   NO_PROXY: [process.env.NO_PROXY, '127.0.0.1', 'localhost', '::1'].filter(Boolean).join(','),
 };
+cleanDesktopTestEnv(env);
 for (const name of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_WORKSPACE', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'AGENTSTUDIO_CONNECTOR_TRACE', 'AGENTSTUDIO_CONNECTOR_TRACE_NETWORK', 'AGENTSTUDIO_CONNECTOR_TRACE_BODIES', 'AGENTSTUDIO_CONNECTOR_SHOW']) delete env[name];
 const checks = [], errors = [], captures = [], publicSamples = [], connectedServices = [];
 let application, page, phase = 'preflight';

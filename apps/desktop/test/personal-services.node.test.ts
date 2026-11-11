@@ -471,3 +471,23 @@ describe("real connector personal-turn association with synthetic providers", ()
     expect(events).toContainEqual({ type: "message", text: "late page reply" });
   });
 });
+
+
+describe("workspace switch readiness", () => {
+  it("keeps service sign-in flows blocking until they have a terminal state", async () => {
+    const f = await fixture();
+    expect(f.services.hasPendingLogin()).toBe(false);
+    await f.services.begin("muse");
+    expect(f.services.hasPendingLogin()).toBe(true);
+    f.manager().nextProgress = { state: "failed", message: "Synthetic cancellation" };
+    expect(f.services.hasPendingLogin()).toBe(false);
+    await f.services.begin("cue"); f.manager().nextProgress = { state: "waiting", message: "Synthetic waiting" };
+    await f.services.cancel("flow_cue"); expect(f.services.hasPendingLogin()).toBe(false);
+  });
+  it("keeps submitted external work blocking a workspace switch", async () => {
+    const f = await fixture();
+    expect(f.services.hasUnresolvedTasks()).toBe(false);
+    await f.send(); expect(f.services.hasUnresolvedTasks()).toBe(true);
+    await finish(f); expect(f.services.hasUnresolvedTasks()).toBe(false);
+  });
+});

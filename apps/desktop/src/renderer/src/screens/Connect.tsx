@@ -21,17 +21,17 @@ const STATE_TEXT: Record<Connection["state"], string> = {
 
 /** Friendlier copy for the bridge's flows; unknown flows use the bridge's own text. */
 const FLOW_COPY: Record<string, { name: string; blurb: string; mark: MarkId }> = {
-  concierge: { name: "Concierge", blurb: "AgentStudio's sample agent. Ask it for a flight to see an approval.", mark: "concierge" },
+  concierge: { name: "Concierge", blurb: "AgentRoom's sample agent. Ask it for a flight to see an approval.", mark: "concierge" },
   a2a: { name: "A2A agent", blurb: "Any agent that speaks Agent2Agent, like Hermes Agent. Paste its URL.", mark: "a2a" },
   acp: { name: "ACP agent", blurb: "A coding agent that speaks the Agent Client Protocol, run on the server.", mark: "acp" },
-  endpoint: { name: "AgentStudio agent endpoint", blurb: "An agent built on the AgentStudio Agent Protocol.", mark: "endpoint" },
-  demo: { name: "Demo chats", blurb: "A pretend chat network with a few friends, for trying AgentStudio.", mark: "demo" },
+  endpoint: { name: "AgentRoom agent endpoint", blurb: "An agent built on the AgentRoom Agent Protocol.", mark: "endpoint" },
+  demo: { name: "Demo chats", blurb: "A pretend chat network with a few friends, for trying AgentRoom.", mark: "demo" },
 };
 
 const SECTION: Record<string, { title: string; blurb: string }> = {
   "agentstudio-agents": {
     title: "Agents on your server",
-    blurb: "Agents that speak an open protocol connect on your AgentStudio server and answer even when this Mac is off.",
+    blurb: "Agents that speak an open protocol connect on your AgentRoom server and answer even when this Mac is off.",
   },
   demo: { title: "Chats", blurb: "Bring conversations from your chat accounts into one inbox." },
 };
@@ -99,7 +99,7 @@ export function ConnectScreen() {
   // Agents running on this Mac are listed (and removed) above, with their service.
   const localIds = new Set(local.map((l) => l.connectionId).filter(Boolean));
   const visibleConnections = connections.filter((c) => c.state !== "logged_out" && !localIds.has(c.id));
-  // Agents first: that's what AgentStudio is for.
+  // Agents first: that's what AgentRoom is for.
   const ordered = [...(networks ?? [])].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "agent" ? -1 : 1));
 
   return (

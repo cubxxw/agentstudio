@@ -1,4 +1,4 @@
-// UI icons from Lucide (https://lucide.dev, ISC). Names map AgentStudio's uses to
+// UI icons from Lucide (https://lucide.dev, ISC). Names map AgentRoom's uses to
 // Lucide components so screens don't depend on the library directly.
 
 import {

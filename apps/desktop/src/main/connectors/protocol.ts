@@ -1,4 +1,4 @@
-// Agent side of the AgentStudio Agent Protocol (docs/agent-protocol.md), for the
+// Agent side of the AgentRoom Agent Protocol (docs/agent-protocol.md), for the
 // connectors that run inside the desktop app. Kept dependency-free so the e2e
 // fakes can import it too.
 

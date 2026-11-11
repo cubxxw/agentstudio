@@ -1,5 +1,5 @@
-// Marks: the official image of each service AgentStudio connects to (packages/brand),
-// and Lucide icons for AgentStudio's own things (its sample agent, demo network,
+// Marks: the official image of each service AgentRoom connects to (packages/brand),
+// and Lucide icons for AgentRoom's own things (its sample agent, demo network,
 // generic agent endpoints).
 
 import a2a from "@agentstudio/brand/assets/a2a.png";
@@ -44,7 +44,7 @@ const images: Partial<Record<MarkId, { src: string; fill?: boolean }>> = {
   matrix: { src: matrix },
 };
 
-/** Lucide glyphs on a tinted tile, for AgentStudio's own entries. */
+/** Lucide glyphs on a tinted tile, for AgentRoom's own entries. */
 const glyphs: Partial<Record<MarkId, { Icon: LucideIcon; bg: string; fg: string }>> = {
   concierge: { Icon: ConciergeBell, bg: "#f2a93b", fg: "#3b2504" },
   demo: { Icon: MessageCircle, bg: "#2e7d5b", fg: "#ffffff" },

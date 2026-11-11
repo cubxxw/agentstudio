@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Explicit real acceptance: existing local CLI accounts and public MCP only.
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -12,6 +13,7 @@ const parent = resolve(process.env.AGENTSTUDIO_DESKTOP_EVIDENCE_DIR || join(root
 await mkdir(parent, { recursive: true });
 const evidence = await mkdtemp(join(parent, 'real-')), profile = join(evidence, 'profile');
 const env = { ...process.env, AGENTSTUDIO_USER_DATA_DIR: profile, AGENTSTUDIO_PERSONAL_EXPORT_DIR: join(evidence, 'exports'), AGENTSTUDIO_MOCK_KEYCHAIN: '1' };
+cleanDesktopTestEnv(env);
 for (const key of ['ELECTRON_RUN_AS_NODE', 'AGENTSTUDIO_WORKSPACE', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'AGENTSTUDIO_CODEX_BIN']) delete env[key];
 const checks = [], errors = [], captures = [];
 const executionAgent = process.argv.includes('--claude') ? 'claude' : 'codex';

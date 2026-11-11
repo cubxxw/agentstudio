@@ -1,9 +1,10 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // macOS native acceptance; synthetic local organization only, never a model call.
 // Build the desktop app first, then: node dev/personal-desktop-smoke.mjs
 // AGENTSTUDIO_DESKTOP_EVIDENCE_DIR sets the evidence parent (each run is unique).
 // AGENTSTUDIO_ELECTRON_BINARY overrides the source-run Electron executable.
-// AGENTSTUDIO_PACKAGED_APP selects an AgentStudio.app bundle instead: its own
-// Contents/MacOS/AgentStudio is launched without a source-directory argument.
+// AGENTSTUDIO_PACKAGED_APP selects an AgentRoom.app bundle instead: its own
+// Contents/MacOS/AgentRoom is launched without a source-directory argument.
 import { createRequire } from "node:module";
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -19,7 +20,7 @@ const { _electron } = requirePlaywright("playwright");
 const { expect } = requireDesktop("@playwright/test");
 const packagedApp = process.env.AGENTSTUDIO_PACKAGED_APP ? resolve(process.env.AGENTSTUDIO_PACKAGED_APP) : null;
 const executable = packagedApp
-  ? join(packagedApp, "Contents/MacOS/AgentStudio")
+  ? join(packagedApp, "Contents/MacOS/AgentRoom")
   : process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop("electron");
 await access(executable);
 const evidenceParent = resolve(process.env.AGENTSTUDIO_DESKTOP_EVIDENCE_DIR || join(root, "output/playwright/personal-desktop-smoke"));
@@ -38,6 +39,7 @@ const env = {
   AGENTSTUDIO_MOCK_KEYCHAIN: "1",
   PERSONAL_BUILD_REF: "personal-desktop-synthetic-smoke",
 };
+cleanDesktopTestEnv(env);
 for (const key of ["ELECTRON_RUN_AS_NODE", "ELECTRON_RENDERER_URL", "AGENTSTUDIO_PERSONAL_DATA_DIR", "PERSONAL_DATA_DIR"]) delete env[key];
 
 const metadata = {
@@ -74,7 +76,7 @@ const waitCompleted = async (id, artifactCount = 1) => {
 };
 const recordUtility = async () => {
   const entries = await application.evaluate(({ app }) => app.getAppMetrics()
-    .filter((item) => item.name === "AgentStudio Personal Runtime")
+    .filter((item) => item.name === "AgentRoom Personal Runtime")
     .map(({ pid, type, name, creationTime }) => ({ pid, type, name, creationTime })));
   for (const entry of entries) utilityPids.add(entry.pid);
   return entries;
@@ -154,7 +156,7 @@ const longSource = [
   "**结论：**中文标点后的强调应保留。", "", "~~旧结论。~~新的内容。", "",
   ...Array.from({ length: 18 }, (_, i) => [
     `## 第 ${i + 1} 节：持续阅读与返回`, "",
-    "这是一段合成的中文长文，用于检查 macOS 窗口里的持续阅读。离开一件事再回来时，来源、草稿与报告应保留各自的位置。中英混排 AgentStudio、数字 2026.11 和标点只作为排版样本，不构成业务判断。".repeat(2), "",
+    "这是一段合成的中文长文，用于检查 macOS 窗口里的持续阅读。离开一件事再回来时，来源、草稿与报告应保留各自的位置。中英混排 AgentRoom、数字 2026.11 和标点只作为排版样本，不构成业务判断。".repeat(2), "",
   ].join("\n")),
   "## 宽表格", "",
   `| ${Array.from({ length: 12 }, (_, i) => `合成资料列 ${i + 1}`).join(" | ")} |`,
@@ -193,7 +195,7 @@ try {
   });
   verify(metadata.window.preferences.sandbox && metadata.window.preferences.contextIsolation && !metadata.window.preferences.nodeIntegration,
     "native window keeps sandbox and context isolation");
-  if (packagedApp) verify(metadata.window.packaged, "AgentStudio.app runs as a packaged application without source arguments");
+  if (packagedApp) verify(metadata.window.packaged, "AgentRoom.app runs as a packaged application without source arguments");
   metadata.utility = await recordUtility();
   verify(metadata.utility.length === 1, "exactly one owned personal utility is running");
   await page.evaluate(() => {

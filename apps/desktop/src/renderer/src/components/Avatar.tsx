@@ -6,7 +6,7 @@ import { Mark, type MarkId } from "./Mark";
 // Avatars: people are circles, agents are squircles, so the two read apart at a
 // glance. A small mark in the corner says which network or service it's on.
 // An agent always shows a picture: its own avatar, else its service's icon,
-// else AgentStudio's agent icon. Only people fall back to initials.
+// else AgentRoom's agent icon. Only people fall back to initials.
 
 function hue(s: string): number {
   let h = 0;

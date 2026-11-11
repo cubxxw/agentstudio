@@ -1,4 +1,4 @@
-// Serves the agent side of the AgentStudio Agent Protocol for every connector
+// Serves the agent side of the AgentRoom Agent Protocol for every connector
 // instance on this Mac, on 127.0.0.1 only:
 //
 //   {base}/c/{instanceId}/agentstudio/v0/info | sessions | messages | approvals/{id}/decision

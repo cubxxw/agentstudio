@@ -11,5 +11,5 @@ export const api = new ApiClient({ baseUrl: serverUrl });
 export const sessions = new SessionManager({
   api,
   store: createSessionStore(),
-  deviceName: Platform.OS === "web" ? "AgentStudio Mobile (Web)" : `AgentStudio Mobile (${Platform.OS === "ios" ? "iOS" : "Android"})`,
+  deviceName: Platform.OS === "web" ? "AgentRoom Mobile (Web)" : `AgentRoom Mobile (${Platform.OS === "ios" ? "iOS" : "Android"})`,
 });

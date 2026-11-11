@@ -74,7 +74,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
   const requestBodies = useRef(new Map<string, { signature: string; body: Record<string, unknown> }>());
   const loginInput = useRef<HTMLInputElement>(null);
   const native = useCallback((request: NativeIntegrationRequest) => {
-    if (!desktop?.nativeIntegration) return Promise.reject(new Error("请在 AgentStudio Mac 应用中连接个人 Agent。"));
+    if (!desktop?.nativeIntegration) return Promise.reject(new Error("请在 AgentRoom Mac 应用中连接个人 Agent。"));
     return desktop.nativeIntegration(request);
   }, [desktop]);
   const nativeAction = async (request: NativeIntegrationRequest) => {
@@ -183,7 +183,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
     <section className="integration-section" aria-labelledby="connections-agents-title">
       <div className="integration-section-heading"><h3 id="connections-agents-title">你的个人 Agent</h3></div>
       <p className="integration-intro">使用原有对话；不会导入历史。外发资料仍会先展示具体内容，再由你决定。</p>
-      {!nativeAvailable && <p className="integration-note">在 AgentStudio Mac 应用中连接这些助手。</p>}
+      {!nativeAvailable && <p className="integration-note">在 AgentRoom Mac 应用中连接这些助手。</p>}
       {PROVIDERS.map(provider => {
         const instances = (catalog?.instances || []).filter(item => item.service === provider.id);
         const connected = instances.some(item => item.status === "ready" && item.connectionId);

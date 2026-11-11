@@ -1,6 +1,8 @@
 <p align="center"><img src="apps/desktop/resources/icon.png" alt="" width="128"></p>
 
-<h1 align="center">AgentStudio</h1>
+**AgentRoom** is the new product name. Preferences → 测试与引导 offers an isolated test workspace, fresh onboarding, and a return to your original workspace. Run `pnpm dev:desktop:test` from source. See [testing and compatibility](docs/personal/testing.md).
+
+<h1 align="center">AgentRoom</h1>
 
 **The Mac app opens a personal messenger by default.** Create agent contacts, chat directly,
 bring your own agents into a group, and review their actions in one approval inbox. Its owned
@@ -11,11 +13,11 @@ development and QA companion.
 **English** · [简体中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="docs/media/hero.jpg" alt="AgentStudio: your people and your agents, in one inbox. The Mac app with a dinner booking from Muse waiting for approval." width="900">
+  <img src="docs/media/agentroom-welcome.png" alt="AgentRoom: your people and your agents, in one inbox. The Mac app with a dinner booking from Muse waiting for approval." width="900">
 </p>
 
 > [!WARNING]
-> **FOR PERSONAL USE ONLY.** AgentStudio is a personal tool for learning and research: run it on your own Mac, with your own accounts, to reach your own agents. **NOT FOR COMMERCIAL USE**, and not for running a service for other people. Use it at your own risk. Read the [Disclaimer](#disclaimer) first.
+> **FOR PERSONAL USE ONLY.** AgentRoom is a personal tool for learning and research: run it on your own Mac, with your own accounts, to reach your own agents. **NOT FOR COMMERCIAL USE**, and not for running a service for other people. Use it at your own risk. Read the [Disclaimer](#disclaimer) first.
 
 > **Alpha.** macOS source builds. Local ad-hoc packaging is available as a build command; packaged-app acceptance, Developer ID signing and notarization are separate checks. Expect rough edges and breaking changes.
 
@@ -47,7 +49,7 @@ The Matrix gallery and video document the retained inbox. The default personal w
 - **Approvals.** An agent asks, you decide in one tap, from the chat or from the Approvals screen.
 - **Ask an agent.** Forward a chat with its context to an agent; its reply drafts come back, ready to edit and send.
 - **Agents you already use**, through your own sign-in on the Mac: Grok Bot (every bot of your account, with its own name and avatar), Muse, ChatGPT Dots and Cue (sign in with Manus, or use a Manus API key). Experimental and for personal use only: see [below](#disclaimer).
-- **Agents that speak an open protocol**: the [AgentStudio Agent Protocol](docs/agent-protocol.md), A2A, and ACP. Hermes Agent and OpenClaw are recognized and shown with their own icons.
+- **Agents that speak an open protocol**: the [AgentRoom Agent Protocol](docs/agent-protocol.md), A2A, and ACP. Hermes Agent and OpenClaw are recognized and shown with their own icons.
 
 <p align="center">
   <img src="docs/media/approvals.jpg" alt="Agents ask before they act: a Grok bot asks whether to send the weekly report, with Send it and Don't send buttons" width="820">
@@ -67,7 +69,7 @@ The Matrix gallery and video document the retained inbox. The default personal w
 | Personal workspace | `apps/personal` | Shared conversation/reading UI and Node/SQLite task engine; also provides the auxiliary web entry. |
 | Mobile app | `apps/mobile` | Expo / React Native. Tested on the web target until native builds land. |
 | Client core | `packages/core` | Matrix client, inbox, approvals, tasks; shared by Matrix desktop and mobile. |
-| Brand assets | `packages/brand` | Official images of the services AgentStudio connects to, with sources. |
+| Brand assets | `packages/brand` | Official images of the services AgentRoom connects to, with sources. |
 | Server | `server` (Go) | `agentstudio-api`, the `agentstudio-agents` and `demo` bridges (mautrix bridgev2), protocol adapters, the reference agent. |
 | Homeserver | Synapse | Underlies the retained Matrix route, federation off. |
 | Dev stack | `dev/stack.mjs` | Starts everything locally as native processes, no Docker. |
@@ -138,10 +140,10 @@ The following connector table belongs to `AGENTSTUDIO_WORKSPACE=matrix`:
 | Agent | How |
 |---|---|
 | Concierge (built-in reference agent) | Connect → Agents on your server → Concierge |
-| Any AgentStudio Agent Protocol endpoint | Connect → AgentStudio agent endpoint, then its URL and token |
+| Any AgentRoom Agent Protocol endpoint | Connect → AgentRoom agent endpoint, then its URL and token |
 | A2A agents (for example Hermes Agent) | Connect → A2A agent, then the agent's URL |
 | ACP agents allowed by the server (`AGENTSTUDIO_ACP_AGENTS`) | Connect → ACP agent |
-| Grok Bot, Muse, ChatGPT Dots, Cue (Mac app only, experimental) | Connect → Agents you already use. Your sign-in (or Cue's API key) stays on the Mac, and these agents answer while AgentStudio is open. |
+| Grok Bot, Muse, ChatGPT Dots, Cue (Mac app only, experimental) | Connect → Agents you already use. Your sign-in (or Cue's API key) stays on the Mac, and these agents answer while AgentRoom is open. |
 
 Read [the note on third-party connectors](#disclaimer) before connecting Grok Bot, Muse, Dots or Cue.
 
@@ -149,14 +151,14 @@ To debug a connector, start the app with `AGENTSTUDIO_CONNECTOR_TRACE=1` (and `A
 
 ## Disclaimer
 
-**⚖️ FOR PERSONAL LEARNING AND RESEARCH USE ONLY.** Read this before you use AgentStudio, and in particular its connectors for Grok Bot, Muse, ChatGPT Dots and Cue.
+**⚖️ FOR PERSONAL LEARNING AND RESEARCH USE ONLY.** Read this before you use AgentRoom, and in particular its connectors for Grok Bot, Muse, ChatGPT Dots and Cue.
 
-- **Personal use only.** Use AgentStudio on your own Mac, with your own accounts, to reach your own agents. Don't use it commercially, to run a service for others, to automate at scale, or with accounts that aren't yours.
-- **Local app and storage.** There is no hosted AgentStudio server. Selected context is sent to your configured model provider or an approved remote agent/tool. Legacy sign-ins use Electron safeStorage; personal Bearer credentials use the documented local file vault, not Keychain.
-- **Not affiliated.** AgentStudio isn't affiliated with or endorsed by xAI / SpaceX AI, Cursor (Anysphere), Meta, OpenAI, Manus, Nous Research or OpenClaw. Their names and logos are trademarks of their owners and appear only to say which service a connector reaches.
+- **Personal use only.** Use AgentRoom on your own Mac, with your own accounts, to reach your own agents. Don't use it commercially, to run a service for others, to automate at scale, or with accounts that aren't yours.
+- **Local app and storage.** There is no hosted AgentRoom server. Selected context is sent to your configured model provider or an approved remote agent/tool. Legacy sign-ins use Electron safeStorage; personal Bearer credentials use the documented local file vault, not Keychain.
+- **Not affiliated.** AgentRoom isn't affiliated with or endorsed by xAI / SpaceX AI, Cursor (Anysphere), Meta, OpenAI, Manus, Nous Research or OpenClaw. Their names and logos are trademarks of their owners and appear only to say which service a connector reaches.
 - **Unofficial connectors.** Except for Cue's messaging (Manus's documented API), the connectors work the way each service's own app or website does. That may be against a service's terms, and it can stop working at any time.
 - **Your responsibility.** You are responsible for following each service's terms and the laws where you live. If you aren't sure, don't connect it.
-- **Use at your own risk.** AgentStudio comes "as is", without warranty of any kind (see the Apache-2.0 license). The authors aren't liable for any loss, account restriction or other consequence of using it.
+- **Use at your own risk.** AgentRoom comes "as is", without warranty of any kind (see the Apache-2.0 license). The authors aren't liable for any loss, account restriction or other consequence of using it.
 
 Details per service: [docs/connectors.md](docs/connectors.md).
 

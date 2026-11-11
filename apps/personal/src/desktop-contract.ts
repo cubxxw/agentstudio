@@ -29,6 +29,8 @@ export type NativeIntegrationReply = {
 export interface PersonalDesktopBridge {
   readonly platform: string;
   readonly version: string;
+  readonly testMode?: boolean;
+  testWorkspace?(action: "enter" | "reset" | "leave"): Promise<{ restarting: boolean }>;
   request(input: {
     path: string;
     method: DesktopMethod;

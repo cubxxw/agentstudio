@@ -131,11 +131,18 @@ describe("owned personal runtime", () => {
     expect(f.children[1]!.pid).toBeUndefined();
   });
 
+  it("does not report a profile switch safe while its child is still alive", async () => {
+    const f = await fixture((_request, response) => response.end('{}'));
+    await f.host.start(); const child = f.children[0]!; child.ignoreStop = true; child.ignoreKill = true;
+    await expect(f.host.stop(true)).rejects.toThrow(/尚未确认停止/);
+    child.pid = undefined; child.emit("exit", 0);
+  });
+
   it("requires the same utility PID, creation time, type and name before forced shutdown", async () => {
     let child: FakeUtility | undefined;
     const forceKill = vi.fn((_pid: number) => { child!.pid = undefined; child!.emit("exit", 137); });
     const f = await fixture((_request, response) => response.end('{}'), {
-      processIdentity: (pid) => ({ pid, creationTime: 100, type: "Utility", name: "AgentStudio Personal Runtime" }), forceKill,
+      processIdentity: (pid) => ({ pid, creationTime: 100, type: "Utility", name: "AgentRoom Personal Runtime" }), forceKill,
     });
     await f.host.start(); child = f.children[0]!; child.ignoreStop = true; child.ignoreKill = true;
     await f.host.stop();
@@ -149,7 +156,7 @@ describe("owned personal runtime", () => {
       processIdentity: (pid) => {
         if (afterReady && changed === "missing") return null;
         return { pid, creationTime: afterReady && changed === "creationTime" ? 200 : 100,
-          type: afterReady && changed === "type" ? "Browser" : "Utility", name: afterReady && changed === "name" ? "Another utility" : "AgentStudio Personal Runtime" };
+          type: afterReady && changed === "type" ? "Browser" : "Utility", name: afterReady && changed === "name" ? "Another utility" : "AgentRoom Personal Runtime" };
       }, forceKill,
     });
     await f.host.start(); afterReady = true;

@@ -48,7 +48,7 @@ export class LocalAgentError extends Error {
 const supported = (id) => id === 'codex' || id === 'claude' || id === 'pi';
 // --no-context-files excludes AGENTS but Pi still discovers global SYSTEM files.
 // Explicit prompt sources prevent those files from changing accepted personas.
-const PI_PROMPT_ARGS = ['--system-prompt', 'You are an AgentStudio personal assistant. Follow the supplied task and the accepted agentIdentity persona. Use only the supplied conversation. Do not access unrelated data, invoke tools, change providers or claim external actions.', '--append-system-prompt', ''];
+const PI_PROMPT_ARGS = ['--system-prompt', 'You are an AgentRoom personal assistant. Follow the supplied task and the accepted agentIdentity persona. Use only the supplied conversation. Do not access unrelated data, invoke tools, change providers or claim external actions.', '--append-system-prompt', ''];
 const definition = (id) => {
   const agent = CATALOG.find((item) => item.id === id);
   if (!agent) throw new LocalAgentError('unknown_agent');

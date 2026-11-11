@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// AgentStudio local stack manager. Dependency-free Node ESM.
+// AgentRoom local stack manager. Dependency-free Node ESM.
 //
 //   node dev/stack.mjs up                 start everything (idempotent)
 //   node dev/stack.mjs down               stop everything

@@ -94,6 +94,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(1);
   }
   createWebServer(root).listen(port, host, () => {
-    console.log(`AgentStudio mobile web: http://${host}:${port} (serving ${root})`);
+    console.log(`AgentRoom mobile web: http://${host}:${port} (serving ${root})`);
   });
 }

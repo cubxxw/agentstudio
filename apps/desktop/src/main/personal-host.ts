@@ -52,7 +52,7 @@ export class PersonalHost {
     if (!child.pid) return null;
     let identity: UtilityIdentity | null | undefined;
     try { identity = this.options.processIdentity?.(child.pid); } catch { return null; }
-    if (!identity || identity.pid !== child.pid || identity.type !== "Utility" || identity.name !== "AgentStudio Personal Runtime" || !Number.isFinite(identity.creationTime) || identity.creationTime <= 0) return null;
+    if (!identity || identity.pid !== child.pid || identity.type !== "Utility" || identity.name !== "AgentRoom Personal Runtime" || !Number.isFinite(identity.creationTime) || identity.creationTime <= 0) return null;
     return { ...identity };
   }
 
@@ -80,7 +80,7 @@ export class PersonalHost {
     const env = { ...(this.options.env || process.env) }; delete env.ELECTRON_RUN_AS_NODE;
     const ownerId = randomUUID();
     let child: OwnedChild;
-    try { child = this.options.fork(this.options.workerPath, [], { cwd: this.options.dataDir, env, stdio: "ignore", serviceName: "AgentStudio Personal Runtime" }); }
+    try { child = this.options.fork(this.options.workerPath, [], { cwd: this.options.dataDir, env, stdio: "ignore", serviceName: "AgentRoom Personal Runtime" }); }
     catch { this.state = "failed"; this.error = "本机后台无法启动，请重试"; throw new Error(this.error); }
     this.child = child;
     child.once("spawn", () => this.captureIdentity(child));
@@ -198,10 +198,32 @@ export class PersonalHost {
     return this.stopPromise;
   }
 
-  stop(): Promise<void> {
+  async stop(requireExit = false): Promise<void> {
     this.shutdownRequested = true; this.generation++;
-    return this.stopOwned();
+    await this.stopOwned();
+    if (requireExit && this.child) throw new Error("原后台尚未确认停止，工作区没有切换。请重新启动后台后核查。");
   }
+
+  async prepareWorkspaceSwitch(): Promise<void> {
+    if (this.state !== "ready" || !this.child) throw new Error("后台尚未就绪，工作区没有切换");
+    const child = this.child, requestId = randomUUID();
+    await new Promise<void>((resolveReady, reject) => {
+      const cleanup = () => { clearTimeout(timer); child.removeListener("message", received); child.removeListener("exit", exited); };
+      const exited = () => { cleanup(); reject(new Error("后台已停止，请恢复后再切换工作区")); };
+      const received = (value: unknown) => {
+        const data = value as { type?: string; requestId?: string; blockingRuns?: number; error?: boolean };
+        if (data?.type !== "switch-ready" || data.requestId !== requestId) return;
+        cleanup();
+        if (data.error || data.blockingRuns !== 0) { this.cancelWorkspaceSwitch(); reject(new Error("仍有执行、待审批或待核查结果。请先在原对话处理，再切换工作区。")); }
+        else resolveReady();
+      };
+      const timer = setTimeout(() => { cleanup(); this.cancelWorkspaceSwitch(); reject(new Error("未能确认后台空闲，工作区没有切换")); }, 10_000);
+      child.on("message", received); child.once("exit", exited);
+      try { child.postMessage({ type: "prepare-switch", requestId }); } catch { cleanup(); reject(new Error("无法核查后台状态")); }
+    });
+  }
+
+  cancelWorkspaceSwitch() { try { this.child?.postMessage({ type: "cancel-switch" }); } catch { /* A closed child cannot accept work or be switched. */ } }
 
   restart(): Promise<void> {
     if (this.restartPromise && this.restartGeneration === this.generation && !this.shutdownRequested) return this.restartPromise;

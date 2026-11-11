@@ -31,7 +31,7 @@ export type Colors = {
   ink: string;
 };
 
-// AgentStudio's "porch light" palette (docs/design.md).
+// AgentRoom's "porch light" palette (docs/design.md).
 const light: Colors = {
   canvas: "transparent",
   sky: ["#D9E2F4", "#E6EAF6", "#EFF0F6", "#F6F0EC"],

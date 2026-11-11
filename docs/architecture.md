@@ -1,4 +1,8 @@
-# AgentStudio architecture
+# AgentRoom architecture
+
+## AgentRoom compatibility and test profiles
+
+AgentRoom is the display brand; existing `agentstudio` package, wire, storage and bundle identifiers remain compatible. Native main selects a separate userData/sessionData/personal directory for test mode, with opaque profile rotation for reset. The worker freezes new writes and scheduling before checking idle state, and main requires confirmed utility exit before relaunch. No HTTP reset endpoint exists. See [test profiles and onboarding](personal/testing.md).
 
 ## Default macOS personal workspace
 
@@ -30,7 +34,7 @@ The shared `apps/personal` UI and backend can also run as an auxiliary web servi
 
 Set `AGENTSTUDIO_WORKSPACE=matrix` to select the original renderer, preload, sessions and connectors. The remaining sections describe that path and keep its contracts intact.
 
-AgentStudio is an open-source inbox for your chats and your AI agents. Agents show up as contacts. When an agent needs a decision, it sends an approval card. You can forward any message, with its context, to an agent and get reply drafts back.
+AgentRoom is an open-source inbox for your chats and your AI agents. Agents show up as contacts. When an agent needs a decision, it sends an approval card. You can forward any message, with its context, to an agent and get reply drafts back.
 
 v0.1 runs locally on macOS. Desktop (Electron) comes first, then mobile (Expo / React Native).
 
@@ -41,7 +45,7 @@ v0.1 runs locally on macOS. Desktop (Electron) comes first, then mobile (Expo / 
 | Email-code sign-in, sessions, Matrix credentials minted per user | Google/Apple sign-in, invites |
 | Synapse homeserver, federation off | Hosted multi-region, sliding sync |
 | `demo` network bridge (simulated contacts, deterministic) for development and e2e | Stock mautrix bridges in e2e (they need real accounts), and dev scripts to run them (planned under `dev/bridges/`). |
-| `agentstudio-agents` bridge speaking the open AgentStudio Agent Protocol, plus A2A and ACP agents through `agentstudio-agent-adapters` | OpenClaw gateway adapter |
+| `agentstudio-agents` bridge speaking the open AgentRoom Agent Protocol, plus A2A and ACP agents through `agentstudio-agent-adapters` | OpenClaw gateway adapter |
 | Desktop connectors for Grok Bot, Muse and ChatGPT Dots through the user's own signed-in session, on the Mac (`docs/connectors.md`) | Connectors that keep running while the Mac app is closed |
 | Reference agent `concierge` (deterministic, used by e2e) | Hosted agents |
 | Approvals (REST, versioned, idempotent) with cards in chat | Push gateway, APNs |
@@ -61,10 +65,10 @@ All processes bind to 127.0.0.1. Runtime state lives under `.local/` (git-ignore
 | `agentstudio-api` (Go) | 18090 | REST `/v1/*`, internal `/internal/v1/*`, and a reverse proxy for `/_matrix/*` to Synapse. Clients use this single base URL. |
 | `agentstudio-bridge-demo` (Go, mautrix bridgev2) | 18101 | appservice and provisioning |
 | `agentstudio-bridge-agents` (Go, mautrix bridgev2) | 18102 | appservice, provisioning, agent callback endpoint `/agentstudio/v0/callback/*`, and `/agentstudio/internal/v1/approval-decisions` |
-| `agentstudio-agent-concierge` (Go) | 18201 | reference agent implementing the AgentStudio Agent Protocol |
-| `agentstudio-agent-adapters` (Go) | 18202 | the AgentStudio Agent Protocol in front of A2A agents (`/a2a/{target}`) and allowed ACP agents (`/acp/{agent}`) |
+| `agentstudio-agent-concierge` (Go) | 18201 | reference agent implementing the AgentRoom Agent Protocol |
+| `agentstudio-agent-adapters` (Go) | 18202 | the AgentRoom Agent Protocol in front of A2A agents (`/a2a/{target}`) and allowed ACP agents (`/acp/{agent}`) |
 | `agentstudio-dev-a2a-echo` (Go, dev only) | 18203 | a tiny deterministic A2A agent for e2e |
-| desktop connector host (inside the Mac app) | 18401 | the AgentStudio Agent Protocol for the Mac's connectors (`/c/{instance}`), per-instance bearer token |
+| desktop connector host (inside the Mac app) | 18401 | the AgentRoom Agent Protocol for the Mac's connectors (`/c/{instance}`), per-instance bearer token |
 | `e2e/fakes/agents.ts` (tests only) | 18410 | fake Grok Bot backend and fake Muse / Dots pages |
 | mobile web (Expo export, static; or `pnpm dev:mobile`'s Expo dev server) | 18300 | e2e target for the mobile app |
 | desktop renderer dev server (`pnpm dev:desktop` only) | 5173 | electron-vite / Vite dev server for the Electron renderer |
@@ -81,11 +85,11 @@ flowchart LR
   SYN <-->|appservice| BA
   BD -->|bridge state| API
   BA -->|bridge state, agents, approvals, task answers| API
-  BA <-->|AgentStudio Agent Protocol| AG[concierge agent :18201]
-  BA <-->|AgentStudio Agent Protocol| AD[agent-adapters :18202]
+  BA <-->|AgentRoom Agent Protocol| AG[concierge agent :18201]
+  BA <-->|AgentRoom Agent Protocol| AD[agent-adapters :18202]
   AD <-->|A2A JSON-RPC| A2A[A2A agents]
   AD <-->|ACP stdio| ACP[ACP agent processes]
-  BA <-->|AgentStudio Agent Protocol| CH[connector host in the Mac app :18401]
+  BA <-->|AgentRoom Agent Protocol| CH[connector host in the Mac app :18401]
   CH <-->|user's own session| SVC[Grok Bot / Muse / ChatGPT Dots]
   API --> PG[(Postgres :54329)]
   SYN --> PG
@@ -105,7 +109,7 @@ server/                   Go module github.com/DolphinMiner/agentstudio/server
   internal/api/...        REST handlers, auth, store, matrix minting, proxy
   internal/bridges/demo/  bridgev2 NetworkConnector
   internal/bridges/agents/
-  internal/agentproto/    shared Go types for the AgentStudio Agent Protocol
+  internal/agentproto/    shared Go types for the AgentRoom Agent Protocol
   internal/agenthost/     agent side of the protocol (sessions, ordered callbacks) for adapters
   internal/adapters/      a2a/ and acp/ backends, served by cmd/agentstudio-agent-adapters
   internal/concierge/
@@ -127,7 +131,7 @@ dev/                      local stack: stack manager (stack.mjs), config templat
 - **One base URL per server.** Clients only know `AGENTSTUDIO_SERVER_URL`. The API proxies `/_matrix`, so desktop, mobile and web share one origin per server.
 - **Mixed state.** Message content lives in Matrix. Approval and task state lives in REST, with `version` for optimistic concurrency and `idempotency_key` for retries. Cards in chat only reference REST ids.
 - **No E2EE in v0.1.** Bridges must read plaintext. This matches the bridge model; see `docs/api.md` § Security.
-- **Open protocols first, the user's own session where there is none.** Agents that speak the AgentStudio Agent Protocol, A2A or ACP connect on the server (`docs/agent-protocol.md`). Grok Bot, Muse and ChatGPT Dots have no public API, so the Mac app connects them through the user's own signed-in session (`docs/connectors.md`): their sign-ins stay on the Mac, encrypted, and the services can change or object at any time.
+- **Open protocols first, the user's own session where there is none.** Agents that speak the AgentRoom Agent Protocol, A2A or ACP connect on the server (`docs/agent-protocol.md`). Grok Bot, Muse and ChatGPT Dots have no public API, so the Mac app connects them through the user's own signed-in session (`docs/connectors.md`): their sign-ins stay on the Mac, encrypted, and the services can change or object at any time.
 - **Determinism for tests.** The `demo` bridge and the `concierge` agent behave deterministically, so e2e runs without real accounts.
 
 Historical personal tasks and current direct/group chats use the same Messenger renderer. `workspace=tasks` is a compatible old URL parameter, not a separate UI. Shared conversation tools own reading, connection preferences and precise approval; history keeps its existing thread IDs and protocols.

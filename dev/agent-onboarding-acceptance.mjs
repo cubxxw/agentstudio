@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Synthetic browser/native acceptance; --real uses the configured local Codex with synthetic sources only.
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -28,7 +29,8 @@ const request = async (path, body) => {
 };
 const check = text => { checks.push(text); console.log('PASS '+text); };
 try {
- const env = {...process.env,AGENTSTUDIO_WORKSPACE:'personal',AGENTSTUDIO_USER_DATA_DIR:join(output,'profile')};
+ const env = {...process.env,AGENTSTUDIO_MOCK_KEYCHAIN:'1',AGENTSTUDIO_WORKSPACE:'personal',AGENTSTUDIO_USER_DATA_DIR:join(output,'profile')};
+ cleanDesktopTestEnv(env);
  for(const k of ['ELECTRON_RUN_AS_NODE','ELECTRON_RENDERER_URL','AGENTSTUDIO_PERSONAL_DATA_DIR','PERSONAL_DATA_DIR'])delete env[k];
  if(!real)Object.assign(env,{CODEX_HOME:codexHome,AGENTSTUDIO_CODEX_BIN:cli,AGENTSTUDIO_CLAUDE_BIN:'/synthetic-missing-claude',AGENTSTUDIO_PI_BIN:'/synthetic-missing-pi'});
  if(native){app=await _electron.launch({executablePath:desktop('electron'),args:[resolve('apps/desktop')],env,timeout:30000});page=await app.firstWindow();}

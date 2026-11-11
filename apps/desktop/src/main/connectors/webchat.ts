@@ -51,7 +51,7 @@ export async function snapshotOf(session: WebSession, driver: string, wc?: WebCo
 }
 
 export class WebChatConnector implements Connector {
-  /** Texts AgentStudio sent, so the page's copy isn't shown as typed in the service. */
+  /** Texts AgentRoom sent, so the page's copy isn't shown as typed in the service. */
   private ownTexts = new Set<string>();
   readonly session: WebSession;
   private emitter: Emitter | null = null;
@@ -125,7 +125,7 @@ export class WebChatConnector implements Connector {
     const snap = await this.snapshot();
     if (!snap.signedIn) {
       this.status = { status: "needs_login", message: `Sign in to ${this.cfg.name} again.` };
-      throw new Error(`${this.cfg.name} is signed out. Open it from AgentStudio's Connect screen and sign in again.`);
+      throw new Error(`${this.cfg.name} is signed out. Open it from AgentRoom's Connect screen and sign in again.`);
     }
     const personal = msg.session_id.startsWith("personal:");
     if (personal && (!this.baselined || snap.busy || this.pending.size || this.approvals.size)) throw new Error("The service has an unfinished conversation; open it before sending another task.");
@@ -299,7 +299,7 @@ export class WebChatConnector implements Connector {
       if (this.seen.has(m.id)) continue;
       if (m.role === "user") {
         this.seen.add(m.id);
-        // Typed in the service itself (AgentStudio's own sends are skipped).
+        // Typed in the service itself (AgentRoom's own sends are skipped).
         const ours = this.ownTexts.delete(m.text.trim());
         if (ours && this.personalReply?.text === m.text.trim()) this.personalReply.echoed = true;
         if (m.text && !ours) { this.personalReply = null; emit({ type: "message", text: truncate(m.text, MAX_TEXT), from_user: true, via: this.cfg.name }); }
@@ -332,8 +332,8 @@ export class WebChatConnector implements Connector {
         emit({ type: "approval_request", external_id: id, title: truncate(m.text.split("\n")[0] || `${this.cfg.name} needs your decision`, 300), choices });
       } else if (m.widget && !m.text) {
         if (this.personalReply) this.emitter?.inputRequired?.(this.personalReply.messageId);
-        // An interactive card (checklist, picker, ...) AgentStudio can't show yet.
-        emit({ type: "message", text: `${this.cfg.name} sent an interactive card AgentStudio can't show yet. View it in ${this.cfg.name}: ${this.cfg.url}` });
+        // An interactive card (checklist, picker, ...) AgentRoom can't show yet.
+        emit({ type: "message", text: `${this.cfg.name} sent an interactive card AgentRoom can't show yet. View it in ${this.cfg.name}: ${this.cfg.url}` });
       }
     }
     // One snapshot can contain several reply bubbles. Retain the same association

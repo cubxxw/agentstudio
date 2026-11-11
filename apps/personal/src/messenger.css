@@ -499,3 +499,27 @@
 .im-schedule-event { display: flex; align-items: baseline; justify-content: center; gap: 7px; margin: 14px auto; max-width: 80%; color: var(--im-muted); font-size: 12px; }
 .im-schedule-event > svg { flex-shrink: 0; }
 .im-schedule-event p { margin: 0; white-space: pre-wrap; }
+
+/* First-use setup remains part of the messenger; navigation is always available. */
+.workspace-welcome { width: min(420px, 100%); text-align: center; }
+.workspace-mark { display: grid; place-items: center; width: 68px; height: 68px; margin: 0 auto 22px; border-radius: 21px; color: var(--im-blue); background: var(--im-hover); }
+.workspace-welcome h2 { margin: 12px 0; }
+.workspace-welcome > p { color: var(--im-muted); line-height: 1.8; margin: 0 auto 25px; max-width: 350px; }
+.workspace-welcome form { display: grid; gap: 16px; max-width: 320px; margin: 0 auto; text-align: left; }
+.workspace-welcome label { display: grid; gap: 8px; font-size: 13px; }
+.workspace-welcome input { border: 1px solid var(--im-line); border-radius: 10px; padding: 12px; background: var(--im-paper); color: var(--im-ink); min-width: 0; width: 100%; }
+.workspace-welcome form > button { justify-content: center; width: 100%; }
+.workspace-welcome-options { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; margin: 20px 0 26px; }
+.workspace-welcome-options button { display: inline-flex; align-items: center; gap: 6px; color: var(--im-blue); font-size: 12px; }
+.workspace-welcome > small { display: block; max-width: 330px; margin: auto; color: var(--im-muted); line-height: 1.8; font-size: 11px; }
+.workspace-tools h3 { display: flex; gap: 8px; align-items: center; font-size: 15px; }
+.workspace-tools p { font-size: 13px; line-height: 1.9; color: var(--im-muted); margin: 12px 0 18px; }
+.workspace-tools hr { border: 0; border-top: 1px solid var(--im-line); margin: 28px 0; }
+.workspace-tool-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.im-list-footer[data-test-mode="true"] { color: var(--im-blue); font-weight: 600; }
+@media (max-width: 760px) { .workspace-welcome { padding: 12px 0; } .workspace-welcome-options { gap: 14px; } }
+.workspace-quick { margin: 0 auto 22px; color: var(--im-muted); font-size: 11px; }
+.workspace-quick > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 10px; }
+.workspace-quick button { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--im-ink); }
+.workspace-mode-indicator { position: fixed; z-index: 20; top: 9px; right: 18px; padding: 3px 10px; border: 1px solid var(--im-line); border-radius: 7px; background: var(--im-paper); color: var(--im-blue); font-size: 11px; font-weight: 600; pointer-events: none; }
+.workspace-mode-indicator[hidden] { display: none; }

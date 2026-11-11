@@ -38,12 +38,12 @@ try {
   await mkdir(out, { recursive: true });
   await cp(join(directory, "out"), join(stage, "out"), { recursive: true });
   await writeFile(join(stage, "package.json"), JSON.stringify({
-    name: "agentstudio", productName: "AgentStudio", version: pkg.version,
+    name: "agentstudio", productName: "AgentRoom", version: pkg.version,
     private: true, main: "out/main/index.js",
   }, null, 2));
   const paths = await packager({
     dir: stage, out, platform: "darwin", arch: process.arch,
-    name: "AgentStudio", executableName: "AgentStudio",
+    name: "AgentRoom", executableName: "AgentRoom",
     appBundleId: "com.cubxxw.agentstudio", appVersion: pkg.version,
     electronVersion, ...(zipDirectory ? { electronZipDir: zipDirectory } : {}),
     icon: join(directory, "resources/icon.icns"),
@@ -58,7 +58,7 @@ try {
       preAutoEntitlements: false, preEmbedProvisioningProfile: false, gatekeeperAssess: false },
   });
   if (paths.length !== 1) throw new Error("Expected exactly one local application bundle.");
-  const bundle = join(paths[0], "AgentStudio.app");
+  const bundle = join(paths[0], "AgentRoom.app");
   execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", bundle]);
   const signature = spawnSync("/usr/bin/codesign", ["-dvv", bundle], { encoding: "utf8" });
   const entitlements = spawnSync("/usr/bin/codesign", ["-d", "--entitlements", ":-", bundle], { encoding: "utf8" });

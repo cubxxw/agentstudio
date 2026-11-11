@@ -95,7 +95,7 @@ export function SignIn({
       <div className="drag-strip" />
       <div className="signin-card">
         <img className="brand-mark" src={appIcon} alt="" aria-hidden draggable={false} />
-        <h1 className="display">AgentStudio</h1>
+        <h1 className="display">AgentRoom</h1>
         <p className="muted">
           Your people and your agents, in one inbox. We'll leave the light on.
         </p>

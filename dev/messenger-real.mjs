@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
 // Explicit real CLI acceptance, with synthetic text only and an isolated profile.
 // No provider switch, private data, tool mutations or real third-party accounts.
 import { createRequire } from 'node:module';
@@ -11,6 +12,7 @@ const parent = resolve(process.env.AGENTSTUDIO_MESSENGER_EVIDENCE_DIR || 'output
 await mkdir(parent, { recursive: true });
 const output = await mkdtemp(join(parent, 'real-'));
 const env = { ...process.env, AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_WORKSPACE: 'personal' };
+cleanDesktopTestEnv(env);
 for (const key of ['ELECTRON_RUN_AS_NODE', 'AGENTSTUDIO_CODEX_BIN', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
 let app, page;
 const checks = [], outcomes = [];
@@ -21,7 +23,7 @@ const request = (path, body) => page.evaluate(async ({ path, body }) => {
 }, { path, body });
 try {
   const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
-  app = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentStudio') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+  app = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
   page = await app.firstWindow();
   await expect(page.getByTestId('im-app')).toBeVisible();
   const discovery = await request('/contacts');

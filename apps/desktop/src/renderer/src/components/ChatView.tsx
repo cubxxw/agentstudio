@@ -186,7 +186,7 @@ export function ChatView({ roomId }: { roomId: string }) {
                   </>
                 ) : (
                   <div className="menu-confirm">
-                    <p>Delete this chat from AgentStudio? Its messages go too.</p>
+                    <p>Delete this chat from AgentRoom? Its messages go too.</p>
                     <div className="menu-actions">
                       <button className="pill-btn quiet small" onClick={() => setMenu("closed")}>
                         Keep

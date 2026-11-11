@@ -59,4 +59,5 @@ export class LocalLoginHost {
     flow.killTimer.unref();
   }
   stop() { this.stopped = true; for (const [id, flow] of this.flows) if (flow.progress.state === "waiting") this.cancel(id); }
+  hasPendingLogin() { return [...this.flows.values()].some(flow => flow.child.exitCode === null && flow.child.signalCode === null); }
 }

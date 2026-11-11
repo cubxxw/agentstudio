@@ -55,7 +55,7 @@ describe("personal IPC capabilities", () => {
 });
 
 describe("trusted bundled document", () => {
-  const own = "file:///Applications/AgentStudio.app/Contents/Resources/app.asar/out/renderer/personal/index.html";
+  const own = "file:///Applications/AgentRoom.app/Contents/Resources/app.asar/out/renderer/personal/index.html";
   it("accepts only the exact file or dev pathname, with ordinary in-document anchors", () => {
     expect(isTrustedDocument(`${own}#source-att_own`, own)).toBe(true);
     expect(isTrustedDocument("http://127.0.0.1:5173/personal/index.html#own", "http://127.0.0.1:5173/personal/index.html")).toBe(true);

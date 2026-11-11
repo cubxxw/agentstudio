@@ -289,9 +289,9 @@ export async function grokLogin(
 
 export type ParsedEntry = (
   | { kind: "assistant"; text: string }
-  /** nonce: the message_id AgentStudio sent it with, when AgentStudio sent it. */
+  /** nonce: the message_id AgentRoom sent it with, when AgentRoom sent it. */
   | { kind: "user"; text: string; nonce?: string }
-  /** Something AgentStudio can't show (a file, a chart, a call): a note pointing to Grok Bot. */
+  /** Something AgentRoom can't show (a file, a chart, a call): a note pointing to Grok Bot. */
   | { kind: "notice"; text: string }
   | { kind: "widget"; prompt: string; options: { value: string; label: string }[] }
   | { kind: "other" }
@@ -367,7 +367,7 @@ function parseObject(o: Record<string, unknown>, kind: string, entryKind: string
   const text = textOf(msg.content) || textOf(msg.text) || textOf(o.content) || textOf(o.text);
   if (!text) {
     // A kind we don't know yet: say so rather than lose it.
-    return KNOWN_KINDS.has(kind) ? { kind: "other" } : { kind: "notice", text: "Grok Bot sent something AgentStudio can't show yet. Open Grok Bot to see it." };
+    return KNOWN_KINDS.has(kind) ? { kind: "other" } : { kind: "notice", text: "Grok Bot sent something AgentRoom can't show yet. Open Grok Bot to see it." };
   }
   if (role === "user" || kind === "user-message") {
     const nonce = typeof o.clientNonce === "string" ? o.clientNonce : undefined;
@@ -452,7 +452,7 @@ export class GrokBotConnector implements Connector {
   private status: ConnectorState = { status: "starting" };
   private activeUntil = 0;
   private ownMessageIds = new Set<string>();
-  /** Texts AgentStudio sent, so their transcript entries aren't shown twice. */
+  /** Texts AgentRoom sent, so their transcript entries aren't shown twice. */
   private ownTexts = new Set<string>();
   private seen = new Map<string, number>(); // entry id -> updated_seq emitted or pending
   private pending = new Map<string, { updated: number; polls: number; text: string }>();
@@ -661,7 +661,7 @@ export class GrokBotConnector implements Connector {
       }
       if (parsed.kind === "user") {
         this.seen.set(id, updated);
-        // What the user typed in Grok Bot itself (AgentStudio's own sends are skipped).
+        // What the user typed in Grok Bot itself (AgentRoom's own sends are skipped).
         let ours: boolean | string | undefined;
         if (this.personalReply) {
           ours = parsed.nonce ? parsed.nonce === this.personalReply.providerMessageId && this.ownMessageIds.delete(parsed.nonce)

@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { PERSONAL_IPC, type AgentStudioPersonal, type PersonalCommand } from "../shared/personal-api";
 
-const info = ipcRenderer.sendSync(PERSONAL_IPC.info) as { platform: string; version: string } | null;
+const info = ipcRenderer.sendSync(PERSONAL_IPC.info) as { platform: string; version: string; testMode: boolean } | null;
 if (!info) throw new Error("Personal preload was loaded outside its trusted document");
 
 const api: AgentStudioPersonal = {
   platform: info.platform,
   version: info.version,
+  testMode: info.testMode,
+  testWorkspace: (action) => ipcRenderer.invoke(PERSONAL_IPC.testWorkspace, action),
   request: (input) => ipcRenderer.invoke(PERSONAL_IPC.request, input),
   saveArtifact: (id) => ipcRenderer.invoke(PERSONAL_IPC.saveArtifact, id),
   restart: () => ipcRenderer.invoke(PERSONAL_IPC.restart),
