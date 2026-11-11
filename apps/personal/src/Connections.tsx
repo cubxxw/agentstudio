@@ -6,6 +6,7 @@ import chatgptIcon from "@agentstudio/brand/assets/chatgpt.png";
 import cueIcon from "@agentstudio/brand/assets/cue.png";
 import { api, key } from "./api";
 import { desktopBridge } from "./native";
+import { Avatar } from "./ContactAvatar";
 import type { NativeIntegrationReply, NativeIntegrationRequest, PersonalServiceId } from "./desktop-contract";
 import type { Bootstrap, Integrations, LocalAgent } from "./types";
 
@@ -156,7 +157,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
   };
   const activeFlow = Boolean(flow && !terminal(flow.progress.state));
   const selected = integrations?.selectedLocalAgentId || data.settings.localAgentId || "codex";
-  const localRow = (agent: LocalAgent) => <Row key={agent.id} testId={`personal-local-agent-${agent.id}`} icon={<Terminal size={19} />} name={agent.name}
+  const localRow = (agent: LocalAgent) => <Row key={agent.id} testId={`personal-local-agent-${agent.id}`} icon={<Avatar contact={{ name: agent.name, color: "blue", kind: "agent", avatarAgent: agent.id }} size="small" />} name={agent.name}
     description={<>{agent.version && <span className="integration-version">{agent.version} · </span>}{!agent.installed ? (agent.execution.supported ? "尚未安装" : "尚未安装；当前只支持发现，不能执行") : !agent.execution.supported ? "已安装；此版本尚不支持在这里执行" : agent.auth.status === "configured" ? "使用这台 Mac 已有的登录配置" : agent.auth.status === "required" ? "已安装，完成登录后即可使用" : "登录状态待确认"}</>}
     action={!agent.installed ? (webLink(agent.setupUrl) && <a className="integration-button" data-testid={`personal-local-install-${agent.id}`} href={webLink(agent.setupUrl)!} target="_blank" rel="noreferrer noopener">安装<ArrowUpRight size={13} /></a>)
       : !agent.execution.supported ? <span className="integration-state">暂未支持</span>

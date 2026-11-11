@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, Settings2, ShieldCheck, Square, SquarePen, UserRound, Users, WifiOff, X } from "lucide-react";
-import appIcon from "@agentstudio/brand/assets/agentstudio.png";
 import { api, key, RequestError } from "./api";
 import { desktopBridge } from "./native";
 import { DecisionView, Modal, Preferences, Reader } from "./ConversationPanels";
@@ -13,6 +12,7 @@ import { emptyDraft, restoreDraft, settleCreatedDraft, type ConversationDraft as
 import { RichText } from "./Markdown";
 import { Avatar, availabilityText, ContactEditor, GroupEditor } from "./MessengerDialogs";
 import type { Approval, Artifact, Attachment, Bootstrap, Contact, Message, Run, Thread, ThreadSummary } from "./types";
+import type { PersonalServiceId } from "./desktop-contract";
 import "./messenger.css";
 
 type Screen = "chats" | "contacts" | "approvals";
@@ -49,7 +49,12 @@ function Messenger() {
   const desktop = desktopBridge();
   const [screen, setScreen] = useState<Screen>("chats");
   const [data, setData] = useState<Bootstrap | null>(read("bootstrap", null));
-  const [contacts, setContacts] = useState<Contact[]>(read("contacts", []));
+  const [contactRecords, setContacts] = useState<Contact[]>(read("contacts", []));
+  const [serviceAvatars, setServiceAvatars] = useState<Record<string, PersonalServiceId>>({});
+  const contacts = useMemo(() => contactRecords.map(contact => {
+    const service = contact.binding?.type === "connection" ? serviceAvatars[contact.binding.connectionId] : undefined;
+    return service ? { ...contact, avatarService: service } : contact;
+  }), [contactRecords, serviceAvatars]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<string | null>(selectedId);
   const currentId = useRef(selected); currentId.current = selected;
@@ -113,6 +118,11 @@ function Messenger() {
   const refresh = useCallback(async () => {
     lastFullRefresh.current = Date.now();
     const sequence = ++syncing.current;
+    // Decorative provider identity must never hold up conversations or approvals.
+    void desktop?.nativeIntegration?.({ kind: "services" }).then(catalog => {
+      if (!mounted.current || sequence !== syncing.current || catalog.state !== "catalog") return;
+      setServiceAvatars(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && instance.service ? [[instance.connectionId, instance.service]] : [])));
+    }).catch(() => { /* Keep the last known icons; core refresh works independently. */ });
     const results = await Promise.allSettled([api<Bootstrap>("/bootstrap"), api<{ contacts: Contact[] }>("/contacts"), api<{ approvals: Approval[] }>("/approvals")]);
     if (!mounted.current || sequence !== syncing.current) return;
     if (results[0].status === "fulfilled") { setData(results[0].value); write("bootstrap", results[0].value); setConnected(true); }
@@ -123,7 +133,7 @@ function Messenger() {
     else setError(errorText(results[2].reason));
     setLoading(false);
     if (currentId.current && currentId.current !== "new") await loadThread(currentId.current);
-  }, [loadThread]);
+  }, [desktop, loadThread]);
   const refreshSafely = useCallback(() => void refresh().catch(e => { if (mounted.current) { setConnected(false); setError(errorText(e)); } }), [refresh]);
   const openThread = useCallback((id: string, push = true) => {
     viewEpoch.current += 1;
@@ -262,15 +272,11 @@ function Messenger() {
 
   return <div className={`im-app ${desktop ? "im-native" : ""} ${mobileDetail ? "im-show-detail" : ""} ${listHidden ? "im-focused" : ""}`} data-testid="im-app">
     <a className="skip-link" data-testid="im-skip" href="#im-main">跳到聊天内容</a>
-    <nav className="im-rail" aria-label="主导航" data-testid="im-rail">
-      <div className="im-drag-area" /><img className="im-brand" src={appIcon} alt="AgentStudio" />
-      {([["chats", MessageCircle, "聊天"], ["contacts", Users, "联系人"], ["approvals", ShieldCheck, "审批"]] as const).map(([id, Icon, label]) => <button key={id} className={`im-nav-item ${screen === id ? "selected" : ""}`} aria-label={label} aria-current={screen === id ? "page" : undefined} data-testid={`im-nav-${id}`} onClick={() => switchScreen(id)}><span><Icon size={23} />{id === "approvals" && pending.length > 0 && <b>{pending.length}</b>}</span><small>{label}</small></button>)}
-      <div className="im-rail-bottom"><IconButton label="连接与设置" testId="im-settings" onClick={() => setPreferences(true)}><Settings2 size={23} /></IconButton><Avatar contact={{ name: "你", color: "blue", kind: "human" }} size="small" /></div>
-    </nav>
     <aside className="im-list-panel" id="im-list" data-testid="im-list-panel" aria-label={screen === "chats" ? "会话列表" : screen === "contacts" ? "联系人列表" : "审批列表"}>
+      <div className="im-drag-area" />
       <div className="im-list-heading"><h1>{screen === "chats" ? "聊天" : screen === "contacts" ? "联系人" : "审批"}</h1><IconButton label={screen === "contacts" ? "添加联系人" : "发起聊天"} testId="im-new" onClick={() => screen === "contacts" ? setContactEditor("new") : setNewChat(true)}>{screen === "contacts" ? <Plus size={22} /> : <SquarePen size={21} />}</IconButton></div>
       <div className="im-search"><Search size={17} /><input type="search" ref={searchInput} value={search} onChange={e => setSearch(e.target.value)} placeholder={screen === "chats" ? "搜索聊天" : screen === "contacts" ? "搜索联系人" : "搜索审批"} aria-label="搜索" data-testid="im-search" /></div>
-      <div className="im-list-tabs" aria-label="列表筛选">{(screen === "chats" ? [["all", "全部"], ["group", "群聊"]] : screen === "contacts" ? [["all", "全部"], ["agent", "Agent"], ["human", "人"]] : [["all", `待处理${pending.length ? ` ${pending.length}` : ""}`], ["history", "历史"]]).map(([id, label]) => <button key={id} aria-pressed={filter === id} data-testid={`im-filter-${id}`} onClick={() => setFilter(id!)}>{label}</button>)}</div>
+      {(screen !== "chats" || data?.threads.some(chat => chat.kind === "group")) && <div className="im-list-tabs" aria-label="列表筛选">{(screen === "chats" ? [["all", "全部"], ["group", "群聊"]] : screen === "contacts" ? [["all", "全部"], ["agent", "Agent"], ["human", "人"]] : [["all", `待处理${pending.length ? ` ${pending.length}` : ""}`], ["history", "历史"]]).map(([id, label]) => <button key={id} aria-pressed={filter === id} data-testid={`im-filter-${id}`} onClick={() => setFilter(id!)}>{label}</button>)}</div>}
       <div className="im-list-scroll">
         {loading && !data && <p className="im-list-note"><Loader2 size={16} className="working" />正在打开…</p>}
         {screen === "chats" && chats.map(chat => <button className={`im-chat-row ${selected === chat.id ? "selected" : ""}`} key={chat.id} data-testid={`im-chat-${chat.id}`} onClick={() => openThread(chat.id)}>
@@ -283,7 +289,10 @@ function Messenger() {
       </div>
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-discovery-entry" onClick={() => setDiscoveryOpen(true)}><Search size={18} /><span>发现本机助手<small>使用已安装或已连接的伙伴</small></span><ChevronRight size={16} /></button>}
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-onboarding-open" onClick={() => setOnboardingOpen(true)}><Bot size={18} /><span>让助手建议角色<small>测试连接，了解已有伙伴和群聊</small></span><ChevronRight size={16} /></button>}
-      <div className="im-list-footer"><span className={connected ? "im-online-dot" : "im-offline-dot"} />{connected ? "个人工作区" : loading ? "正在连接" : "连接已中断"}<IconButton label="刷新联系人和会话" testId="im-refresh" onClick={() => void refreshContacts()}><RefreshCw size={14} /></IconButton></div>
+      <nav className="im-rail" aria-label="主导航" data-testid="im-rail">
+        {([["chats", MessageCircle, "聊天"], ["contacts", Users, "联系人"], ["approvals", ShieldCheck, "审批"]] as const).map(([id, Icon, label]) => <button key={id} className={`im-nav-item ${screen === id ? "selected" : ""}`} aria-label={label} title={label} aria-current={screen === id ? "page" : undefined} data-testid={`im-nav-${id}`} onClick={() => switchScreen(id)}><span><Icon size={19} />{id === "approvals" && pending.length > 0 && <b>{pending.length}</b>}</span></button>)}
+        <div className="im-rail-bottom"><IconButton label="刷新联系人和会话" testId="im-refresh" onClick={() => void refreshContacts()}><RefreshCw size={17} /></IconButton><IconButton label="连接与设置" testId="im-settings" onClick={() => setPreferences(true)}><Settings2 size={19} /></IconButton></div>
+      </nav>
     </aside>
     <main className="im-main" id="im-main" data-testid="im-main">
       {(!connected && !loading) && <div className="im-connection-warning" role="status"><WifiOff size={16} />连接中断，草稿和已加载的消息仍保留。<button disabled={busy === "reconnect"} onClick={() => void reconnect()}>{busy === "reconnect" ? "正在恢复…" : "重新连接"}</button></div>}
@@ -299,11 +308,11 @@ function Messenger() {
         <header className="im-header"><IconButton label="返回审批列表" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<div className="im-header-copy"><strong>由你决定</strong><small>{selectedApproval.contact?.name || "助手"} · {selectedApproval.threadTitle}</small></div><button className="im-text-button" data-testid="im-approval-open-chat" onClick={() => openThread(selectedApproval.threadId)}>回到聊天<ChevronRight size={16} /></button></header>
         <div className="im-approval-content"><ShieldCheck size={28} className="im-blue" /><h2>看过，再决定。</h2><p>每项审批绑定这一次动作。批准后的执行和结果会继续记录在原聊天中。</p><DecisionView decision={selectedApproval} busy={busy === selectedApproval.id} onDecide={choice => void decide(selectedApproval, choice)} /></div>
       </> : screen === "chats" && selected ? <>
-        <header className="im-header"><IconButton label="返回聊天列表" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<button className="im-chat-identity" onClick={() => thread?.kind === "group" ? setGroupEditor(thread) : directContact ? setProfileId(directContact.id) : setDetails(true)} data-testid="im-chat-info"><Avatar contact={directContact} group={thread?.kind === "group"} size="small" /><span><strong>{selected === "new" ? "整理资料" : thread ? chatTitle(thread) : "正在打开聊天…"}</strong><small className="im-header-presence" data-testid="im-header-status">{directContact?.kind === "agent" && <i className={directContact.availability === "ready" ? "im-online-dot" : "im-offline-dot"} />}{thread?.kind === "group" ? `${thread.memberIds?.length || 0} 位成员` : directContact ? directContact.kind === "agent" ? thread?.runs.some(run => ["running", "verifying"].includes(run.status)) ? "正在回复" : thread?.runs.some(run => run.status === "queued") ? "等待回复" : availabilityText[directContact.availability] : "本地联系人" : selected === "new" ? "资料与草稿保存在这台 Mac" : "个人对话"}</small></span></button><div className="im-header-actions">{Boolean(thread?.artifacts.length) && <IconButton label="聊天成果" testId="im-results" onClick={() => setDetails(true)}><FileText size={20} /></IconButton>}{thread?.kind === "direct" && <IconButton label="从这段私聊创建群聊" testId="im-promote-group" onClick={() => setGroupEditor("new")}><Users size={20} /></IconButton>}<IconButton label="聊天信息" testId="im-info" onClick={() => setDetails(true)}><Info size={20} /></IconButton></div></header>
+        <header className="im-header im-conversation-header"><IconButton label="返回聊天列表" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<button className="im-chat-identity" onClick={() => thread?.kind === "group" ? setGroupEditor(thread) : directContact ? setProfileId(directContact.id) : setDetails(true)} data-testid="im-chat-info"><Avatar contact={directContact} group={thread?.kind === "group"} size="small" /><span><strong><span>{selected === "new" ? "整理资料" : thread ? chatTitle(thread) : "正在打开聊天…"}</span><ChevronRight size={12} /></strong><small className="im-header-presence" data-testid="im-header-status">{directContact?.kind === "agent" && directContact.availability !== "ready" ? availabilityText[directContact.availability] : thread?.runs.some(run => ["running", "verifying"].includes(run.status)) ? "正在回复" : thread?.runs.some(run => run.status === "queued") ? "等待回复" : ""}</small></span></button><div className="im-header-actions">{thread?.kind === "direct" && <IconButton label="从这段私聊创建群聊" testId="im-promote-group" onClick={() => setGroupEditor("new")}><Users size={19} /></IconButton>}<IconButton label="聊天记录与成果" testId="im-results" onClick={() => setDetails(true)}><Info size={20} /></IconButton></div></header>
         {thread?.decisions.some(d => d.state === "pending") && <button className="im-pending-bar" data-testid="im-pending-bar" onClick={() => { setApprovalId(thread.decisions.find(d => d.state === "pending")!.id); setScreen("approvals"); }}><ShieldCheck size={17} /><span>{thread.decisions.filter(d => d.state === "pending").length} 项操作等待审批</span><ChevronRight size={17} /></button>}
         <div className="im-timeline" ref={timeline} data-testid="im-timeline" onScroll={e => { const node = e.currentTarget; nearBottom.current = node.scrollHeight - node.clientHeight - node.scrollTop < 100; if (nearBottom.current) setNewMessages(false); }}>
           {thread && thread.messages.length === 0 && <div className="im-conversation-start"><Avatar contact={directContact} group={thread.kind === "group"} size="large" /><h2>{thread.kind === "group" ? "伙伴到齐，开始聊吧。" : `和 ${directContact?.name || thread.title} 聊聊`}</h2><p>{thread.kind === "group" ? "成员会结合自己的角色选择回应；也可以 @ 指定一位伙伴。" : directContact?.instructions || directContact?.description || "发一条消息，开始这段对话。"}</p></div>}
-          {thread && <ConversationTimeline thread={thread} contacts={contacts} limit={messageLimit} onMore={() => setMessageLimit(value => value + 80)} onReply={message => { editDraft({ replyTo: message.id }); input.current?.focus(); }} onContact={id => { setContactId(id); setScreen("contacts"); }} onSource={setSource} onRead={setReading} onRun={(run, action) => void mutateRun(run, action)} onError={setError} busy={busy} />}
+          {thread && <ConversationTimeline thread={thread} contacts={contacts} serviceAvatars={serviceAvatars} limit={messageLimit} onMore={() => setMessageLimit(value => value + 80)} onReply={message => { editDraft({ replyTo: message.id }); input.current?.focus(); }} onContact={id => { setContactId(id); setScreen("contacts"); setMobileDetail(true); }} onSource={setSource} onRun={(run, action) => void mutateRun(run, action)} onError={setError} busy={busy} />}
 
         </div>
         {newMessages && <button className="im-new-messages" onClick={() => { if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; nearBottom.current = true; setNewMessages(false); }}><ArrowDown size={16} />回到最新</button>}
@@ -317,7 +326,7 @@ function Messenger() {
           {(selected === "new" || (thread && !thread.kind)) && <details className="im-send-options"><summary data-testid="im-send-options-toggle">{(draft.mode || (thread?.runs.at(-1)?.requestedMode || thread?.runs.at(-1)?.mode) || "local") === "local" ? "本地整理" : (draft.mode || (thread?.runs.at(-1)?.requestedMode || thread?.runs.at(-1)?.mode)) === "connection" ? data?.connections.find(c => c.id === (draft.connectionId ?? thread?.runs.at(-1)?.connectionId))?.name || "原连接已移除" : "本机助手"}<ChevronRight size={13} /></summary><div><label>发送方式<select data-testid="im-task-mode" value={draft.mode || (thread?.runs.at(-1)?.requestedMode || thread?.runs.at(-1)?.mode) || "local"} onChange={e => editDraft({ mode: e.target.value as Draft["mode"], connectionId: e.target.value === "connection" ? draft.connectionId ?? thread?.runs.at(-1)?.connectionId ?? "" : "" })}><option value="local">本地整理资料</option><option value="codex">本机助手</option><option value="connection">已连接服务</option></select></label>{(draft.mode || (thread?.runs.at(-1)?.requestedMode || thread?.runs.at(-1)?.mode)) === "connection" && <label>选择连接<select data-testid="im-task-connection" value={draft.connectionId ?? thread?.runs.at(-1)?.connectionId ?? ""} onChange={e => editDraft({ connectionId: e.target.value })}><option value="">请选择原连接</option>{data?.connections.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}{Boolean(draft.connectionId) && !data?.connections.some(c => c.id === draft.connectionId) && <option value={draft.connectionId}>原连接已移除</option>}</select></label>}</div></details>}
           {draft.recoveryError && <p className="im-error" role="alert">{draft.recoveryError}</p>}
           {draftWarning && <p className="im-error" role="alert">本机草稿存储已满，当前内容仅保留在此窗口，请先复制保存。</p>}
-          <p className="im-composer-hint">{directContact?.kind === "human" ? "仅本机保存 · 尚无网络投递" : thread?.kind === "group" ? "成员按角色回应 · Shift Enter 换行" : "Enter 发送 · Shift Enter 换行"}</p>
+          {directContact?.kind === "human" && <p className="im-composer-hint">仅本机保存 · 尚无网络投递</p>}
           </>
         </div>
       </> : <div className="im-welcome"><div className="im-welcome-toolbar">{focusControl}</div><div className="im-welcome-symbol">{screen === "approvals" ? <ShieldCheck size={37} strokeWidth={1.3} /> : screen === "contacts" ? <Users size={37} strokeWidth={1.3} /> : <MessageCircle size={39} strokeWidth={1.3} />}</div><span className="im-welcome-brand">AgentStudio</span><h2>{screen === "approvals" ? "需要你的时候，都在这里。" : screen === "contacts" ? "认识你的下一位伙伴。" : "好想法，从一句话开始。"}</h2><p>{screen === "approvals" ? "Agent 请求发送内容或调用工具时，可以在这里统一查看和决定。" : screen === "contacts" ? "人和 Agent，都可以成为联系人。为同一个助手创建不同身份，也各有一段对话。" : "和你的 Agent 私聊，或让几个伙伴在群里一起想。每段对话，都能接着聊。"}</p>

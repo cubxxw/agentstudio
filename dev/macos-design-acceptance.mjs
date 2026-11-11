@@ -55,16 +55,36 @@ try {
     await page.goto(`http://127.0.0.1:${server.address().port}`);
   }
   page.on('pageerror', error => errors.push(error.message));
-  await expect(page.getByTestId('im-list-panel')).toContainText('个人工作区');
+  await expect(page.getByTestId('im-list-panel')).toHaveAttribute('aria-label', '会话列表');
   await shot('home-light');
   check('empty workspace shows real empty state, without invented conversations');
+  await page.getByTestId('im-nav-contacts').click();
+  for (const agent of ['codex', 'claude', 'pi', 'gemini', 'opencode']) {
+    const avatar = page.getByTestId(`im-contact-agent_${agent}`).getByTestId('im-avatar');
+    await expect(avatar).toHaveAttribute('data-avatar-source', agent);
+    await expect.poll(() => avatar.evaluate(node => node.querySelector('img')?.naturalWidth || 0)).toBeGreaterThan(0);
+  }
+  await shot('agent-avatars');
+  await page.getByTestId('im-nav-chats').click();
+  check('all five local agents have bundled, successfully loaded brand avatars');
 
   const first = await request('/threads', { text: '合成设计验收：让阅读回到内容本身。\n\n这是一份隔离测试资料，没有调用模型。\n\n- 留出舒适的阅读空间\n- 让工具在需要时出现\n- 保留每一份草稿', mode: 'local', clientId: 'design-acceptance-first' });
   await request('/threads', { text: '合成设计验收：下一段想法，随时接着聊。', mode: 'local', clientId: 'design-acceptance-second' });
   await expect.poll(async () => (await request(`/threads/${first.id}`)).status).toBe('completed');
   await page.goto(`${page.url().split('?')[0]}?thread=${first.id}`);
   await expect(page.getByTestId('im-message').first()).toBeVisible();
-  await expect(page.getByTestId('im-list-panel')).toContainText('个人工作区');
+  const cleanReply = page.getByTestId('im-message').last();
+  await expect(cleanReply).not.toContainText('打开原文');
+  expect(await cleanReply.getByTestId('im-message-content').evaluate(node => Boolean(node.querySelector('time, button.im-sender, .im-message-meta')))).toBe(false);
+  await expect(cleanReply.getByTestId('im-avatar')).toHaveCount(0);
+  await page.getByTestId('im-results').click();
+  await expect(page.getByTestId('im-artifact')).toHaveCount(1);
+  await page.getByTestId('im-artifact').click();
+  await expect(page.getByTestId('personal-reader')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  check('replies contain only their content; original artifacts stay accessible through conversation info');
+  await expect(page.getByTestId('im-list-panel')).toHaveAttribute('aria-label', '会话列表');
   const draft = '合成草稿：收起列表、刷新和调整窗口后，继续写。';
   await page.getByTestId('im-message-input').fill(draft);
   await shot('conversation-light');
@@ -84,6 +104,7 @@ try {
   await page.keyboard.press('ControlOrMeta+\\');
   await expect(page.getByTestId('im-list-panel')).toBeHidden();
   await expect(page.getByTestId('im-focus-toggle')).toBeFocused();
+  await page.getByTestId('im-focus-toggle').click();
   await page.getByTestId('im-nav-contacts').click();
   await expect(page.getByTestId('im-list-panel')).toBeVisible();
   await page.getByTestId('im-nav-chats').click();
@@ -103,7 +124,7 @@ try {
 
   if (native) await application.evaluate(({ nativeTheme }) => { nativeTheme.themeSource = 'dark'; });
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
-  await expect.poll(() => page.getByTestId('im-main').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(32, 33, 37)');
+  await expect.poll(() => page.getByTestId('im-main').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(23, 23, 25)');
   await expect.poll(() => page.getByTestId('im-send').evaluate(node => getComputedStyle(node).transitionDuration)).toBe('0s');
   await shot('conversation-dark');
   await page.getByTestId('im-new').click();
@@ -136,13 +157,13 @@ try {
     await touch.goto(page.url());
     await expect(touch.getByTestId('im-message')).toHaveCount(2);
     for (const message of await touch.getByTestId('im-message').all()) {
-      const metadata = await message.getByTestId('im-message-meta').boundingBox();
+      const content = await message.getByTestId('im-message-content').boundingBox();
       const actions = await message.getByTestId('im-message-actions').boundingBox();
-      expect(actions.y).toBeGreaterThanOrEqual(metadata.y + metadata.height);
+      expect(actions.y).toBeGreaterThanOrEqual(content.y + content.height);
     }
     await touch.screenshot({ path: join(output, 'touch-tools.png') });
     await touch.close();
-    check('touch reply/copy tools have their own row and cannot cover message metadata');
+    check('touch reply/copy tools have their own row and cannot cover the message content');
   }
   expect(errors).toEqual([]);
 } finally {
