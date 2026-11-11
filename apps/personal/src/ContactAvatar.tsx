@@ -19,7 +19,7 @@ export function Avatar({ contact, group, size = "" }: { contact?: Pick<Contact, 
   const source = !group && contact?.kind === "agent" && automatic ? agent || contact.avatarService : undefined;
   const image = source && agentImages[source];
   const initials = Array.from(contact?.name.trim() || "?").slice(0, /^[\x00-\x7f]/.test(contact?.name || "") ? 1 : 2).join("").toUpperCase();
-  return <span className={`im-avatar ${contact?.color || "blue"} ${size} ${image ? `im-avatar-brand im-avatar-${source}` : group || !contact ? "im-avatar-group" : ""}`} data-testid="im-avatar" data-avatar-source={image ? source : group ? "group" : !contact ? "notes" : automatic || contact.kind === "human" ? "initials" : "custom"} aria-hidden="true">
+  return <span className={`im-avatar ${contact?.color || "blue"} ${size} ${contact?.kind === "agent" ? "im-avatar-agent" : ""} ${image ? `im-avatar-brand im-avatar-${source}` : group || !contact ? "im-avatar-group" : ""}`} data-testid="im-avatar" data-avatar-source={image ? source : group ? "group" : !contact ? "notes" : automatic || contact.kind === "human" ? "initials" : "custom"} aria-hidden="true">
     {group ? <Users size={23} /> : !contact ? <FileText size={23} strokeWidth={1.6} /> : image ? <img src={image} alt="" draggable={false} /> : contact.kind === "human" || automatic ? initials : <Icon size={23} strokeWidth={1.8} />}
   </span>;
 }
