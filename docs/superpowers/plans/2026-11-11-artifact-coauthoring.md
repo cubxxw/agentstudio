@@ -47,11 +47,11 @@
 
 **Interfaces:** `ArtifactStore(store)` provides `create`, `read`, `stage`, `submit`, `candidate`, `commit`, `materialize`, `resolveLocal`; revisions contain file hashes and parent references. All mutations receive trusted actor/grant context.
 
-- [ ] Write behavioral tests for preapproval denial, stale file hashes, path/link escapes, changed mandatory input, full-candidate checking, head CAS, restart, and manually edited current trees.
-- [ ] Run `node --test apps/personal/server/artifact-store.test.mjs`; expect RED.
-- [ ] Implement bounded content-addressed objects, immutable manifests, separate staging, verified candidate commits, and recoverable materialization.
-- [ ] Run the task tests; expect PASS and preserved human bytes in the collision cases.
-- [ ] Commit the content/version subsystem.
+- [x] Write behavioral tests for preapproval denial, stale file hashes, path/link escapes, changed mandatory input, full-candidate checking, head CAS, restart, and manually edited current trees.
+- [x] Run `node --test apps/personal/server/artifact-store.test.mjs`; expect RED.
+- [x] Implement bounded content-addressed objects, immutable manifests, separate staging, verified candidate commits, and recoverable materialization.
+- [x] Run the task tests; expect PASS and preserved human bytes in the collision cases.
+- [x] Commit the content/version subsystem.
 
 ### Task 3: Proposals, grants and collaboration scheduling
 
