@@ -83,6 +83,26 @@ it("does not settle pre-approval text when the first card snapshot is already an
  f.set([user,text,{...entry("r",15),seq:13},{...text,entry_id:"final",seq:14,updated_seq:14,body:Buffer.from(JSON.stringify({kind:"send-message",message:{text:"Selected Reject QA"}}))}]);await f.poll();await f.poll();
  expect(f.events).toContainEqual({type:"status",state:"idle"});
 });
+it("waits for post-approval text when the original echo and answered card first arrive together", async () => {
+  const f = await fixture(); f.set([]);
+  await f.connector.send({ session_id: "personal:qa", message_id: "turn", text: "QA", sent_at: new Date().toISOString() });
+  const nonce = f.calls.find(c => c.method === "SendGrokBotUserMessage").params.message_id;
+  const user = { entry_id: "user", seq: 11, updated_seq: 11, entry_kind: "user-message", body: Buffer.from(JSON.stringify({ kind: "user-message", clientNonce: nonce, text: "QA" })) };
+  const preamble = { entry_id: "preamble", seq: 12, updated_seq: 12, entry_kind: "send-message", body: Buffer.from(JSON.stringify({ kind: "send-message", message: { text: "Waiting for your choice" } })) };
+  const answered = { ...entry("r", 15), seq: 13 };
+  f.setLive({ session_id: "session", last_turn_settlement: { turn_id: nonce, outcome: "success" } });
+  f.set([user, preamble, answered]);
+  await f.poll(); await f.poll();
+  expect(f.cards.at(-1)).toMatchObject({ state: "resolved", replyTo: "turn", source: "original" });
+  expect(f.events).not.toContainEqual({ type: "status", state: "idle" });
+
+  const final = { entry_id: "final", seq: 14, updated_seq: 14, entry_kind: "send-message", body: Buffer.from(JSON.stringify({ kind: "send-message", message: { text: "Selected Reject QA" } })) };
+  f.set([user, preamble, answered, final]);
+  await f.poll(); await f.poll();
+  expect(f.events).toContainEqual({ type: "message", text: "Selected Reject QA", reply_to: "turn" });
+  expect(f.events.filter(event => event.type === "status" && event.state === "idle")).toHaveLength(1);
+  expect(f.calls.filter(call => call.method === "SendGrokBotUserMessage")).toHaveLength(1);
+});
 it("rechecks revisions before answering and observes answers made in the original app", async () => {
   const f = await fixture(); await f.poll(); const old = f.cards.at(-1);
   f.set([entry(undefined, 3)]);
