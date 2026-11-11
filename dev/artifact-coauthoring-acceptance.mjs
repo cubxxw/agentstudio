@@ -147,6 +147,10 @@ try {
       await wait(async () => { state = await request(`/threads/${second.id}/creation`); work = state.collaborations[0]; if (['blocked', 'unknown'].includes(work?.status)) { const detail = await request(`/collaborations/${work.id}`); throw new Error(JSON.stringify(detail)); } return work?.status === 'completed'; });
     }
     expect(work.artifactId).toBe(artifactId); expect(work.finalRevisionId).not.toBe(firstRevision);
+    const secondOwnerWork = await request(`/collaborations/${work.id}`), secondDetail = await request(`/library/artifacts/${artifactId}`), secondRunIds = new Set(secondOwnerWork.runs.map(run => run.id));
+    report.secondGroupContributions = secondDetail.contributions.filter(item => item.state === 'integrated' && secondRunIds.has(item.runId)).map(({ contactId, runId, revisionId }) => ({ contactId, runId, revisionId }));
+    expect(new Set(report.secondGroupContributions.map(item => item.contactId))).toEqual(new Set(['agent_codex', 'agent_pi']));
+    report.secondGroupModels = secondOwnerWork.runs.map(({ localAgentId, executionSnapshot }) => ({ localAgentId, executionSnapshot }));
     check('second group creates a new version of the same persistent artifact');
     await page.goto(`${page.url().split(/[?#]/)[0]}?thread=${group.id}`); await page.getByTestId('artifact-open').click();
     await expect(page.getByTestId('artifact-revision-select')).toHaveValue(firstRevision); expect(new URL(page.url()).searchParams.get('revision')).toBe(firstRevision); check('first group result card stays pinned after a later cross-group revision');

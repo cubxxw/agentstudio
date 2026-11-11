@@ -431,7 +431,7 @@ test('owner local-file coordination resumes a finished work without launching an
   const runCount = f.store.require('thread', f.group.id).runs.length;
   f.service.artifacts.resolveLocal(artifactId, 'preserve-and-update', { owner: true }); f.service.runtime.resumeAfterLocal(artifactId);
   assert.equal(f.store.require('collaboration', work.id).status, 'completed'); assert.equal(f.store.require('thread', f.group.id).runs.length, runCount);
-  const { readdirSync } = await import('node:fs'); const backup = readdirSync(join(f.directory, 'artifacts', artifactId, 'local-backups'))[0]; assert.equal(readFileSync(join(f.directory, 'artifacts', artifactId, 'local-backups', backup, '.DS_Store'))[1], 255);
+  const { readdirSync } = await import('node:fs'); const backup = readdirSync(join(f.directory, 'artifacts', artifactId, 'local-backups')).find(name => existsSync(join(f.directory, 'artifacts', artifactId, 'local-backups', name, '.DS_Store'))); assert.ok(backup, 'the complete human tree is retained regardless of filesystem directory order'); assert.equal(readFileSync(join(f.directory, 'artifacts', artifactId, 'local-backups', backup, '.DS_Store'))[1], 255);
 });
 
 test('a later owner share choice supersedes automatic output publication', t => {
