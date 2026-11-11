@@ -62,3 +62,10 @@ Files: Decision presentation, conversation approval affordances, shared types, A
 - Native permission cards synchronize state but require the original app to grant access.
 - Independent review fixes cover fresh-card absence, answer echoes, pending restart, partial text boundaries, removal guards, cross-revision unknown isolation and late snapshot regression.
 - Desktop suite: 158 passing before final UI status labels and multiple-card echo adjustment. Existing personal suite: 136 passing; three new watcher/API tests passing. Live acceptance and final CI remain open.
+
+## Login optimization requested after live handoff
+
+- Ruling: expose the original PKCE entry as a copyable, non-persisted link so a failed OS launch can use the owner's existing browser. Do not transfer WorkOS callback URLs or import cookies.
+- Reuse a pending flow; poll independently of browser launch, bound each request, and keep the same request when retrying network timeouts.
+- Abort the launch scope on cancellation/receipt; reject late account results after cancellation. Distinguish client timeout in the product UI.
+- Three initial failing login tests now pass. Added pending-flow reuse, public-link projection and late launch cancellation regressions. Independent review found no P0/P1; live latest-build acceptance remains open.

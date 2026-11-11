@@ -56,7 +56,7 @@ export class UnknownApprovalError extends Error {
 /** Progress of a connect flow, polled by the renderer. */
 export type LoginProgress =
   /** actions: buttons the user can press meanwhile; answer with choose(loginId, id). */
-  | { state: "waiting"; message: string; actions?: { id: string; label: string }[] }
+  | { state: "waiting"; message: string; actions?: { id: string; label: string }[]; link?: { label: string; url: string }; expiresAt?: string }
   | { state: "choose"; message: string; choices: { id: string; label: string }[] }
   /** The user has to type something (a Cue API key); answer with submit(loginId, value). */
   | { state: "input"; message: string; label: string; secret: boolean; link?: { label: string; url: string }; error?: string }

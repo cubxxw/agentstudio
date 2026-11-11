@@ -237,12 +237,13 @@ export type GrokLoginResult = { tokens: GrokTokens; machineId: string; agents: G
 
 /**
  * Runs the browser sign-in: opens the login page, then polls until the user
- * finishes (up to ~10 minutes) or the signal aborts.
+ * finishes (up to ~20 minutes) or the signal aborts.
  */
 export async function grokLogin(
   cfg: GrokConfig,
-  openExternal: (url: string) => void | Promise<void>,
+  openExternal: (url: string, launchSignal?: AbortSignal) => void | Promise<void>,
   signal: AbortSignal,
+  view: { onStart?(value: { url: string; expiresAt: string }): void; onStatus?(message: string): void } = {},
 ): Promise<GrokLoginResult> {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -254,37 +255,54 @@ export async function grokLogin(
   login.searchParams.set("mode", "login");
   login.searchParams.set("redirectTarget", "sand");
   login.searchParams.set("supportsSelectedTeamLogin", "true");
-  await openExternal(login.toString());
+  const deadline = Date.now() + 20 * 60_000;
+  const launch = new AbortController();
+  const cancelLaunch = () => launch.abort();
+  signal.addEventListener("abort", cancelLaunch, { once: true });
+  if (signal.aborted) { signal.removeEventListener("abort", cancelLaunch); cancelLaunch(); throw new Error("cancelled"); }
+  view.onStart?.({ url: login.toString(), expiresAt: new Date(deadline).toISOString() });
+  // A stuck OS browser launch must not prevent receipt polling or copying the
+  // original PKCE URL into the owner's existing browser. Never copy a callback.
+  void Promise.resolve().then(() => openExternal(login.toString(), launch.signal)).catch(() => {
+    if (!launch.signal.aborted) view.onStatus?.("Grok sign-in browser unavailable; use the original login link");
+  });
+  try {
 
   const machineId = createHash("sha256").update(randomBytes(32)).digest("hex");
   const poll = new URL(`${cfg.apiUrl}/auth/poll`);
   poll.searchParams.set("uuid", uuid);
   poll.searchParams.set("verifier", verifier);
   let delay = 1000;
-  const deadline = Date.now() + 10 * 60_000;
   while (Date.now() < deadline) {
     if (signal.aborted) throw new Error("cancelled");
     try {
-      const res = await fetch(poll, { headers: { "content-type": "application/json", ...clientHeaders(cfg, machineId) }, signal });
+      const res = await fetch(poll, { headers: { "content-type": "application/json", ...clientHeaders(cfg, machineId) }, signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]) });
       if (res.ok) {
         const body = (await res.json()) as Record<string, unknown>;
         const accessToken = String(body.accessToken ?? body.xaiAccessToken ?? "");
         const refreshToken = String(body.refreshToken ?? body.xaiRefreshToken ?? "");
         if (!accessToken) throw new Error("Grok Bot sign-in returned no token");
+        if (signal.aborted) throw new Error("cancelled");
         const tokens = { accessToken, refreshToken };
+        cancelLaunch();
+        view.onStatus?.("Checking Grok Bot account…");
         const agents = await new GrokClient(cfg, tokens, machineId, () => {}).listAgents();
+        if (signal.aborted) throw new Error("cancelled");
         if (agents.length === 0) throw new Error("This account has no Grok Bot yet. Create one in the Grok Bot app first.");
         return { tokens, machineId, agents };
       }
+      if (res.status === 401 || res.status === 403) throw new Error("Grok sign-in was rejected; start a new sign-in");
       if (res.status !== 404) cfg.trace?.("grokbot.poll", { status: res.status });
     } catch (err) {
       if (signal.aborted) throw new Error("cancelled");
-      if (err instanceof Error && !/fetch failed|network/i.test(err.message)) throw err;
+      if (!(err instanceof Error) || (err.name !== "TimeoutError" && !/fetch failed|network/i.test(err.message))) throw err;
+      view.onStatus?.("Grok sign-in connection interrupted; retrying the same request");
     }
     await sleep(delay, signal);
     delay = Math.min(delay * 1.2, 5000);
   }
-  throw new Error("Sign-in timed out. Try again.");
+  throw new Error("Grok sign-in timed out; the old login link has expired");
+  } finally { signal.removeEventListener("abort", cancelLaunch); cancelLaunch(); }
 }
 
 // ---- transcript parsing --------------------------------------------------------
@@ -795,11 +813,9 @@ export class GrokBotConnector implements Connector {
 }
 
 function sleep(ms: number, signal?: AbortSignal) {
-  return new Promise<void>((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(t);
-      resolve();
-    }, { once: true });
+  return new Promise<void>(resolve => {
+    const finish = () => { clearTimeout(timer); signal?.removeEventListener("abort", finish); resolve(); };
+    const timer = setTimeout(finish, ms);
+    if (signal?.aborted) finish(); else signal?.addEventListener("abort", finish, { once: true });
   });
 }

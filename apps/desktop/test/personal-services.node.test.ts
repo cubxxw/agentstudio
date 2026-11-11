@@ -610,3 +610,14 @@ it("restores a proven approval wait and requires fresh post-approval text to com
  emitter.emit({type:"message",reply_to:"message_1",text:"fresh final"});emitter.emit({type:"status",state:"idle"});await eventTurn();
  expect((await restored.get(sent.result.id)).result.status.state).toBe("completed");expect(restored.manager().sends).toHaveLength(0);
 });
+it("exposes only the original public Grok start link and distinguishes an expired login", async()=>{
+ const f=await fixture();await f.services.list();
+ f.manager().nextProgress={state:"waiting",message:"Waiting for Grok sign-in receipt",link:{label:"Start",url:"https://cursor.com/loginDeepControl?uuid=synthetic&challenge=public&mode=login&redirectTarget=sand"},expiresAt:"2026-11-11T12:00:00Z"};
+ expect(await f.services.publicProgress("flow_grokbot")).toMatchObject({state:"waiting",link:{label:"本次 Grok 登录链接"},expiresAt:"2026-11-11T12:00:00Z"});
+ f.manager().nextProgress={state:"waiting",message:"Waiting for Grok sign-in receipt",link:{label:"bad",url:"https://cursor.com/loginDeepControl?uuid=x&challenge=y&verifier=private"}};
+ expect(await f.services.publicProgress("flow_grokbot")).not.toHaveProperty("link");
+ f.manager().nextProgress={state:"waiting",message:"Waiting for Grok sign-in receipt",link:{label:"bad",url:"https://other.example/loginDeepControl?uuid=x&challenge=y"}};
+ expect(await f.services.publicProgress("flow_grokbot")).not.toHaveProperty("link");
+ f.manager().nextProgress={state:"failed",message:"Grok sign-in timed out; the old login link has expired"};
+ expect((await f.services.publicProgress("flow_grokbot")) as any).toMatchObject({state:"failed",message:expect.stringContaining("已超时")});
+});

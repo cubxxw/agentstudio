@@ -240,6 +240,9 @@ export class ConnectorManager {
 
   /** Starts a connect flow; poll progress(loginId) for its state. */
   begin(service: ServiceId): string {
+    if (service === "grokbot") for (const [id, active] of this.logins) {
+      if (active.service === service && active.progress.state === "waiting" && !active.abort.signal.aborted) return id;
+    }
     const loginId = randomBytes(8).toString("hex");
     const login: Login = { service, progress: { state: "waiting", message: "Starting…" }, abort: new AbortController() };
     this.logins.set(loginId, login);
@@ -277,6 +280,7 @@ export class ConnectorManager {
   // ---- internals -------------------------------------------------------------------
 
   private openSignInWindow = async (url: string, signal?: AbortSignal) => {
+    for (const [window, owner] of this.loginWindows) if (owner === signal && !window.isDestroyed()) { window.show(); window.focus(); return; }
     const target = new URL(url);
     if (target.protocol !== "https:" && !(target.protocol === "http:" && target.hostname === "127.0.0.1")) throw new Error("Invalid sign-in URL");
     if (signal?.aborted) throw new Error("cancelled");
@@ -297,7 +301,7 @@ export class ConnectorManager {
 
   private openExternal = async (url: string, signal?: AbortSignal) => {
     if (this.env.openExternalInWindow) return this.openSignInWindow(url, signal);
-    await openSystemBrowser(url, { inApp: target => this.openSignInWindow(target, signal) });
+    await openSystemBrowser(url, { signal, inApp: target => this.openSignInWindow(target, signal) });
   };
 
   private webConfig(service: "muse" | "dots"): WebChatConfig {
@@ -502,9 +506,29 @@ export class ConnectorManager {
     const signal = login.abort.signal;
     if (login.service === "grokbot") {
       login.progress = { state: "waiting", message: "Finish signing in to Grok Bot in your browser…" };
+      let launchSignal: AbortSignal | undefined, startUrl = "", opening = false;
+      const open = async (url: string, scope?: AbortSignal) => {
+        if (opening || scope?.aborted) return;
+        opening = true; launchSignal = scope;
+        try { await this.openExternal(url, scope); } finally { opening = false; }
+      };
+      login.choose = choice => {
+        if (choice !== "open-login" || !startUrl || signal.aborted || login.progress.state !== "waiting") return;
+        void open(startUrl, launchSignal).catch(() => {});
+      };
       let res: GrokLoginResult;
-      try { res = await grokLogin({ ...this.env.grok, trace: this.trace }, url => this.openExternal(url, signal), signal); }
-      finally { for (const [window, owner] of this.loginWindows) if (owner === signal && !window.isDestroyed()) window.close(); }
+      try { res = await grokLogin({ ...this.env.grok, trace: this.trace }, open, signal, {
+        onStart: ({ url, expiresAt }) => {
+          startUrl = url;
+          login.progress = { state: "waiting", message: "Waiting for Grok sign-in receipt", expiresAt,
+            link: { label: "本次 Grok 登录链接", url }, actions: [{ id: "open-login", label: "重新打开本次登录页" }] };
+        },
+        onStatus: message => {
+          if (login.progress.state !== "waiting" || signal.aborted) return;
+          login.progress = /^Checking/.test(message) ? { state: "waiting", message } : { ...login.progress, message };
+        },
+      }); }
+      finally { login.choose = undefined; startUrl = ""; }
       // Every bot of the account becomes its own contact; already connected bots are skipped.
       const have = new Set(
         [...this.running.values()].filter((r) => r.record.service === "grokbot").map((r) => (r.record.data as GrokData).agent.id),

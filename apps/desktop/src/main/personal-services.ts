@@ -108,11 +108,30 @@ export class PersonalServices {
   async publicProgress(flowId: string): Promise<PublicPersonalServicesProgress> {
     const progress = await this.progress(flowId);
     if (progress.state === "ready") return { state: "ready", instances: progress.instances.map(({ instanceId, name }) => ({ instanceId, name })) };
+    if (progress.state === "failed" && /This account has no Grok Bot/.test(progress.message)) return { state: "failed", message: "这次登录的账号没有可连接的 Grok Bot。请核对是否使用了原 App 中的同一个账号；已有连接保留。" };
+    if (progress.state === "failed" && /^Grok sign-in timed out/.test(progress.message)) return { state: "failed", message: "这次 Grok 登录已超时，旧链接已失效。请重新连接，并只使用新一轮登录页面。" };
     if (progress.state === "failed") return { state: "failed", message: /^Sign-in page (could not load|load timed out)/.test(progress.message) ? "登录页面未能载入，请检查网络后重新连接；已有登录信息与连接保留。" : "登录未完成，请检查原服务的登录页面或重新连接；已有连接仍保留。" };
     if (progress.state === "input") return { state: "input", message: "请按原服务的说明完成连接。凭据仅保存在本机。", label: progress.label, secret: progress.secret,
       ...(progress.link ? { link: progress.link } : {}), ...(progress.error ? { error: "服务未接受此次输入，请核对后重试。" } : {}) };
     if (progress.state === "choose") return { state: "choose", message: "选择你要接入的个人助手", choices: progress.choices };
-    if (progress.state === "waiting") return { state: "waiting", message: /^Loading sign-in page/.test(progress.message) ? "正在载入登录页面，准备好后会打开窗口。首次加载可能较慢，可以随时取消。" : /checking|connecting|creating/i.test(progress.message) ? "正在核对账号与可用助手…" : "请在原服务的登录页面完成验证，完成后会自动接入。", ...(progress.actions ? { actions: progress.actions.map(action => ({ ...action, label: action.id === "api-key" ? "改用访问密钥" : action.label })) } : {}) };
+    if (progress.state === "waiting") {
+      let link: { label: string; url: string } | undefined;
+      if (progress.link) try {
+        const url = new URL(progress.link.url);
+        const base = new URL(this.options.env?.grok.webUrl ?? process.env.AGENTSTUDIO_GROKBOT_WEB_URL ?? "https://cursor.com");
+        const allowed = ["challenge", "uuid", "mode", "redirectTarget", "supportsSelectedTeamLogin"];
+        if ((url.protocol === "https:" || (url.protocol === "http:" && url.hostname === "127.0.0.1")) && !url.username && !url.password && !url.hash
+          && url.origin === base.origin && url.pathname === `${base.pathname.replace(/\/$/, "")}/loginDeepControl` && url.searchParams.has("challenge") && url.searchParams.has("uuid")
+          && [...url.searchParams.keys()].every(key => allowed.includes(key))) link = { label: "本次 Grok 登录链接", url: url.href };
+      } catch { /* Never expose callback URLs, credentials or malformed links. */ }
+      const grok = /Grok sign-in/i.test(progress.message);
+      const message = grok ? /interrupted/.test(progress.message) ? "暂未查到登录回执，正在重试同一次请求。请保留当前登录页，不必重新登录。"
+        : /browser unavailable/.test(progress.message) ? "登录页面未能自动打开。请复制本次登录链接，在常用浏览器中完成验证。"
+        : "请完成本次 Grok 登录；收到服务回执后才会接入。原 App 已登录仍需授权这个连接。"
+        : /^Loading sign-in page/.test(progress.message) ? "正在载入登录页面，准备好后会打开窗口。首次加载可能较慢，可以随时取消。"
+        : /checking|connecting|creating/i.test(progress.message) ? "正在核对账号与可用助手…" : "请在原服务的登录页面完成验证，完成后会自动接入。";
+      return { state: "waiting", message, ...(link ? { link, expiresAt: progress.expiresAt } : {}), ...(progress.actions ? { actions: progress.actions.map(action => ({ ...action, label: action.id === "api-key" ? "改用访问密钥" : action.label })) } : {}) };
+    }
     return { state: "cancelled" };
   }
   async choose(flowId: string, choiceId: string) { await this.initialize(); this.manager!.choose(flowId, choiceId); }

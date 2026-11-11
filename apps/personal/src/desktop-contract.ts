@@ -15,6 +15,7 @@ export type NativeIntegrationRequest =
 export type NativeIntegrationReply = {
   state: "catalog" | "waiting" | "choose" | "input" | "ready" | "failed" | "cancelled";
   flowId?: string;
+  expiresAt?: string;
   message?: string;
   providers?: { id: PersonalServiceId; name: string; description: string }[];
   instances?: { id?: string; instanceId?: string; service?: PersonalServiceId; name: string; status?: string; canOpen?: boolean; connectionId?: string }[];

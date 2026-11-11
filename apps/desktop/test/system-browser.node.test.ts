@@ -26,3 +26,8 @@ it("opens the same PKCE URL in an owned sign-in window if both OS routes fail", 
  await openSystemBrowser(url,{openExternal:async()=>{throw Error("handler failed");},fallback:async()=>{throw Error("launch failed");},inApp});
  expect(inApp).toHaveBeenCalledWith(url);
 });
+it("does not open a fallback window after the sign-in scope was cancelled", async()=>{
+ const abort=new AbortController(),fallback=vi.fn(async()=>{}),inApp=vi.fn(async()=>{});
+ await expect(openSystemBrowser("https://cursor.com/loginDeepControl?uuid=synthetic",{signal:abort.signal,openExternal:async()=>{abort.abort();throw Error("late failure");},fallback,inApp})).rejects.toThrow();
+ expect(fallback).not.toHaveBeenCalled();expect(inApp).not.toHaveBeenCalled();
+});
