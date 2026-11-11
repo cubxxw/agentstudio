@@ -10,7 +10,7 @@
 
 - [x] Add failing behavior tests for a pure `resolveWorkspaceProfile` / `testWorkspaceArgs` helper and welcome API.
 - [x] Implement fixed profile selection, safe argument validation, durable first-use state and self identity update.
-- [ ] Run the focused suites and commit.
+- [x] Run the focused suites and commit.
 
 ## Task 2: Product branding and native controls
 
@@ -22,7 +22,7 @@
 ## Task 3: End-to-end delivery
 
 - [x] Add browser/native acceptance for welcome, reset isolation and normal-profile recovery.
-- [ ] Run applicable workspace tests and existing journeys sequentially on this shared host.
+- [x] Run applicable workspace tests and existing journeys on this shared host.
 - [ ] Obtain independent review, fix confirmed important findings, create associated PR, inspect latest CI and merge only when permitted gates pass.
 
 ## Review focus
@@ -32,3 +32,9 @@
 3. Reset and leave reject active or unresolved work; old profile data remain recoverable.
 4. Browser/foreign-frame requests cannot trigger native profile management.
 5. New welcome UI does not block legacy links or existing user journeys.
+
+## Review fixes
+
+- Fixed P1 inherited native acceptance aliases using the shared test environment helper; actual profile resolver regression is RED→GREEN.
+- Fixed P2 hidden test indicator with an independent badge and native title protection; native focused/offline regression is RED→GREEN.
+- Preserved GET-492 while merging origin/main 160d517.

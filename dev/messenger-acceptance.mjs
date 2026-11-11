@@ -55,7 +55,7 @@ const refresh = async () => { await page.getByTestId('im-refresh').click(); };
 const capture = async name => { await page.screenshot({ path: join(output, `${name}.png`) }); };
 try {
   if (native) {
-    const env = { ...process.env, CODEX_HOME: codexHome, AGENTSTUDIO_PI_BIN: '/agentstudio-synthetic-missing-pi', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, PERSONAL_BUILD_REF: 'synthetic-messenger-acceptance' };
+    const env = { ...process.env, CODEX_HOME: codexHome, AGENTSTUDIO_PI_BIN: '/agentstudio-synthetic-missing-pi', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude', AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, PERSONAL_BUILD_REF: 'synthetic-messenger-acceptance' };
     cleanDesktopTestEnv(env);
     for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
     const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
