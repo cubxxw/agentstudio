@@ -4,7 +4,7 @@ AgentRoom's own icon, and official images of the services AgentRoom connects to.
 
 | File | What | Source |
 |---|---|---|
-| `agentstudio.png` | AgentRoom's icon: a little house with its door lit, where your agents gather | Made for AgentRoom with GPT Image (the [ip-as-logo](https://github.com/s1dashu/ip-as-logo-skill) approach), recolored to the app's palette; Apache-2.0 like the rest of the repo. The macOS icon (`apps/desktop/resources/icon.icns`) is this image on Apple's icon grid. |
+| `agentstudio.png` | AgentRoom's forest roommate: an original green doorway creature with uneven eyes and one tooth | Generated with the built-in imagegen tool on 2026-11-11; Apache-2.0 like the rest of the repo. [Design, source, prompts and native exports](../../docs/personal/brand/agentroom-icon.md). Reproduce PNG/ICNS variants with `swift dev/export-brand-icons.swift`. |
 | `grokbot.png` | Grok Bot app icon | The macOS app bundle `Grok Bot.app/Contents/Resources/icon.icns` (0.78.3), cropped |
 | `cue.png` | Cue app icon | The macOS app bundle `Cue.app/Contents/Resources/icon.icns` (1.0.12), cropped |
 | `muse.jpg` | Muse mascot | `https://muse.ai/images/landing/brand/hatch.jpg` |
