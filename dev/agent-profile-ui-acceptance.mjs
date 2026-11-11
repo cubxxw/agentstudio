@@ -84,7 +84,7 @@ try {
   });
   await page.goto(`http://127.0.0.1:${server.address().port}/?thread=thr_direct`);
   await expect(page.getByTestId('im-chat-info')).toContainText('研究伙伴');
-  await expect(page.getByTestId('im-header-status')).toHaveText('已连接');
+  await expect(page.getByTestId('im-header-status')).toBeHidden();
   await expect(page.getByTestId('im-chat-info')).not.toContainText('synthetic-model');
   await page.getByTestId('im-message-input').fill('尚未发送的聊天草稿');
   await page.getByTestId('im-timeline').evaluate(node => { node.scrollTop = 120; node.dispatchEvent(new Event('scroll')); });

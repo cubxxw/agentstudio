@@ -78,7 +78,7 @@ try {
   await page.getByTestId('im-message-input').fill('整理这份合成代码资料');
   await page.getByTestId('im-send').click();
   await waitThread(first.id, t => t.status === 'completed' && t.runs.length === 4);
-  await page.getByTestId('im-info').click();
+  await page.getByTestId('im-results').click();
   await expect(page.getByTestId('im-conversation-details')).toBeVisible();
   await expect(page.getByTestId('im-artifact')).toHaveCount(4);
   await expect(page.getByTestId('im-execution-record')).toHaveCount(4);
@@ -141,7 +141,7 @@ try {
   if (!native) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
-    await page.getByTestId('im-info').click();
+    await page.getByTestId('im-results').click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: join(output, 'narrow-dark-details.png') });
     await page.getByTestId('personal-modal-close').click();

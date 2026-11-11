@@ -10,6 +10,10 @@ AgentRoom's own icon, and official images of the services AgentRoom connects to.
 | `muse.jpg` | Muse mascot | `https://muse.ai/images/landing/brand/hatch.jpg` |
 | `muse-mark.png` | Muse app mark (blue squiggle) | `https://muse.ai/images/favicon/app-squiggle.svg`, rendered at 256 px |
 | `chatgpt.png` | ChatGPT logo (Dots runs in ChatGPT) | `https://chatgpt.com/cdn/assets/favicon-180x180.*.png` |
+| `claude.png` | Claude mark | [Claude's official site icon](https://claude.com/icon.png), retrieved 2026-11-11 |
+| `pi.svg` | Pi's three-color mark | [Pi's official site logo](https://pi.dev/logo-auto.svg), retrieved 2026-11-11 |
+| `gemini.png` | Gemini CLI app icon | [Gemini CLI's official site icon](https://geminicli.com/icon.png), retrieved 2026-11-11 |
+| `opencode.png` | OpenCode app icon | [OpenCode's official touch icon](https://opencode.ai/apple-touch-icon-v3.png), retrieved 2026-11-11 |
 | `a2a.png` | A2A protocol icon | `a2aproject/A2A` `docs/assets/a2a_logo/icon/color/SVG/a2a_icon_color.svg`, rendered at 256 px |
 | `acp.png` | Agent Client Protocol logo | `agentclientprotocol/agent-client-protocol` `docs/logo/fav-light.png` |
 | `hermes.png` | Hermes Agent icon (Nous Research) | `NousResearch/hermes-agent` `assets/icon-master.svg`, rendered at 256 px |
