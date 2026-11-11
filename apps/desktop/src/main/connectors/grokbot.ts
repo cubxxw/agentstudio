@@ -463,6 +463,7 @@ export class GrokBotConnector implements Connector {
   private nativeCards = new Map<string, { card: NativeApproval; options: { value: string; label: string }[]; updated: number }>();
   private widgets = new Set<string>();
   private widgetAnswers = new Map<string, number>();
+  private widgetEchoCards = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
 
   private avatarCache: { mime: string; data: Buffer } | null = null;
@@ -580,6 +581,7 @@ export class GrokBotConnector implements Connector {
       this.data.lastSeq = Math.max(this.data.lastSeq ?? 0, ...before.map((entry) => Number(entry.seq ?? 0)));
       for (const entry of before) this.seen.set(String(entry.entry_id ?? entry.seq), Number(entry.updated_seq ?? 0));
       this.onChange();
+      this.widgetAnswers.clear(); this.widgetEchoCards.clear(); this.ownMessageIds.clear(); this.ownTexts.clear();
       this.personalReply = { messageId: msg.message_id, providerMessageId: id, text: text.trim(), echoed: false, startSeq: this.data.lastSeq ?? 0, sessionId: this.data.agent.sessionId, cards: [] };
       this.persistTurn();
     }
@@ -639,7 +641,8 @@ export class GrokBotConnector implements Connector {
       if (JSON.stringify(prior?.card) !== JSON.stringify(card)) this.emitter?.approval?.(card);
       if (answered && related && (prior?.card.state === "pending" || (!prior && reply.cards.includes(id)))) {
         relatedAnswer = true;
-        if (typeof rawAnswer === "string") this.rememberWidgetAnswer(rawAnswer);
+        if (typeof rawAnswer === "string") this.rememberWidgetAnswer(id, rawAnswer);
+        reply.cards = reply.cards.filter(cardId => cardId !== id); this.persistTurn();
       }
     }
     if (relatedAnswer && this.personalReply?.waiting && !this.widgets.size) {
@@ -648,7 +651,7 @@ export class GrokBotConnector implements Connector {
     return observed;
   }
 
-  private rememberWidgetAnswer(value: string) { const key = value.trim(); this.widgetAnswers.set(key, (this.widgetAnswers.get(key) ?? 0) + 1); }
+  private rememberWidgetAnswer(cardId: string, value: string) { if (!this.personalReply || this.widgetEchoCards.has(cardId)) return; this.widgetEchoCards.add(cardId); const key = value.trim(); this.widgetAnswers.set(key, (this.widgetAnswers.get(key) ?? 0) + 1); }
   private consumeWidgetAnswer(value: string) { const key = value.trim(), count = this.widgetAnswers.get(key) ?? 0; if (!count) return false; if (count === 1) this.widgetAnswers.delete(key); else this.widgetAnswers.set(key, count - 1); return true; }
 
   async decide(externalId: string, choice: string): Promise<void> {
@@ -666,7 +669,7 @@ export class GrokBotConnector implements Connector {
     else {
       const res = await this.client.rpc("RespondGrokBotWidget", WidgetRequest, { ...base, value }, RespondWidgetResponse);
       if (res.accepted === false) throw new Error("Grok Bot didn't accept the answer");
-      this.ownTexts.add(value.trim()); this.rememberWidgetAnswer(value);
+      this.ownTexts.add(value.trim()); if (current.card.replyTo === this.personalReply?.messageId) this.rememberWidgetAnswer(externalId, value);
     }
     this.widgets.delete(externalId);
     current.card = { ...current.card, state: "resolved", source: "agentroom", choiceLabel: current.options.find(option => option.value === value)?.label || "已跳过" };
@@ -737,12 +740,11 @@ export class GrokBotConnector implements Connector {
         // What the user typed in Grok Bot itself (AgentRoom's own sends are skipped).
         let ours: boolean | string | undefined;
         if (this.personalReply) {
-          ours = this.personalReply.echoed && this.consumeWidgetAnswer(parsed.text);
-          ours ||= parsed.nonce ? parsed.nonce === this.personalReply.providerMessageId && this.ownMessageIds.delete(parsed.nonce)
-            : parsed.text.trim() === this.personalReply.text && this.ownTexts.delete(parsed.text);
+          ours = parsed.nonce ? parsed.nonce === this.personalReply.providerMessageId && this.ownMessageIds.delete(parsed.nonce)
+            : (this.personalReply.echoed && this.consumeWidgetAnswer(parsed.text)) || (parsed.text.trim() === this.personalReply.text && this.ownTexts.delete(parsed.text));
           if (ours) { this.ownTexts.delete(parsed.text); this.personalReply.echoed = true; this.persistTurn(); }
         } else ours = (parsed.nonce && this.ownMessageIds.delete(parsed.nonce)) || this.ownTexts.delete(parsed.text);
-        if (!ours) { this.personalReply = null; this.persistTurn(); emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), from_user: true, via: "Grok Bot" }); }
+        if (!ours) { this.widgetAnswers.clear(); this.widgetEchoCards.clear(); this.personalReply = null; this.persistTurn(); emit({ type: "message", text: truncate(parsed.text, MAX_TEXT), from_user: true, via: "Grok Bot" }); }
         continue;
       }
       if (parsed.kind === "notice") {
@@ -786,7 +788,7 @@ export class GrokBotConnector implements Connector {
       emit({ type: "status", state: "idle" });
       if (this.personalReply) {
         if (!this.personalReply.echoed) this.emitter?.uncertain?.(this.personalReply.messageId);
-        this.personalReply = null; this.persistTurn();
+        this.widgetAnswers.clear(); this.widgetEchoCards.clear(); this.personalReply = null; this.persistTurn();
       }
     }
   }

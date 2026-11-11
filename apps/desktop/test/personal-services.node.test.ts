@@ -336,7 +336,7 @@ describe("durable local A2A dispatch", () => {
       emitter: { ...emitter, approval: (card: any) => { events.push({ type: "native_approval", card }); emitter.approval!(card); }, emit: (event: AgentEvent) => { events.push(event); emitter.emit(event); }, inputRequired: (messageId: string) => { events.push({ type: "input_required", messageId }); emitter.inputRequired!(messageId); } },
       ownTexts: new Set(), ownMessageIds: new Set(), personalReply: { messageId: "message_1", text: "Synthetic task", echoed: true, startSeq: 0, cards: [] }, seen: new Map(),
       pending: new Map([["entry_1", { updated: 1, text: "First Grok bubble", polls: 1 }], ...(scenario === "pending" ? [] : [["entry_2", { updated: 1, text: "Final Grok result", polls: 1 }] as const])]),
-      widgets: new Set(), widgetAnswers: new Map(), pendingAsk: null,
+      widgets: new Set(), widgetAnswers: new Map(), widgetEchoCards: new Set(), pendingAsk: null,
     });
     const entry = (seq: number, body: unknown, kind = "message") => ({ seq, entry_id: `entry_${seq}`, updated_seq: 1, entry_kind: kind, body: new TextEncoder().encode(JSON.stringify(body)) });
     const entries = [entry(1, { role: "assistant", content: "First Grok bubble" }), entry(2, { role: "assistant", content: "Final Grok result" })];

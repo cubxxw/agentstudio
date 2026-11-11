@@ -65,3 +65,12 @@ it("keeps the original turn while two cards are answered separately in Grok Bot"
  expect(f.events.filter(e=>e.type==="status"&&e.state==="working")).toHaveLength(1);
  expect(f.events.some(e=>e.type==="message"&&e.from_user)).toBe(false);
 });
+it("does not carry an independent answer into a later turn or suppress an unrelated nonce", async () => {
+ const f=await fixture();await f.poll();await f.connector.decide("card",f.cards.at(-1).choices[1].key);
+ expect((f.connector as any).widgetAnswers.size).toBe(0);
+ (f.connector as any).personalReply={messageId:"new",providerMessageId:"newnonce",text:"new prompt",echoed:true,startSeq:10,sessionId:"session",cards:[]};
+ (f.connector as any).rememberWidgetAnswer("relatedcard","r");
+ f.set([{entry_id:"foreign",seq:11,updated_seq:1,entry_kind:"user-message",body:Buffer.from(JSON.stringify({kind:"user-message",clientNonce:"foreignnonce",text:"r"}))}]);await f.poll();
+ expect(f.events).toContainEqual(expect.objectContaining({type:"message",from_user:true,text:"r"}));
+ expect((f.connector as any).personalReply).toBeNull();
+});
