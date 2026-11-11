@@ -85,7 +85,8 @@ export class ProviderApprovals {
     const answer = this.store.list('provider_answer').find(item => item.decisionId === decisionId && item.state !== 'stale');
     if (card.state === 'resolved') for (const pending of this.store.list('provider_answer').filter(item => item.decisionId === decisionId && ['queued','sending','unknown'].includes(item.state))) this.store.put('provider_answer', { ...pending, state: 'resolved' });
     const state = card.state === 'resolved' ? 'decided' : answer ? answer.state === 'accepted' ? 'decided' : ['queued','sending'].includes(answer.state) ? 'sending' : 'unknown' : ['sending','unknown','accepted'].includes(card.deliveryState) ? 'unknown' : 'pending';
-    const run = card.replyTo ? thread.runs.find(item => item.id === card.replyTo && item.connectionId === source.id) : null;
+    const boundRunId = prior?.runId || card.replyTo;
+    const run = boundRunId ? thread.runs.find(item => item.id === boundRunId && item.connectionId === source.id) : null;
     const projection = { kind: 'provider_approval', id: decisionId, providerConnectionId: source.id, providerCardId: card.id, providerRevision: card.revision,
       ...(run ? { runId: run.id } : {}), title: card.title, summary: card.originalAppOnly ? '请在 Grok Bot 中核对本机权限。处理结果会自动同步到这里。' : 'Grok Bot 的原始确认卡。仅将你选择的选项回传给这张卡。',
       preview: JSON.stringify({ service: connection.name, prompt: card.title, options: card.choices.map(item => item.label) }, null, 2), choices: card.choices,

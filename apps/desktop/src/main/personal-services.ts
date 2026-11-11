@@ -353,6 +353,9 @@ export class PersonalServices {
       const card = this.cleanValue(raw.card);
       const approvals = this.manifest.approvals ??= [];
       const index = approvals.findIndex(item => item.instanceId === instanceId && item.id === card.id);
+      // A read-only provider refresh may omit turn metadata. Its established
+      // private binding belongs to this card and must survive that refresh.
+      if (index >= 0 && approvals[index]!.replyTo) card.replyTo = approvals[index]!.replyTo;
       if (index < 0) approvals.push({ ...card, instanceId }); else approvals[index] = { ...card, instanceId };
       const related = this.manifest.tasks.find(item => item.instanceId === instanceId && item.messageId === card.replyTo && (unresolved(item) || index < 0 && item.state === "completed"));
       if (related?.state === "completed" && index < 0) {

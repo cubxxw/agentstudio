@@ -625,6 +625,8 @@ it("restores a correlated approval continuation after text arrived but before te
  const card={id:"approval",revision:"a".repeat(64),state:"pending" as const,title:"QA?",choices:[{key:"opaque",label:"Continue"}],replyTo:"message_1"};
  const e=f.manager().emitters.get("fake_grok")!;e.approval!(card);e.approval!({...card,state:"resolved",source:"original"});e.emit({type:"status",state:"working"});e.emit({type:"message",reply_to:"message_1",text:"verified continuation"});await eventTurn();await f.services.stop();
  const restored=await fixture(f.directory);await restored.services.restore();expect((await restored.get(sent.result.id)).result.status.state).toBe("working");
+ restored.manager().emitters.get("fake_grok")!.approval!({...card,state:"resolved",replyTo:undefined});await eventTurn();
+ const cards:any=await (await restored.rpc("agentstudio/approvals/list",{})).json();expect(cards.result.approvals[0].replyTo).toBe("message_1");
  restored.manager().emitters.get("fake_grok")!.emit({type:"status",state:"idle"});await eventTurn();
  const result=(await restored.get(sent.result.id)).result;expect(result.status.state).toBe("completed");expect(result.artifacts[0].parts[0].text).toBe("verified continuation");expect(restored.manager().sends).toHaveLength(0);
  restored.manager().emitters.get("fake_grok")!.approval!({...card,id:"later_approval"});await eventTurn();

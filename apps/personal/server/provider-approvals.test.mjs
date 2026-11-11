@@ -24,7 +24,7 @@ test('existing cards have no fake run; exact rejection is queued once, external 
  thread=store.list('thread')[0];thread.runs.push({id:'run_qa',connectionId:connection.id,status:'completed',externalTaskId:'task_qa'});store.put('thread',thread);
  cards=[{...cards[0],id:'later_card',state:'pending',replyTo:'run_qa'}];await sync.tick();
  thread=store.get('thread',thread.id);assert.equal(thread.runs[0].status,'blocked');assert.equal(thread.decisions.at(-1).runId,'run_qa');
- cards=[{...cards[0],state:'resolved'}];await sync.tick();
+ cards=[{...cards[0],state:'resolved',replyTo:undefined}];await sync.tick();
  assert.equal(store.get('thread',thread.id).runs[0].phase,'reconcile');assert.equal(store.get('thread',thread.id).runs[0].status,'queued');
  assert.equal(calls.filter(c=>c.method.endsWith('/respond')).length,1);
 });
