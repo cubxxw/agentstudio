@@ -13,7 +13,7 @@ const detected = { checkedAt: new Date().toISOString(), agents: [
   { id: 'codex', name: 'Codex', installed: true, auth: { status: 'configured' }, execution: { supported: true } },
   { id: 'pi', name: 'Pi', installed: true, auth: { status: 'unknown' }, execution: { supported: false, reason: '尚未支持执行' } },
 ] };
-const fake = `let p='';for await(const c of process.stdin)p+=c;let x=JSON.parse(p.split('<untrusted_thread_context>\\n')[1].split('\\n</untrusted_thread_context>')[0]);if(p.includes('planning ONE explicit MCP'))x={toolName:'echo',arguments:{text:JSON.stringify(x)}};console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:JSON.stringify(x)}}));console.log(JSON.stringify({type:'turn.completed'}));`;
+const fake = `let p='';for await(const c of process.stdin)p+=c;let x=JSON.parse(p.split('<untrusted_thread_context>\\n')[1].split('\\n</untrusted_thread_context>')[0]);if(p.includes('planning ONE explicit MCP'))x={toolName:'echo',arguments:{text:JSON.stringify(x)}};console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:JSON.stringify(p.includes('Group participation:')?{action:'reply',text:JSON.stringify(x)}:x)}}));console.log(JSON.stringify({type:'turn.completed'}));`;
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'agentstudio-messenger-'));
   const changes = new EventEmitter(); let app;
@@ -37,6 +37,14 @@ async function fixture(t) {
   });
   await api('/contacts');
   return { api, wait, get store() { return app.store; }, async restart() { await app.close(); await start(); } };
+}
+
+// These regression cases exercise the retained explicit-addressing policy.
+// Default autonomous participation has its own behavior tests.
+async function legacyGroup(f, body) {
+  const chat = (await f.api('/chats', body)).body;
+  const responsePolicies = Object.fromEntries(chat.memberIds.filter(id => id !== 'self').map(id => [id, 'mention']));
+  return (await f.api(`/chats/${chat.id}`, { version: chat.version, responsePolicies, clientId: key() })).body;
 }
 
 test('discovery, custom identities, stable direct chats and local-only people survive restart', async t => {
@@ -69,7 +77,7 @@ test('group mentions target exact members, each user message is stored once and 
   const f = await fixture(t);
   const a = (await f.api('/contacts', { kind: 'agent', name: 'Ada', handle: 'ada', instructions: 'Original identity', binding: { type: 'local', localAgentId: 'codex' }, clientId: key() })).body;
   const b = (await f.api('/contacts', { kind: 'agent', name: 'Bo', handle: 'bo', binding: { type: 'local', localAgentId: 'codex' }, clientId: key() })).body;
-  const chat = (await f.api('/chats', { kind: 'group', title: '讨论', memberIds: [a.id, b.id], clientId: key() })).body;
+  const chat = await legacyGroup(f, { kind: 'group', title: '讨论', memberIds: [a.id, b.id], clientId: key() });
   const quiet = (await f.api(`/threads/${chat.id}/messages`, { text: 'Ambient message', clientId: key() })).body;
   assert.equal(quiet.runs.length, 0);
   assert.equal((await f.api(`/threads/${chat.id}/messages`, { text: '@adams 不应唤起 Ada', clientId: key() })).body.runs.length, 0);
@@ -90,7 +98,7 @@ test('group mentions target exact members, each user message is stored once and 
 
 test('new members cannot see earlier messages, identity and membership updates use versions', async t => {
   const f = await fixture(t);
-  const chat = (await f.api('/chats', { kind: 'group', title: 'Privacy', memberIds: ['agent_codex'], clientId: key() })).body;
+  const chat = await legacyGroup(f, { kind: 'group', title: 'Privacy', memberIds: ['agent_codex'], clientId: key() });
   await f.api(`/threads/${chat.id}/messages`, { text: 'BEFORE_JOIN_PRIVATE', clientId: key() });
   const b = (await f.api('/contacts', { kind: 'agent', name: 'Later', handle: 'later', binding: { type: 'local', localAgentId: 'codex' }, clientId: key() })).body;
   const updated = await f.api(`/chats/${chat.id}`, { version: chat.version, memberIds: [...chat.memberIds, b.id], clientId: key() });
@@ -118,7 +126,7 @@ test('group approvals stay independent and remote previews include scoped identi
   t.after(() => new Promise(r => server.close(r)));
   const connection = (await f.api('/connections', { name: 'Synthetic', type: 'a2a', url: `http://127.0.0.1:${server.address().port}/rpc` })).body;
   const a = (await f.api('/contacts', { kind: 'agent', name: 'Remote A', handle: 'remote-a', binding: { type: 'connection', connectionId: connection.id }, clientId: key() })).body;
-  const chat = (await f.api('/chats', { kind: 'group', title: 'Approvals', memberIds: [a.id, 'agent_codex'], clientId: key() })).body;
+  const chat = await legacyGroup(f, { kind: 'group', title: 'Approvals', memberIds: [a.id, 'agent_codex'], clientId: key() });
   await f.api(`/threads/${chat.id}/messages`, { text: '@remote-a Please help', clientId: key() });
   const pending = await f.wait(chat.id, x => x.decisions.length === 1);
   const decision = pending.decisions[0];
@@ -139,7 +147,7 @@ test('group approvals stay independent and remote previews include scoped identi
 
 test('broadcast skips unavailable members, but explicit unavailable targets reject without consuming the message', async t => {
   const f = await fixture(t);
-  const chat = (await f.api('/chats', { kind: 'group', title: 'Broadcast', memberIds: ['agent_codex', 'agent_pi'], clientId: key() })).body;
+  const chat = await legacyGroup(f, { kind: 'group', title: 'Broadcast', memberIds: ['agent_codex', 'agent_pi'], clientId: key() });
   const sent = (await f.api(`/threads/${chat.id}/messages`, { text: '@all 一起看看', clientId: key() })).body;
   assert.equal(sent.messages.length, 1); assert.equal(sent.runs.length, 1);
   assert.equal(sent.runs[0].contactId, 'agent_codex');
@@ -166,7 +174,7 @@ test('retry preserves the accepted identity and scope after contact changes', as
 test('reply wakes the author, paused agents stay quiet, and @all does not replay an uncertain lane', async t => {
   const f = await fixture(t);
   const other = (await f.api('/contacts', { kind: 'agent', name: 'Other', handle: 'other', binding: { type: 'local', localAgentId: 'codex' }, clientId: key() })).body;
-  const chat = (await f.api('/chats', { kind: 'group', title: 'Reply', memberIds: [other.id, 'agent_codex'], clientId: key() })).body;
+  const chat = await legacyGroup(f, { kind: 'group', title: 'Reply', memberIds: [other.id, 'agent_codex'], clientId: key() });
   await f.api(`/threads/${chat.id}/messages`, { text: '@other first', clientId: key() });
   const first = await f.wait(chat.id, x => x.runs[0]?.status === 'completed');
   const replyId = first.messages.at(-1).id;
@@ -194,7 +202,7 @@ test('a newly joined MCP agent reaches approval with only its post-join context'
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   t.after(() => new Promise(r => server.close(r)));
-  const chat = (await f.api('/chats', { kind: 'group', title: 'MCP privacy', memberIds: ['agent_codex'], clientId: key() })).body;
+  const chat = await legacyGroup(f, { kind: 'group', title: 'MCP privacy', memberIds: ['agent_codex'], clientId: key() });
   await f.api(`/threads/${chat.id}/messages`, { text: 'PRIVATE_BEFORE_MCP', clientId: key() });
   const connection = (await f.api('/connections', { name: 'MCP', type: 'mcp', url: `http://127.0.0.1:${server.address().port}/rpc` })).body;
   const member = (await f.api('/contacts', { kind: 'agent', name: 'MCP member', handle: 'mcp-member', binding: { type: 'connection', connectionId: connection.id }, clientId: key() })).body;

@@ -22,6 +22,8 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
     /^\/api\/(health|bootstrap|connections|memories)$/,
     /^\/api\/integrations$/,
+    /^\/api\/agent-onboarding(?:\/context)?$/,
+    new RegExp(`^/api/agent-onboarding/${opaqueId}$`),
     /^\/api\/(contacts|approvals)$/,
     new RegExp(`^/api/contacts/${opaqueId}$`),
     new RegExp(`^/api/(threads|artifacts)/${opaqueId}$`),
@@ -29,6 +31,8 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
   ],
   POST: [
     /^\/api\/(threads|connections|memories)$/,
+    /^\/api\/agent-onboarding$/,
+    new RegExp(`^/api/agent-onboarding/${opaqueId}/(adopt|cancel)$`),
     /^\/api\/(contacts|chats)$/,
     new RegExp(`^/api/(contacts|chats)/${opaqueId}$`),
     /^\/api\/integrations\/(refresh|connect)$/,

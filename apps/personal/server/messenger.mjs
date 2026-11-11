@@ -2,7 +2,7 @@ import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
 import { APIError, id, now } from './store.mjs';
 
 const SELF = 'self';
-const policies = ['mention', 'always', 'manual'];
+const policies = ['auto', 'mention', 'always', 'manual'];
 const icons = ['auto', 'spark', 'code', 'research', 'write', 'compass', 'brain', 'person'];
 const colors = ['blue', 'violet', 'teal', 'orange', 'rose'];
 const fail = (message, status = 400, code = 'bad_request') => { throw new APIError(status, code, message); };
@@ -143,8 +143,8 @@ export class Messenger {
     const targets = thread.memberIds.filter(x => x !== SELF).map(x => this.publicContact(this.store.require('contact', x))).filter(contact => {
       if (contact.kind !== 'agent') return false;
       if (thread.kind === 'direct') return true;
-      const policy = thread.responsePolicies[contact.id] || 'mention';
-      return policy !== 'manual' && (policy === 'always' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id);
+      const policy = thread.responsePolicies[contact.id] || 'auto';
+      return policy !== 'manual' && (policy === 'auto' || policy === 'always' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id);
     });
     const skippedContacts = [];
     const inputs = targets.flatMap(contact => {
@@ -160,9 +160,14 @@ export class Messenger {
         localAgentId: binding.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
       return [{ ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: identity(contact),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
-        conversationSnapshot: { kind: thread.kind, title: thread.title, version: thread.version },
+        conversationSnapshot: { kind: thread.kind, title: thread.title, version: thread.version,
+          attention: { addressedContactIds: thread.memberIds.filter(contactId => {
+            const member = this.store.require('contact', contactId);
+            return member.kind === 'agent' && (mentions.has('all') || mentions.has(member.handle));
+          }), replyToContactId: reply?.contactId || null,
+          explicitlyAddressed: thread.kind === 'direct' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id } },
         visibleAfterMessageId: thread.members.find(m => m.contactId === contact.id)?.visibleAfterMessageId || null,
-        responsePolicy: thread.kind === 'direct' ? 'direct' : thread.responsePolicies[contact.id] || 'mention' }];
+        responsePolicy: thread.kind === 'direct' ? 'direct' : thread.responsePolicies[contact.id] || 'auto' }];
     });
     let messageId;
     for (const input of inputs) {

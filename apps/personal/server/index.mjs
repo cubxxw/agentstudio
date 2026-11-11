@@ -8,6 +8,7 @@ import { validateBearerToken } from './vault.mjs';
 import { discoverLocalAgents } from './local-agents.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 import { Messenger } from './messenger.mjs';
+import { AgentOnboarding } from './agent-onboarding.mjs';
 import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -97,7 +98,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -117,7 +118,9 @@ export async function createPersonalServer(options = {}) {
   const commands = Object.fromEntries(['codex', 'claude', 'pi', 'gemini', 'opencode'].map(agent => [agent, process.env[`AGENTSTUDIO_${agent.toUpperCase()}_BIN`] || agent]));
   commands.codex = options.codexCommand || commands.codex;
   const localAgentDeps = { ...(options.localAgentDeps || {}), commands: { ...commands, ...options.localAgentDeps?.commands } };
-  const worker = new PersonalWorker(store, { ...options, localAgentDeps }, notify);
+  const onboarding = new AgentOnboarding(store, messenger, { execute: options.executeLocalAgent, deps: localAgentDeps, notify });
+  onboarding.recover();
+  const worker = new PersonalWorker(store, { ...options, localAgentDeps, executeOnboarding: (thread, run, signal) => onboarding.execute(thread, run, signal) }, notify);
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
@@ -207,6 +210,22 @@ export async function createPersonalServer(options = {}) {
         const result = store.idempotent(`contacts:${contactId || 'create'}`, body.clientId, body, () => messenger.saveContact(body, contactId));
         notify(); return json(response, contactId ? 200 : 201, result);
       }
+      if (method === 'GET' && path === '/api/agent-onboarding/context') return json(response, 200, onboarding.context());
+      if (method === 'GET' && path === '/api/agent-onboarding') return json(response, 200, { jobs: store.list('agent_onboarding').slice(0, 20).map(j => onboarding.get(j.id)) });
+      if (method === 'POST' && path === '/api/agent-onboarding') {
+        const body = await readJSON(request), detected = await localAgents();
+        messenger.sync(detected);
+        const result = store.idempotent('agent-onboarding:create', body.clientId, body, () => onboarding.start(body, detected));
+        notify({ onboardingId: result.id }); worker.kick(); return json(response, 202, onboarding.get(result.id));
+      }
+      if (method === 'GET' && (match = path.match(/^\/api\/agent-onboarding\/([A-Za-z0-9_-]+)$/))) return json(response, 200, onboarding.get(match[1]));
+      if (method === 'POST' && (match = path.match(/^\/api\/agent-onboarding\/([A-Za-z0-9_-]+)\/(adopt|cancel)$/))) {
+        const jobId = match[1], action = match[2], body = await readJSON(request);
+        if (Object.keys(body).some(k => !['clientId', 'suggestionId'].includes(k))) invalid('角色操作包含不支持的选项');
+        const result = store.idempotent(`agent-onboarding:${jobId}:${action}`, body.clientId, body, () => action === 'adopt' ? onboarding.adopt(jobId, body.suggestionId) : onboarding.cancel(jobId));
+        if (action === 'cancel') { const job = onboarding.get(jobId), thread = store.require('thread', job.threadId); worker.cancel(thread.id, thread.runs[0].id); }
+        notify({ onboardingId: jobId }); worker.kick(); return json(response, 200, result);
+      }
       if (method === 'GET' && path === '/api/approvals') return json(response, 200, { approvals: messenger.approvals() });
       if (method === 'POST' && (path === '/api/chats' || (match = path.match(/^\/api\/chats\/([A-Za-z0-9_-]+)$/)))) {
         const threadId = match?.[1], body = await readJSON(request);
@@ -264,7 +283,7 @@ export async function createPersonalServer(options = {}) {
       }
       if (method === 'GET' && path === '/api/bootstrap') {
         return json(response, 200, {
-          threads: store.list('thread').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
+          threads: store.list('thread').filter(t => t.purpose !== 'agent_onboarding').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
             ...(kind ? { kind, memberIds, version } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
             pendingApprovals: decisions.filter(d => d.state === 'pending').length })),
           connections: store.list('connection').map(publicConnection), memories: store.list('memory'),
@@ -298,6 +317,7 @@ export async function createPersonalServer(options = {}) {
       if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, store.require('thread', match[1]));
       if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/messages$/))) {
         const threadId = match[1], body = await readJSON(request);
+        if (store.require('thread', threadId).purpose === 'agent_onboarding') throw new APIError(409, 'onboarding_thread', '角色准备请使用专用进度和取消入口');
         const detected = await localAgents();
         if (store.require('thread', threadId).kind) messenger.sync(detected);
         const result = store.idempotent(`threads:${threadId}:messages`, body.clientId, body, () => {
@@ -310,6 +330,7 @@ export async function createPersonalServer(options = {}) {
       }
       if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/(retry|reconcile|cancel)$/))) {
         const threadId = match[1], action = match[2], body = await readJSON(request);
+        if (store.require('thread', threadId).purpose === 'agent_onboarding') throw new APIError(409, 'onboarding_thread', '角色准备请使用专用进度和取消入口');
         const record = store.idempotent(`threads:${threadId}:${action}`, body.clientId, body, () => {
           const thread = store.require('thread', threadId);
           const run = body.runId ? thread.runs.find((item) => item.id === body.runId) : action === 'cancel'

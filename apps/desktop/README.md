@@ -56,7 +56,7 @@ pnpm package:mac
 
 Signing uses the ad-hoc identity `-`, without Hardened Runtime and with only the JIT entitlement. The script reads the resulting signature flags and entitlements back. It does not discover a Developer ID identity, notarize, publish or claim Gatekeeper distribution acceptance. The local `.app` has been launched and checked for package-owned runtime, saved CLI/MCP history and export hashes; the packaged native smoke also passed. Exact versions, retry history and limits are in the [macOS acceptance ledger](../../docs/personal/macos-acceptance.md). A successful build alone is not that acceptance.
 
-Vite embeds the Git HEAD with `-dirty` when there are uncommitted files; an unavailable Git identity is `unknown-source`. The native health response includes that build reference, eight backend module hashes and the bundled personal UI-entry hash. `PERSONAL_BUILD_REF` is an explicit test override. A clean merged-source rebuild is required before labeling a bundle with the merge revision.
+Vite embeds the Git HEAD with `-dirty` when there are uncommitted files; an unavailable Git identity is `unknown-source`. The native health response includes that build reference, nine backend module hashes and the bundled personal UI-entry hash. `PERSONAL_BUILD_REF` is an explicit test override. A clean merged-source rebuild is required before labeling a bundle with the merge revision.
 
 ## Connect existing assistants
 
