@@ -19,7 +19,7 @@ development and QA companion.
 > [!WARNING]
 > **FOR PERSONAL USE ONLY.** AgentRoom is a personal tool for learning and research: run it on your own Mac, with your own accounts, to reach your own agents. **NOT FOR COMMERCIAL USE**, and not for running a service for other people. Use it at your own risk. Read the [Disclaimer](#disclaimer) first.
 
-> **Alpha.** macOS source builds. Local ad-hoc packaging is available as a build command; packaged-app acceptance, Developer ID signing and notarization are separate checks. Expect rough edges and breaking changes.
+> **Alpha.** macOS source builds. Local packaging supports a machine-local certificate pin, or ad-hoc signing when unconfigured; packaged-app acceptance, Developer ID distribution and notarization are separate checks. Expect rough edges and breaking changes.
 
 The default workspace keeps contact identities, private/group conversations, background execution, exact approval previews and saved results together. Human contacts are currently local-only; cross-device human messaging is a future step. Existing task conversations keep a visible resume action with their original drafts. The original chats-and-agents inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`; it uses its existing accounts and services without an automatic migration.
 
@@ -90,7 +90,7 @@ pnpm --filter @agentstudio/desktop start
 
 The built renderer loads from local files. The app starts its own utility on a random loopback port and stores personal data in `~/Library/Application Support/AgentStudio/personal`. It does not attach to an existing web server or import the old Matrix session. `pnpm dev:desktop` is the native development entry.
 
-`pnpm package:mac` targets a local ad-hoc `.app` under `apps/desktop/dist`; the command prints the bundle path and writes a build receipt. The local bundle has passed native launch, saved-result readback and UI checks; see [macOS acceptance](docs/personal/macos-acceptance.md). It is not a notarized release or private-account acceptance. See [desktop packaging](apps/desktop/README.md#local-macos-packaging).
+`pnpm package:mac` targets a local `.app` under `apps/desktop/dist`, using a configured certificate pin or ad-hoc signing when unconfigured; the command prints the bundle path and writes a build receipt. A consistent certificate can reduce repeated Safe Storage prompts after local updates. The local bundle has passed native launch, saved-result readback and UI checks; see [macOS acceptance](docs/personal/macos-acceptance.md). It is not a notarized release or private-account acceptance. See [desktop packaging](apps/desktop/README.md#local-macos-packaging).
 
 ### Retained Matrix route
 

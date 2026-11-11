@@ -10,7 +10,7 @@
 
 **GET-483：个人 IM。** 默认主页改为聊天、联系人、审批；系统发现的本机助手/已有连接成为联系人，可创建不同身份、私聊、拉群，逐位配置群响应策略。先支持本人和自己的 Agent；人类通讯录及本地草稿已建模，跨设备多人投递尚未实现，不显示虚假送达。验收范围见 [IM 说明](personal/messenger.md)。
 
-**2026-11-10 实现补记：** 默认 Mac 入口现为个人工作间，沿用原 Electron 原生窗口，以独立 preload/IPC 调用自有 `utilityProcess` 和 SQLite，不要求启动 Matrix 栈。原收件箱、连接器和下述历史路线保留在 `AGENTSTUDIO_WORKSPACE=matrix`。当前 `package:mac` 使用本地 ad-hoc 签名，已另行检查实际 `.app` 启动及结果读回；不表示旧 Matrix 整栈已嵌入，也不表示 Developer ID、公证、发布或下述未勾选项目已经完成。具体版本与证据见[验收账本](personal/acceptance.md)。
+**2026-11-10 实现补记：** 默认 Mac 入口现为个人工作间，沿用原 Electron 原生窗口，以独立 preload/IPC 调用自有 `utilityProcess` 和 SQLite，不要求启动 Matrix 栈。原收件箱、连接器和下述历史路线保留在 `AGENTSTUDIO_WORKSPACE=matrix`。当前 `package:mac` 未配置时使用本地 ad-hoc 签名，也支持本机固定证书，减少重编译后的 Safe Storage 重复授权，配置见[桌面说明](../apps/desktop/README.md#local-macos-packaging)。已有实际 `.app` 启动及结果读回记录，不表示旧 Matrix 整栈已嵌入，也不表示 Developer ID、公证、发布或下述未勾选项目已经完成。具体版本与证据见[验收账本](personal/acceptance.md)。
 
 以下保留原 Matrix 版本的定位和待办；未勾选项目不因个人模式交付而自动完成。
 
