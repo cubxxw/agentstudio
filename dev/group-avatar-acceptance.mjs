@@ -13,17 +13,27 @@ const native=process.argv.includes('--native');
 const parent=process.env.AGENTROOM_EVIDENCE_DIR||resolve('output/playwright/group-avatars');
 await mkdir(parent,{recursive:true});
 const output=await mkdtemp(join(parent,native?'native-':'browser-'));
-const checks=[],errors=[];
+const checks=[],errors=[],consoleMessages=[];
 let server,browser,application,page;
 const env={...process.env,AGENTSTUDIO_USER_DATA_DIR:join(output,'profile'),AGENTSTUDIO_MOCK_KEYCHAIN:'1',AGENTSTUDIO_WORKSPACE:'personal'};
 cleanDesktopTestEnv(env);
 for(const agent of ['CODEX','CLAUDE','PI','GEMINI','OPENCODE'])env[`AGENTSTUDIO_${agent}_BIN`]=join(output,'missing-'+agent);
+const watchPage=target=>{
+ target.on('pageerror',e=>errors.push(e.message));
+ target.on('console',message=>{
+  if(!['warning','error'].includes(message.type()))return;
+  const text=message.text().replace(/data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+/g,'[synthetic image]').slice(0,500);
+  consoleMessages.push({type:message.type(),text});
+  if(message.type()==='error')errors.push(text);
+ });
+};
 const launchNative=async()=>{
  const packaged=process.env.AGENTSTUDIO_PACKAGED_APP;
  application=await _electron.launch({executablePath:packaged?join(packaged,'Contents/MacOS/AgentRoom'):require('electron'),args:packaged?[]:[resolve('apps/desktop')],env,timeout:60000});
+ expect(await application.evaluate(({app})=>app.getPath('userData'))).toBe(join(output,'profile'));
  page=await application.firstWindow();
  await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setBounds({width:1120,height:900}));
- page.on('pageerror',e=>errors.push(e.message));
+ watchPage(page);
  await expect(page.getByTestId('im-app')).toBeVisible();
 };
 const request=async(path,body)=>{
@@ -40,7 +50,7 @@ const preview=()=>page.getByTestId('im-group-avatar-preview').getByTestId('im-av
 const editor=()=>page.getByTestId('im-chat-info').click();
 const save=async()=>{await expect(page.getByTestId('im-group-save')).toBeEnabled();await page.getByTestId('im-group-save').click();await expect(page.getByTestId('im-group-editor')).toHaveCount(0);};
 const holdRead=()=>page.evaluate(()=>{
- const Base=window.FileReader;window.__avatarReadDone=false;
+ const Base=window.FileReader;window.__avatarReadDone=false;window.__avatarReadRelease=null;
  window.FileReader=class extends Base{
   readAsDataURL(file){
    this.addEventListener('loadend',()=>{window.__avatarReadDone=true;},{once:true});
@@ -48,13 +58,13 @@ const holdRead=()=>page.evaluate(()=>{
   }
  };
 });
-const releaseRead=async()=>{await page.evaluate(()=>window.__avatarReadRelease());await expect.poll(()=>page.evaluate(()=>window.__avatarReadDone)).toBe(true);};
+const releaseRead=async()=>{await expect.poll(()=>page.evaluate(()=>typeof window.__avatarReadRelease==='function')).toBe(true);await page.evaluate(()=>window.__avatarReadRelease());await expect.poll(()=>page.evaluate(()=>window.__avatarReadDone)).toBe(true);};
 
 try{
  if(native)await launchNative();else{
   server=await createPersonalServer({dataDir:join(output,'data'),port:0,staticDir:resolve('apps/personal/dist'),codexCommand:'/missing-group-avatar-agent',discoverLocalAgents:async()=>({agents:[]})});await server.listen();
   browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});
-  page=await browser.newPage({viewport:{width:1120,height:900}});page.on('pageerror',e=>errors.push(e.message));await page.goto(`http://127.0.0.1:${server.address().port}`);
+  page=await browser.newPage({viewport:{width:1120,height:900}});watchPage(page);await page.goto(`http://127.0.0.1:${server.address().port}`);
  }
  expect(await page.title()).toMatch(/^AgentRoom/);
  await expect(page.getByTestId('im-app')).toBeVisible();
@@ -65,6 +75,7 @@ try{
  await expect(preview()).toHaveAttribute('data-group-avatar-kind','default');
  await page.getByTestId('im-group-name').fill('周末创作室');await page.getByTestId('im-member-'+person.id).check();
  const green=await preview().evaluate(e=>getComputedStyle(e).backgroundColor);
+ await capture('group-default-editor-light');
  await page.getByTestId('im-group-motif-coffee').click();await page.getByTestId('im-group-color-violet').click();
  expect(await preview().evaluate(e=>getComputedStyle(e).backgroundColor)).not.toBe(green);
  await capture('group-editor-light');await save();
@@ -115,6 +126,17 @@ try{
  }
  check('JPEG and WebP sources normalize locally without a renderer error');
 
+ const noise=await page.evaluate(()=>{
+  const canvas=document.createElement('canvas');canvas.width=canvas.height=512;
+  const c=canvas.getContext('2d'),image=c.createImageData(512,512);let seed=508;
+  for(let i=0;i<image.data.length;i+=4){for(let channel=0;channel<3;channel++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;image.data[i+channel]=seed>>>24;}image.data[i+3]=255;}
+  c.putImageData(image,0,0);return canvas.toDataURL('image/png').split(',')[1];
+ });
+ await page.getByTestId('im-group-avatar-file').setInputFiles({name:'textured.png',mimeType:'image/png',buffer:Buffer.from(noise,'base64')});
+ await expect.poll(()=>page.getByTestId('im-group-avatar-preview').getByTestId('im-group-avatar-image').evaluate(image=>image.naturalWidth)).toBe(128);
+ expect((await page.getByTestId('im-group-avatar-preview').getByTestId('im-group-avatar-image').getAttribute('src')).length).toBeLessThanOrEqual(131094);
+ check('textured pictures reduce to a smaller square to keep saved image data bounded');
+
  await holdRead();await page.getByTestId('im-group-avatar-file').setInputFiles(file());
  await expect(page.getByTestId('im-group-save')).toBeDisabled();await page.getByTestId('im-group-motif-compass').click();await releaseRead();
  await expect(preview()).toHaveAttribute('data-group-icon','compass');await expect(page.getByTestId('im-group-save')).toBeEnabled();
@@ -132,14 +154,15 @@ try{
  if(!native){await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await capture('group-editor-narrow-dark');await page.setViewportSize({width:1120,height:900});}
  await page.getByTestId('personal-modal-close').click();
  if(native){
+  await editor();await page.getByTestId('im-group-avatar-file').setInputFiles(file());await expect(preview()).toHaveAttribute('data-group-avatar-kind','image');await save();
   await application.close();application=null;await launchNative();
-  await expect(page.getByTestId('im-chat-'+id)).toBeVisible();await page.getByTestId('im-chat-'+id).click();await expect(page.getByTestId('im-chat-info').getByTestId('im-avatar')).toHaveAttribute('data-group-avatar-kind','default');
+  await expect(page.getByTestId('im-chat-'+id)).toBeVisible();await page.getByTestId('im-chat-'+id).click();await expect(page.getByTestId('im-chat-info').getByTestId('im-avatar')).toHaveAttribute('data-group-avatar-kind','image');await capture('group-picture-after-native-restart');
   const health=await request('/health');expect(health.build.serverFiles['group-avatar.mjs']).toMatch(/^[a-f0-9]{64}$/);
   check('packaged native restart restores the group and owns the avatar validation module');
  }
  const final=await request('/threads/'+id);expect(final.memberIds).toContain(person.id);expect(final.messages).toEqual([]);expect(final.runs).toEqual([]);expect(final.decisions).toEqual([]);expect(errors).toEqual([]);
  check('membership and empty conversation/execution state remain intact');
 }finally{
- await writeFile(join(output,'receipt.json'),JSON.stringify({native,checks,errors,syntheticOnly:true,browserPlugin:'absent',fallbackReason:'Browser plugin not available; existing repository Playwright setup used',output},null,2)+'\n');
+ await writeFile(join(output,'receipt.json'),JSON.stringify({native,checks,errors,consoleMessages,syntheticOnly:true,browserPlugin:'absent',fallbackReason:'Browser plugin not available; existing repository Playwright setup used',output},null,2)+'\n');
  await application?.close();await browser?.close();await server?.close();console.log(JSON.stringify({output,checks,errors}));
 }

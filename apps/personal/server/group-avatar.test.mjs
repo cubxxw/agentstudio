@@ -22,7 +22,7 @@ async function fixture(t){
   return {status:response.status,body:await response.json()};
  };
  const person=(await api('/contacts',{kind:'human',name:'Avatar test person',handle:'avatar-person',clientId:randomUUID()})).body;
- return {api,person,group:body=>api('/chats',{kind:'group',title:'Room study',memberIds:[person.id],clientId:randomUUID(),...body}),restart:async()=>{await app.close();await start();}};
+ return {api,person,get store(){return app.store;},group:body=>api('/chats',{kind:'group',title:'Room study',memberIds:[person.id],clientId:randomUUID(),...body}),restart:async()=>{await app.close();await start();}};
 }
 
 test('group portraits persist in the thread and sidebar summary through restart; reset keeps the conversation',async t=>{
@@ -74,4 +74,19 @@ test('unsupported icons, unsafe image sources, malformed and oversized PNGs do n
  }
  const direct=await f.api('/chats',{kind:'direct',memberIds:[f.person.id],groupAvatar:preset,clientId:randomUUID()});
  assert.equal(direct.status,400);
+});
+
+test('changing and resetting a group portrait preserves historical messages and an accepted waiting decision',async t=>{
+ const f=await fixture(t);const group=(await f.group({})).body;
+ await f.api(`/threads/${group.id}/messages`,{text:'Synthetic saved conversation',clientId:randomUUID()});
+ const before=f.store.get('thread',group.id),messageId=before.messages[0].id;
+ before.runs=[{id:'run_avatar_preservation',status:'needs_input',messageId,contactId:f.person.id,conversationSnapshot:{kind:'group',title:before.title,version:before.version},contactSnapshot:{id:f.person.id,name:f.person.name},createdAt:before.createdAt}];
+ before.decisions=[{id:'dec_avatar_preservation',kind:'provider_approval',runId:'run_avatar_preservation',state:'pending',version:1,title:'Synthetic waiting approval',choices:[{key:'continue',label:'Continue'}]}];
+ before.status='needs_input';f.store.put('thread',before);
+ let version=before.version;
+ for(const groupAvatar of [preset,{kind:'image',dataUrl:png},null]){
+  const updated=await f.api(`/chats/${group.id}`,{version,groupAvatar,clientId:randomUUID()});
+  assert.equal(updated.status,200);assert.deepEqual(updated.body.groupAvatar,groupAvatar);version=updated.body.version;
+  for(const field of ['messages','runs','decisions','artifacts','events','memberIds','members','responsePolicies','status'])assert.deepEqual(updated.body[field],before[field]);
+ }
 });

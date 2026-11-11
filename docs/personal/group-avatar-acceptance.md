@@ -8,9 +8,11 @@ Groups use an illustrated green conversation room by default. Group information 
 - The personal backend suite passed 259 tests, with one pre-existing skipped integration test.
 - Core, personal and desktop TypeScript checks and both renderer builds passed.
 - The isolated browser journey passed motif/color selection, all saved portrait surfaces, PNG center crop, bounded serialization, reload, cancel, invalid/oversized/disguised files, JPEG/WebP conversion, late-reader selection and close races, reset and preservation of membership/messages/runs/decisions. Light, dark and 390×844 screenshots were inspected.
-- Packaged native execution, independent review and installed-owner readback are recorded in the delivery update below. Browser testing uses the existing Playwright setup because the Browser plugin is unavailable.
+- An additional regression retains populated historical messages, accepted execution snapshots and a pending approval through preset, image and reset edits. The four avatar API tests pass.
+- The packaged Mac journey passed nine checks, including a custom picture restored after a full process restart. Its userData path is asserted before test data is created. The bounded texture fallback and console capture also passed the updated nine-check browser journey.
+- Independent read-only review found no P0/P1 or confirmed production defects. The populated-history case above closes its test-coverage observation. Final merged-build and installed-owner readback are recorded in the GET-508 delivery comment. Browser testing uses the existing Playwright setup because the Browser plugin is unavailable.
 
-The API validates a bounded square PNG container, not a general image-file editing interface. Images have no remote URL, and portrait data is excluded from model conversation snapshots. Existing version conflict and idempotency checks protect edits. No account, message transport, real conversation or app data was used in the synthetic journey; formal screenshots and receipts stay outside Git.
+The API validates a bounded square PNG container. Images have no remote URL, and portrait data is excluded from model conversation snapshots. Existing version conflict and idempotency checks protect edits. Synthetic journeys use isolated profiles and test pictures; formal screenshots and receipts stay outside Git.
 
 ## Reproduce
 

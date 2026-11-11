@@ -54,7 +54,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Explicit Pi identity / avatar choices | `im-extract-identity`, `im-avatar-icon-<icon>` |
 | Live reply slot / partial / precise stop | `im-response-<runId>`, `im-streaming-message`, `im-run-stop-<runId>` |
 | Group editor / name / members / policy | `im-group-editor`, `im-group-name`, `im-group-search`, `im-member-<contactId>`, `im-policy-<contactId>`, `im-group-save` |
-| Group portrait / picture / reset | `im-group-avatar-editor`, `im-group-avatar-preview`, `im-group-avatar-file`, `im-group-avatar-reset`, `im-group-avatar-error` |
+| Group portrait / picture / reset | `im-group-avatar-editor`, `im-group-avatar-preview`, `im-group-avatar-file`, `im-group-avatar-image`, `im-group-avatar-reset`, `im-group-avatar-error` |
 | Group motif / color | `im-group-motif-<room\|spark\|code\|compass\|leaf\|coffee>`, `im-group-color-<teal\|blue\|violet\|orange\|rose>` |
 | Conversation / contact information / create group | `im-main`, `im-chat-info`, `im-promote-group`, `im-back` |
 | Messages / content / actions / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-message-content`, `im-message-actions`, `im-reply-message`, `im-run-status` |
