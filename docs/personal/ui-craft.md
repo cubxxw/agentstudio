@@ -63,3 +63,15 @@ or modify a workspace while its worker owns the database lock.
 
 These checks do not establish VoiceOver, real-provider login, physical input-device
 acceptance, signing/notarization or installation into the user's running app.
+
+For a previously built Mac bundle, set `AGENTSTUDIO_PACKAGED_APP` to its `.app`
+path; `AGENTROOM_EXPECTED_BUILD_REF` optionally asserts its runtime source ref.
+`AGENTROOM_CRAFT_INPUT_TRACE=1` records a bounded input/composition/storage trace
+only in the runner's asserted isolated synthetic profile. A failed run writes
+`failure.json` before taking its failure screenshot, including the draft checkpoint,
+focused control and recent events. Only the composer records text input; other
+controls retain focus metadata and navigation keys. The trace is opt-in because
+instrumentation can change timing; the added draft checkpoints can also change
+scheduling even when tracing is off. A passing run does not repair or explain an
+intermittent failure by itself. Batched Chromium storage writes do not establish
+UI event order, and trusted input events can come from test automation.

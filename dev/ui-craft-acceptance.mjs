@@ -10,6 +10,7 @@ import { ArtifactStore } from '../apps/personal/server/artifact-store.mjs';
 const requireDesktop = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { _electron, expect } = requireDesktop('@playwright/test');
 const baseline = process.argv.includes('--baseline');
+const traceInput = process.env.AGENTROOM_CRAFT_INPUT_TRACE === '1';
 const output = await mkdtemp(join(process.env.AGENTROOM_CRAFT_EVIDENCE_DIR || '/tmp', baseline ? 'craft-before-' : 'craft-after-'));
 const cli = join(output, 'synthetic-codex');
 const codexHome = join(output, 'codex-home');
@@ -23,10 +24,47 @@ process.exit(1);
 const env = { ...process.env, CODEX_HOME: codexHome, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, AGENTSTUDIO_CLAUDE_BIN: join(output, 'missing'), AGENTSTUDIO_PI_BIN: join(output, 'missing'), AGENTSTUDIO_MOCK_KEYCHAIN: '1' };
 cleanDesktopTestEnv(env);
 for (const name of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[name];
-let app = await launchDesktopTest(_electron, { executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
-let page = await app.firstWindow();
+const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
+const launchOptions = { executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env };
+let app = await launchDesktopTest(_electron, launchOptions);
+let page;
 const checks = [], errors = [];
-page.on('pageerror', error => errors.push(error.message));
+let draftStage = 'startup';
+let diagnosticsEligible = false;
+function instrumentInput() {
+  if (window.__agentRoomCraftInput) return;
+  const trace = window.__agentRoomCraftInput = { events: [], dropped: 0 };
+  const record = value => {
+    if (trace.events.length === 300) { trace.events.shift(); trace.dropped++; }
+    trace.events.push({ ...value, time: performance.now() });
+  };
+  for (const type of ['beforeinput', 'input', 'change', 'compositionstart', 'compositionupdate', 'compositionend', 'keydown', 'keyup', 'focusin', 'focusout']) document.addEventListener(type, event => {
+    const node = event.target;
+    if (!(node instanceof HTMLElement)) return;
+    const composer = node.dataset.testid === 'im-message-input' && node instanceof HTMLTextAreaElement;
+    const navigation = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape', 'Tab', 'Enter'].includes(event.key);
+    record({ type, target: node.dataset.testid, ...(composer || navigation ? { key: event.key, code: event.code, shift: event.shiftKey, control: event.ctrlKey, meta: event.metaKey, alt: event.altKey } : {}), composing: event.isComposing, trusted: event.isTrusted, ...(composer ? { inputType: event.inputType, data: event.data, value: node.value, selectionStart: node.selectionStart, selectionEnd: node.selectionEnd } : {}) });
+  }, true);
+  const setItem = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(name, value) {
+    const result = Reflect.apply(setItem, this, arguments);
+    try {
+      if (typeof name === 'string' && typeof value === 'string' && name.startsWith('agentstudio.messenger.draft.')) {
+        const draft = JSON.parse(value); record({ type: 'draft-write', storage: this === window.localStorage ? 'local' : 'session', name, text: draft.text, revision: draft.revision, pending: Boolean(draft.pending), stack: new Error().stack });
+      }
+    } catch { /* Diagnostics must not alter storage behavior. */ }
+    return result;
+  };
+}
+const observePage = async () => {
+  diagnosticsEligible = false;
+  // Only this runner's isolated synthetic profile is eligible for diagnostics.
+  expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(env.AGENTSTUDIO_USER_DATA_DIR);
+  diagnosticsEligible = true;
+  page.on('pageerror', error => errors.push(error.message));
+  if (traceInput) { await page.addInitScript(instrumentInput); await page.evaluate(instrumentInput); }
+};
+const expectDraft = async stage => { draftStage = stage; await expect(page.getByTestId('im-message-input')).toHaveValue('合成草稿：回来后继续。'); };
 const request = (path, body) => page.evaluate(async ({ path, body }) => {
   const reply = await window.agentStudioPersonal.request({ path: `/api${path}`, method: body ? 'POST' : 'GET', ...(body ? { body } : {}) });
   if (reply.status >= 400) throw new Error(`Synthetic API ${path}: ${reply.status} ${JSON.stringify(reply.body)}`);
@@ -42,10 +80,13 @@ const shot = async name => {
 const check = label => { checks.push(label); console.log(`PASS ${label}`); };
 const bounds = (width, height) => app.evaluate(({ BrowserWindow }, size) => { const win = BrowserWindow.getAllWindows()[0]; win.setMinimumSize(0, 0); win.setBounds(size); }, { width, height });
 try {
+  page = await app.firstWindow();
+  await observePage();
   await app.evaluate(({ nativeTheme }) => { nativeTheme.themeSource = 'light'; });
   await page.emulateMedia({ colorScheme: 'light' });
   await bounds(1200, 780);
   await expect(page.getByTestId('im-app')).toBeVisible();
+  if (packaged && process.env.AGENTROOM_EXPECTED_BUILD_REF) expect((await request('/health')).build.ref).toBe(process.env.AGENTROOM_EXPECTED_BUILD_REF);
   await request('/workspace/onboarding', { action: 'complete', name: '合成验收', clientId: 'craft-owner' });
   await request('/contacts/local', { agentIds: ['codex'], clientId: 'craft-adopt' });
   const contacts = [];
@@ -71,7 +112,9 @@ try {
   await page.getByTestId('im-nav-chats').click();
   await page.getByTestId(`im-chat-${local.id}`).click();
   await page.getByTestId('im-message-input').fill('合成草稿：回来后继续。');
+  await expectDraft('after filling');
   await shot('02-chat-light');
+  await expectDraft('after native capture');
   if (!baseline) {
     const direct = await request('/chats', { kind: 'direct', memberIds: [contacts[0].id], clientId: 'craft-library-context' });
     await page.getByTestId('im-refresh').click();
@@ -93,6 +136,7 @@ try {
     await expect(page.getByTestId('im-search')).toBeFocused();
     await page.getByTestId('im-nav-chats').click();
     await page.getByTestId(`im-chat-${local.id}`).click();
+    await expectDraft('after library navigation');
     check('library distinguishes empty from no results and creates groups without inheriting a previous private contact');
   }
   // Replace only this isolated application's service enumeration; no provider/account is used.
@@ -110,6 +154,7 @@ try {
     });
   });
   await page.getByTestId('im-settings').click();
+  await expectDraft('inside settings before category keys');
   await expect(page.getByTestId('personal-connections')).toBeVisible();
   if (!baseline) await expect(page.getByTestId('personal-local-use-codex')).toHaveCSS('opacity', '1');
   await shot('03-settings-light');
@@ -141,7 +186,7 @@ try {
     check('settings category keys and connection jump navigation move focus to the right content');
   }
   await page.keyboard.press('Escape');
-  await expect(page.getByTestId('im-message-input')).toHaveValue('合成草稿：回来后继续。');
+  await expectDraft('after closing settings');
   await app.evaluate(({ nativeTheme }) => { nativeTheme.themeSource = 'dark'; });
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect.poll(() => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(true);
@@ -189,6 +234,7 @@ try {
   check('light, dark, narrow, stronger contrast and reduced motion render without exceptions');
   if (!baseline) {
     // Seed a committed synthetic document only after this app has released its worker lock.
+    diagnosticsEligible = false;
     await app.close();
     const store = new PersonalStore(join(output, 'profile', 'personal'));
     let artifactId;
@@ -201,9 +247,9 @@ try {
       artifacts.integrate(artifacts.submit(stage.id, actor).id, actor);
       artifactId = artifact.id;
     } finally { store.close(); }
-    app = await launchDesktopTest(_electron, { executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
+    app = await launchDesktopTest(_electron, launchOptions);
     page = await app.firstWindow();
-    page.on('pageerror', error => errors.push(error.message));
+    await observePage();
     await page.emulateMedia({ colorScheme: 'light' });
     await bounds(1200, 780);
     await page.getByTestId('im-nav-library').click();
@@ -229,9 +275,11 @@ try {
     expect(errors).toEqual([]);
     check('a real committed document remains searchable and opens its persisted file from the populated library');
   }
-  await writeFile(join(output, 'results.json'), JSON.stringify({ baseline, output, checks, errors, synthetic: true }, null, 2));
+  await writeFile(join(output, 'results.json'), JSON.stringify({ baseline, packaged: Boolean(packaged), traceInput, output, checks, errors, synthetic: true }, null, 2));
   console.log(JSON.stringify({ output, checks }));
 } catch (error) {
-  await shot('failure').catch(() => {});
+  const snapshot = page && diagnosticsEligible ? await page.evaluate(() => ({ url: location.href, focused: document.activeElement?.getAttribute('data-testid'), composer: document.querySelector('[data-testid="im-message-input"]')?.value, input: window.__agentRoomCraftInput || null })).catch(() => ({ unavailable: true })) : { unavailable: true, reason: 'isolation-not-confirmed' };
+  await writeFile(join(output, 'failure.json'), JSON.stringify({ draftStage, traceInput, error: { name: error.name, message: error.message }, snapshot, synthetic: true }, null, 2)).catch(writeError => console.error('Could not save failure diagnostics:', writeError.message));
+  if (diagnosticsEligible) await shot('failure').catch(() => {});
   throw error;
 } finally { await app.close(); }
