@@ -10,7 +10,7 @@ Owner APIs use trusted personal IPC/HTTP only; the separate guest listener never
 | GET / POST | `/api/chats/:threadId/artifacts` | List real group artifacts; `action:create {kind:note|poll|quiz,title,text?,choices?,clientId}`, `edit {artifactId,revisionId,hash,text,clientId}`, `act {artifactId,revisionId,choiceId,clientId}` |
 | GET / POST | `/api/group-rules` | Versioned `{version,createGroups,externalInvites:review|auto_new_group|disabled,maxGroupsPerRequest:1..3}` |
 | POST | `/api/playrooms/:shareId/invite` | Exactly `{}`; explicit owner reveal of `{roomId,token,localUrl,url}`; no public URL without a live tunnel |
-| GET / POST | `/api/play-network` | Status / `{action:start|stop}`, forwards only the guest listener |
+| GET / POST | `/api/play-network` | Status / `{action:start|stop}`, forwards only the guest listener; `online` requires an issued hostname and registered edge connection |
 
 `/api/playrooms` and its per-room owner routes remain compatibility aliases which create/project ordinary groups. Native `copyPlayInvitation({roomId,local})` retains its fixed target and clipboard behavior. Models never receive its bearer URL. Tool sessions expose `group_contacts`, `group_create`, `group_info`, `group_add_agents`, `group_invite` in owner-request conversations, with rules and current membership checks. Public runs expose only `group_info` and scoped `group_artifact_list/create/edit`; generic private Library, creation, directory and expansion tools are unavailable. Dynamic member reads bypass result caches. Mutations use `group_info.version`, durable replay barriers and a per-request creation budget; creating a group does not automatically dispatch a model query to it.
 

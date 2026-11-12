@@ -57,12 +57,18 @@ try {
     invitation = await request(`/playrooms/${room.id}/invite`, {}); guestUrl = invitation.url;
     assert.ok(typeof guestUrl === 'string' && guestUrl.startsWith('https://')); await check('temporary HTTPS invitation address issued');
   }
-  browser = await chromium.launch({ headless: true }); guest = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const proxyURL = publicTest && (process.env.AGENTROOM_BROWSER_PROXY || process.env.HTTPS_PROXY);
+  const proxy = proxyURL ? new URL(proxyURL) : null;
+  if (proxy?.username || proxy?.password) throw new Error('Browser proxy authentication requires an explicit test configuration');
+  browser = await chromium.launch({ headless: true, ...(proxy ? { proxy: { server: proxy.origin } } : {}) }); guest = await browser.newPage({ viewport: { width: 390, height: 844 } });
   guest.on('response', async response => {
     if (!new URL(response.url()).pathname.startsWith('/g-api/')) return;
     try { const body = await response.json(); polls.push({ at: Date.now(), status: response.status(), version: body.version, messages: body.messages?.length, jobs: body.jobs?.map(j => j.status), durationMs: response.request().timing().responseEnd }); } catch { polls.push({ at: Date.now(), status: response.status() }); }
   });
-  await guest.goto(guestUrl); await guest.getByTestId('play-nickname').fill('来做客的朋友'); await guest.getByTestId('play-join').click();
+  if (publicTest) {
+    await expect.poll(async () => { try { await guest.goto(guestUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }); return await guest.getByTestId('play-nickname').isVisible(); } catch { return false; } }, { timeout: 45000, intervals: [1000, 2000, 3000], message: 'Temporary HTTPS invitation must become reachable, not merely issue a hostname' }).toBe(true);
+  } else await guest.goto(guestUrl);
+  await guest.getByTestId('play-nickname').fill('来做客的朋友'); await guest.getByTestId('play-join').click();
   await expect(guest.getByTestId('group-guest-chat')).toBeVisible(); await check('anonymous browser accepts invitation and obtains an independent session');
   await guest.getByTestId('group-message').fill('请用一句中文欢迎我，不调用外部能力。'); await guest.getByTestId('group-send').click();
   await expect.poll(async () => { const current = await request(`/playrooms/${room.id}`); return current.jobs[0]?.status; }, { timeout: real ? 120000 : 20000, intervals: [200, 1000] }).toBe('completed');

@@ -37,7 +37,7 @@ Codex 公开执行沿用验证过的 **0.163.0** 内置 OpenAI 文件认证适�
 
 邀请随机值加密保存在 vault，访客会话只存摘要。链接随机值位于 fragment，接受后从地址栏移除；会话 Cookie 为 HttpOnly、SameSite=Strict，公网 HTTPS 还带 Secure。每次请求检查范围、身份、移除和到期。持有邀请链接的人可以转发它；聊天和作品本身没有端到端或整库加密。
 
-[Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) 的地址临时，网页轮询同步。原域名重新打开邀请会恢复既有身份；通道换域名后无法沿用旧 Cookie，需重新接受。通道在线只表示签发地址，实际外网可达和模型执行要分别验证。
+[Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) 的地址临时，网页轮询同步。原域名重新打开邀请会恢复既有身份；通道换域名后无法沿用旧 Cookie，需重新接受。通道在线需要收到地址及边缘连接注册；外部网页可达和模型执行仍分别验收。失去连接时撤回可复制地址，恢复后再提供。
 
 ## 开发验收
 
