@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Explicit real CLI acceptance, with synthetic text only and an isolated profile.
 // No provider switch, private data, tool mutations or real third-party accounts.
 import { createRequire } from 'node:module';
@@ -23,7 +23,7 @@ const request = (path, body) => page.evaluate(async ({ path, body }) => {
 }, { path, body });
 try {
   const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
-  app = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+  app = await launchDesktopTest(_electron, { executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
   page = await app.firstWindow();
   await expect(page.getByTestId('im-app')).toBeVisible();
   const discovery = await request('/contacts');

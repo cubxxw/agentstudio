@@ -36,6 +36,7 @@ import { PersonalHost } from "./personal-host";
 import { PersonalServices } from "./personal-services";
 import { LocalLoginHost, localExecutionEnv } from "./local-login";
 import { resolveWorkspaceProfile, testWorkspaceArgs, type TestWorkspaceAction } from "./workspace-profile";
+import { resolveAutomation } from "./automation";
 import type { NativeIntegrationReply } from "@agentstudio/personal/desktop-contract";
 import { PERSONAL_IPC, isTrustedDocument, personalCsp, readNativeIntegration, type PersonalCommand } from "../shared/personal-api";
 import { ArtifactPreviewChecker } from "./artifact-preview-check";
@@ -50,6 +51,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: "agentroom-artifact", privileges
 // ---- profile isolation (must happen before "ready") ----------------------------
 
 const workspaceProfile = resolveWorkspaceProfile(app.getPath("appData"), process.env, process.argv.slice(1));
+const automation = resolveAutomation(process.env, __APP_REVISION__);
+if (automation.enabled && !automation.visible && process.platform === "darwin") app.setActivationPolicy("accessory");
 const userDataDir = process.env.AGENTROOM_USER_DATA_DIR || process.env.AGENTSTUDIO_USER_DATA_DIR;
 mkdirSync(workspaceProfile.userData, { recursive: true, mode: 0o700 });
 app.setPath("userData", workspaceProfile.userData);
@@ -158,7 +161,8 @@ function createWindow() {
     minWidth: 760,
     minHeight: 520,
     show: false,
-    title: workspaceProfile.testMode ? "AgentRoom · 测试模式" : "AgentRoom",
+    title: automation.title || (workspaceProfile.testMode ? "AgentRoom · 测试模式" : "AgentRoom"),
+    ...(automation.enabled && !automation.visible ? { focusable: false, skipTaskbar: true } : {}),
     icon: appIcon, // Windows and Linux; macOS uses the Dock icon below
     titleBarStyle: "hiddenInset",
     trafficLightPosition: personalMode ? { x: 18, y: 14 } : { x: 16, y: 18 },
@@ -175,15 +179,17 @@ function createWindow() {
       nodeIntegration: false,
       webSecurity: true,
       spellcheck: true,
+      ...(automation.enabled ? { backgroundThrottling: false } : {}),
     },
   });
   mainWindow = win;
-  if (workspaceProfile.testMode) win.on("page-title-updated", event => { event.preventDefault(); win.setTitle("AgentRoom · 测试模式"); });
+  if (automation.title) win.on("page-title-updated", event => { event.preventDefault(); win.setTitle(automation.title!); });
+  if (workspaceProfile.testMode && !automation.enabled) win.on("page-title-updated", event => { event.preventDefault(); win.setTitle("AgentRoom · 测试模式"); });
 
   windowShown = false;
   win.once("ready-to-show", () => {
     windowShown = true;
-    win.show();
+    if (automation.visible) win.show();
   });
   // On macOS closing the window only hides it: the app keeps syncing in the
   // background, so notifications and the Dock badge keep working.
@@ -202,13 +208,13 @@ function createWindow() {
 
   // No in-app popups: external links go to the browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isExternalUrlAllowed(url)) void shell.openExternal(url);
+    if (automation.visible && isExternalUrlAllowed(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e, url) => {
     if (isOwnUrl(url)) return;
     e.preventDefault();
-    if (isExternalUrlAllowed(url)) void shell.openExternal(url);
+    if (automation.visible && isExternalUrlAllowed(url)) void shell.openExternal(url);
   });
   win.webContents.on("will-attach-webview", (e) => e.preventDefault());
 
@@ -217,6 +223,7 @@ function createWindow() {
 }
 
 function focusWindow() {
+  if (!automation.visible) return;
   if (!mainWindow) createWindow();
   else {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -307,7 +314,7 @@ function registerIpc() {
 
   ipcMain.handle(IPC.openExternal, async (e, url: unknown) => {
     if (!fromRenderer(e) || typeof url !== "string" || !isExternalUrlAllowed(url)) throw new Error("forbidden");
-    await shell.openExternal(url);
+    if (automation.visible) await shell.openExternal(url);
   });
 
   ipcMain.handle(IPC.connectors, async (e, op: unknown, a?: unknown, b?: unknown) => {
@@ -553,7 +560,7 @@ if (!gotLock) {
     if (connectors?.handleLink(url) || personalServices?.handleLink(url)) focusWindow();
   });
   app.whenReady().then(() => {
-    app.setAboutPanelOptions({ applicationName: "AgentRoom", applicationVersion: __APP_VERSION__ });
+    app.setAboutPanelOptions({ applicationName: "AgentRoom", applicationVersion: __APP_VERSION__, version: __APP_REVISION__ });
     // Run from source, the app is Electron's own bundle: give it AgentRoom's icon in the Dock.
     if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(appIcon);
     const dir = app.getPath("userData");
@@ -606,6 +613,7 @@ if (!gotLock) {
     else void connectors.start().catch(() => console.error("[agentstudio] connectors failed to start"));
     createWindow();
     app.on("activate", () => {
+      if (!automation.visible) return;
       // Connector windows are hidden but count as windows; check ours. It may
       // be hidden after a close; before its first show, ready-to-show shows it.
       if (!mainWindow) createWindow();

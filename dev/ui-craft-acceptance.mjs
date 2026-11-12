@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 import { PersonalStore } from '../apps/personal/server/store.mjs';
 import { ArtifactStore } from '../apps/personal/server/artifact-store.mjs';
 
@@ -23,7 +23,7 @@ process.exit(1);
 const env = { ...process.env, CODEX_HOME: codexHome, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, AGENTSTUDIO_CLAUDE_BIN: join(output, 'missing'), AGENTSTUDIO_PI_BIN: join(output, 'missing'), AGENTSTUDIO_MOCK_KEYCHAIN: '1' };
 cleanDesktopTestEnv(env);
 for (const name of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[name];
-let app = await _electron.launch({ executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
+let app = await launchDesktopTest(_electron, { executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
 let page = await app.firstWindow();
 const checks = [], errors = [];
 page.on('pageerror', error => errors.push(error.message));
@@ -34,7 +34,7 @@ const request = (path, body) => page.evaluate(async ({ path, body }) => {
 }, { path, body });
 const shot = async name => {
   await page.screenshot({ path: join(output, `${name}.png`), animations: 'disabled' });
-  if (process.platform === 'darwin') {
+  if (process.platform === 'darwin' && process.env.AGENTROOM_AUTOMATION_VISIBLE === '1') {
     const source = await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.show(); win.focus(); return win.getMediaSourceId(); });
     try { execFileSync('/usr/sbin/screencapture', ['-x', '-l', source.split(':')[1], join(output, `${name}-macos.png`)], { timeout: 10000, stdio: 'pipe' }); } catch { /* Renderer capture stays available; OS material is not claimed. */ }
   }
@@ -201,7 +201,7 @@ try {
       artifacts.integrate(artifacts.submit(stage.id, actor).id, actor);
       artifactId = artifact.id;
     } finally { store.close(); }
-    app = await _electron.launch({ executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
+    app = await launchDesktopTest(_electron, { executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
     page = await app.firstWindow();
     page.on('pageerror', error => errors.push(error.message));
     await page.emulateMedia({ colorScheme: 'light' });

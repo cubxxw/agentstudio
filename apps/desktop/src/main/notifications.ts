@@ -6,6 +6,7 @@
 // in globalThis.__agentStudioNotifications, where tests read them and click them.
 
 import { Notification, app, shell } from "electron";
+import { backgroundAutomation } from "./automation";
 import type { AgentNotifyMode, NotificationPrefs, NotifyTarget } from "@agentstudio/core";
 import { readBadgeCount, readNotification, readNotificationPrefs, withAgentMode, type DesktopNotification } from "../shared/notifications";
 import type { DesktopStorage } from "./storage";
@@ -112,7 +113,7 @@ export class DesktopNotifier {
   }
 
   async openSystemSettings() {
-    if (process.platform === "darwin") await shell.openExternal("x-apple.systempreferences:com.apple.Notifications-Settings.extension");
+    if (process.platform === "darwin" && !backgroundAutomation()) await shell.openExternal("x-apple.systempreferences:com.apple.Notifications-Settings.extension");
   }
 
   private save(prefs: NotificationPrefs) {

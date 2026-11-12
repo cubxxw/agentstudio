@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // macOS native acceptance; synthetic local organization only, never a model call.
 // Build the desktop app first, then: node dev/personal-desktop-smoke.mjs
 // AGENTSTUDIO_DESKTOP_EVIDENCE_DIR sets the evidence parent (each run is unique).
@@ -94,6 +94,7 @@ async function capture(name) {
   verify(!native.empty && native.paintedSize.width > 0, `native capture paints ${name}`);
   const nativeFile = join(output, `${name}.png`);
   try {
+    if (process.env.AGENTROOM_AUTOMATION_VISIBLE !== "1") throw new Error("Background acceptance uses renderer capture");
     const windowId = native.mediaId.split(":")[1];
     if (!/^\d+$/.test(windowId || "")) throw new Error("No native window ID");
     execFileSync("screencapture", ["-x", "-l", windowId, nativeFile], { stdio: "ignore", timeout: 5000 });
@@ -167,7 +168,7 @@ const longSource = [
 ].join("\n");
 
 try {
-  application = await _electron.launch({ executablePath: executable,
+  application = await launchDesktopTest(_electron, { executablePath: executable,
     args: packagedApp ? [] : [join(root, "apps/desktop")], env, timeout: 30_000 });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
@@ -332,7 +333,7 @@ try {
   const hiddenDone = await waitCompleted(hidden.id);
   metadata.backgroundContinued = hiddenDone.status === "completed";
   await application.evaluate(({ app }) => app.emit("activate"));
-  await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true);
+  await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(process.env.AGENTROOM_AUTOMATION_VISIBLE === "1");
   metadata.reopened = await application.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows().length === 1 && BrowserWindow.getAllWindows()[0].id === id, metadata.window.id);
   verify(metadata.reopened && metadata.backgroundContinued, "close hides the same native window while its local utility continues");
   metadata.menuCommands = {};

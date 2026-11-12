@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Synthetic browser/native acceptance; --real uses the configured local Codex with synthetic sources only.
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -33,7 +33,7 @@ try {
  cleanDesktopTestEnv(env);
  for(const k of ['ELECTRON_RUN_AS_NODE','ELECTRON_RENDERER_URL','AGENTSTUDIO_PERSONAL_DATA_DIR','PERSONAL_DATA_DIR'])delete env[k];
  if(!real)Object.assign(env,{CODEX_HOME:codexHome,AGENTSTUDIO_CODEX_BIN:cli,AGENTSTUDIO_CLAUDE_BIN:'/synthetic-missing-claude',AGENTSTUDIO_PI_BIN:'/synthetic-missing-pi'});
- if(native){app=await _electron.launch({executablePath:desktop('electron'),args:[resolve('apps/desktop')],env,timeout:30000});page=await app.firstWindow();}
+ if(native){app=await launchDesktopTest(_electron, {executablePath:desktop('electron'),args:[resolve('apps/desktop')],env,timeout:30000});page=await app.firstWindow();}
  else{server=await createPersonalServer({dataDir:join(output,'data'),port:0,...(!real?{codexCommand:cli,localAgentDeps:{env,commands:{claude:'/synthetic-missing-claude',pi:'/synthetic-missing-pi'}}}:{}),staticDir:resolve('apps/personal/dist')});await server.listen();browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});page=await browser.newPage({viewport:{width:1200,height:850}});await page.goto(`http://127.0.0.1:${server.address().port}`);}
  page.on('pageerror',e=>errors.push(e.message));await expect(page.getByTestId('im-app')).toBeVisible();
  const contacts=await request('/contacts');expect(contacts.contacts.find(c=>c.id==='agent_codex').availability).toBe('ready');

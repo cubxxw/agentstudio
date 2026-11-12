@@ -3,7 +3,7 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, writeFile, readFile, copyFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 const requireDesktop = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { _electron } = createRequire(requireDesktop.resolve('@playwright/test'))('playwright');
 const { expect } = requireDesktop('@playwright/test');
@@ -72,7 +72,7 @@ const reviewDependencies = async (state, groupId) => {
   check('owner reviews and corrects the dependency graph to Pi then Codex'); return state;
 };
 try {
-  app = await _electron.launch({ executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [resolve('apps/desktop')], env, timeout: 30000 });
+  app = await launchDesktopTest(_electron, { executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [resolve('apps/desktop')], env, timeout: 30000 });
   page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1240, height: 850 }));
   await expect(page.getByTestId('im-app')).toBeVisible();

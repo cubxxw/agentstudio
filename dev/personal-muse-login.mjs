@@ -1,4 +1,5 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+if (process.env.AGENTROOM_AUTOMATION_VISIBLE !== '1') throw new Error('Login-window acceptance requires explicit AGENTROOM_AUTOMATION_VISIBLE=1 and desktop coordination.');
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Real public Muse login page acceptance. Does not submit an email/code, import
 // browser cookies, send a chat message, or claim successful private-account auth.
 import { createRequire } from 'node:module';
@@ -19,7 +20,7 @@ const executablePath=packaged?join(packaged,'Contents/MacOS/AgentRoom'):process.
 const checks=[],errors=[];let app,page,flowId;
 const verify=(ok,name)=>{if(!ok)throw Error(name);checks.push(name);console.log('PASS '+name)};
 try{
- app=await _electron.launch({executablePath,args:packaged?[]:[join(root,'apps/desktop')],env});
+ app=await launchDesktopTest(_electron, {executablePath,args:packaged?[]:[join(root,'apps/desktop')],env});
  page=await app.firstWindow();
  await page.getByTestId("im-app").waitFor();
 

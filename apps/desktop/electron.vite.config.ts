@@ -1,16 +1,16 @@
 import { resolve } from "node:path";
 import { copyFileSync, mkdirSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import pkg from "./package.json";
+import { desktopSource } from "../../dev/desktop-test-env.mjs";
+import { writeFileSync } from "node:fs";
 
-let sourceRevision = "unknown-source";
-try {
-  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: __dirname, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  const dirty = execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: __dirname, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().length > 0;
-  if (/^[a-f0-9]{40}$/.test(head)) sourceRevision = `${head}${dirty ? "-dirty" : ""}`;
-} catch { /* Source archives without Git cannot claim a verified revision. */ }
+const buildInfo = (() => {
+  try { return desktopSource(resolve(__dirname, "../..")); }
+  catch { return { revision: "unknown-source", automation: 0 }; }
+})();
+const sourceRevision = buildInfo.revision;
 
 // Main and preload are emitted as CommonJS (the package is not "type": "module"),
 // which the sandboxed preload requires. The renderer is bundled locally and
@@ -26,6 +26,7 @@ export default defineConfig({
         this.addWatchFile(resolve(__dirname, "src/main/worker.mjs"));
       },
       writeBundle() {
+        writeFileSync(resolve(__dirname, "out/main/build-info.json"), JSON.stringify(buildInfo, null, 2));
         const output = resolve(__dirname, "out/main/personal");
         mkdirSync(output, { recursive: true });
         for (const file of ["index.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "remote-nodes.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));

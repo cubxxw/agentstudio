@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { createPersonalServer } from '../apps/personal/server/index.mjs';
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 const requireDesktop = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { chromium, _electron } = createRequire(requireDesktop.resolve('@playwright/test'))('playwright');
 const { expect } = requireDesktop('@playwright/test');
@@ -27,7 +27,7 @@ if (native) {
   cleanDesktopTestEnv(env);
   for (const name of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR', 'AGENTROOM_TEST_MODE', 'AGENTROOM_USER_DATA_DIR', 'AGENTROOM_PERSONAL_DATA_DIR']) delete env[name];
   for (const id of ['CODEX', 'CLAUDE', 'PI', 'GEMINI', 'OPENCODE']) env[`AGENTSTUDIO_${id}_BIN`] = id === 'CODEX' ? cli : '/missing-agentroom-synthetic';
-  application = await _electron.launch({ executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
+  application = await launchDesktopTest(_electron, { executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
   page = await application.firstWindow();
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1280, height: 900 }));
 } else {

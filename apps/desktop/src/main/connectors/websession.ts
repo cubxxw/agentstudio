@@ -4,6 +4,7 @@
 // isolated world, so the page's own scripts can't see or tamper with them.
 
 import { BrowserWindow, app, session as electronSession, shell, type WebContents } from "electron";
+import { automationWindowOptions, backgroundAutomation } from "../automation";
 import { traceNetwork } from "./nettrace";
 
 const DRIVER_WORLD = "agentstudio-webchat-driver";
@@ -45,7 +46,8 @@ export class WebSession {
   async open(): Promise<void> {
     if (this.webContents) return;
     const win = new BrowserWindow({
-      show: !!this.opts.show,
+      show: !!this.opts.show && !backgroundAutomation(),
+      ...automationWindowOptions(),
       width: 1200,
       height: 900,
       // Not the service's own app: say so, whatever the page calls itself.
@@ -114,8 +116,7 @@ export class WebSession {
   /** Shows the session window so the user can act in the service directly. */
   show() {
     if (!this.webContents) void this.open();
-    this.win?.show();
-    this.win?.focus();
+    if (!backgroundAutomation()) { this.win?.show(); this.win?.focus(); }
   }
 
   async reload(url = this.opts.url) {
@@ -189,6 +190,7 @@ export class WebSession {
     if (signal.aborted) throw new Error("cancelled");
     const win = new BrowserWindow({
       show: false,
+      ...automationWindowOptions(),
       width: 980,
       height: 820,
       title: `Sign in: ${this.opts.title}`,
@@ -200,7 +202,7 @@ export class WebSession {
     // Sign-in pages may open provider popups (Apple, Google, Meta); keep them in the same partition.
     win.webContents.setWindowOpenHandler(({ url }) =>
       /^https?:\/\//.test(url)
-        ? { action: "allow", overrideBrowserWindowOptions: { webPreferences: { partition: this.opts.partition, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } } }
+        ? { action: "allow", overrideBrowserWindowOptions: { ...automationWindowOptions(), webPreferences: { partition: this.opts.partition, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } } }
         : { action: "deny" },
     );
     const popups = new Set<BrowserWindow>();
@@ -221,7 +223,7 @@ export class WebSession {
     const showReady = () => {
       if (finished || signal.aborted || win.isDestroyed() || shown) return;
       clearTimeout(deadline);
-      shown = true; win.show(); win.focus(); onReady?.();
+      shown = true; if (!backgroundAutomation()) { win.show(); win.focus(); } onReady?.();
     };
     let poll: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -260,5 +262,5 @@ export class WebSession {
 }
 
 export function openInBrowser(url: string) {
-  void shell.openExternal(url);
+  if (!backgroundAutomation()) void shell.openExternal(url);
 }

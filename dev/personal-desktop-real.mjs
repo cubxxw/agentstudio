@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Opt-in acceptance against the real configured CLI and public DeepWiki MCP.
 // Only synthetic attachments and public repository data leave the test profile.
 import { createRequire } from "node:module";
@@ -41,7 +41,7 @@ const waitForCompletion = async id => {
   return thread;
 };
 const begin = async () => {
-  application = await _electron.launch({ executablePath: executable, args: [join(root, "apps/desktop")], env, timeout: 30000 });
+  application = await launchDesktopTest(_electron, { executablePath: executable, args: [join(root, "apps/desktop")], env, timeout: 30000 });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
 
