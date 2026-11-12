@@ -59,9 +59,11 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Conversation / contact information / create group | `im-main`, `im-chat-info`, `im-promote-group`, `im-back` |
 | Messages / content / actions / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-message-content`, `im-message-actions`, `im-reply-message`, `im-run-status` |
 | Avatar / group sender profile | `im-avatar` (`data-avatar-source`), `im-message-avatar` |
-| Composer / text / send / file / mentions | `im-composer`, `im-message-input`, `im-send`, `im-attach`, `im-mention-<contactId>` |
+| Composer / text / send / file / mentions | `im-composer`, `im-message-input`, `im-send`, `im-attach`, `im-mention-list`, `im-mention-<contactId>` |
+| Draft attachment list / item / preview / remove (zero-based index) | `im-draft-files`, `im-draft-file`, `im-draft-preview-<index>`, `im-draft-remove-<index>` |
 | Approvals / return | `im-pending-bar`, `im-approval-open-chat` |
 | Approval source / contact / original chat | `im-approval-source`, `im-approval-contact`, `im-approval-source-chat` |
+| Related request / expand and collapse | `im-approval-request-text`, `im-approval-request-toggle` |
 | History / scratch / mode / recovery | `im-new-notes`, `im-send-options-toggle`, `im-task-mode`, `im-task-connection`, `im-send-recovery` |
 | Results / records / artifacts | `im-results`, `im-conversation-details`, `im-artifact`, `im-execution-record` |
 | Rail / list / skip | `im-rail`, `im-list-panel`, `im-skip` |
