@@ -58,3 +58,26 @@ test('the organizing agent can prepare an invitation for its own newly created g
   const info = f.tools.call(f.context, 'group_info', { threadId: result.threadId }, 'info');
   assert.ok(info.roster.some(c => c.id === 'specialist'));
 });
+test('public group_info uses only the reviewed purpose; rejected creation has no orphan group', async t => {
+  const f = await fixture(t), before = f.store.list('thread').length;
+  assert.throws(() => f.tools.call(f.context, 'group_create', { title: '无效', purpose: '  ', agentIds: ['agent_codex'] }, 'invalid'), e => e.status === 400);
+  assert.equal(f.store.list('thread').length, before);
+  const created = f.tools.call(f.context, 'group_create', { title: '只公开简介', purpose: 'PRIVATE_PURPOSE', agentIds: ['agent_codex'] }, 'create');
+  const share = f.sharing.prepare(created.threadId, { brief: 'PUBLIC_BRIEF', agents: [{ contactId: 'agent_codex', persona: '公共角色' }], clientId: crypto.randomUUID() }); f.sharing.publish(created.threadId, { shareId: share.id, clientId: crypto.randomUUID(), version: share.share.version });
+  const thread = f.store.require('thread', created.threadId), run = f.store.appendRun(thread, { text: '公开问题', contactId: 'agent_codex', mode: 'codex', sharedGroup: { id: share.id } }); run.status = 'running'; f.store.put('thread', thread);
+  const info = f.tools.call({ threadId: thread.id, runId: run.id, contactId: 'agent_codex' }, 'group_info', {}, 'info'); assert.equal(info.purpose, 'PUBLIC_BRIEF'); assert.ok(!JSON.stringify(info).includes('PRIVATE_PURPOSE'));
+});
+test('replayed membership changes cannot return a roster after the organizing member was removed', async t => {
+  const f = await fixture(t), created = f.tools.call(f.context, 'group_create', { title: '撤销测试', purpose: '共同完成', agentIds: ['agent_codex'] }, 'create');
+  f.store.put('contact', { ...f.store.require('contact', 'agent_codex'), id: 'other', name: '其他搭子', handle: 'other' });
+  const version = f.tools.call(f.context, 'group_info', { threadId: created.threadId }, 'info').version, args = { threadId: created.threadId, version, agentIds: ['other'] };
+  f.tools.call(f.context, 'group_add_agents', args, 'add'); const target = f.store.require('thread', created.threadId); f.messenger.updateChat(target.id, { version: target.version, memberIds: ['other'] });
+  assert.throws(() => f.tools.call(f.context, 'group_add_agents', args, 'add'), e => e.status === 403);
+});
+test('an invitation replay describes its original grant rather than a replacement draft', async t => {
+  const f = await fixture(t), created = f.tools.call(f.context, 'group_create', { title: '原邀请', purpose: '共同完成', agentIds: ['agent_codex'] }, 'create');
+  const version = f.tools.call(f.context, 'group_info', { threadId: created.threadId }, 'info').version, args = { threadId: created.threadId, version, brief: '第一份背景', agents: [{ contactId: 'agent_codex', persona: '公开角色' }] };
+  const original = f.tools.call(f.context, 'group_invite', args, 'invite'); f.sharing.action(original.shareId, 'self', { type: 'close', clientId: crypto.randomUUID() });
+  f.sharing.prepare(created.threadId, { clientId: crypto.randomUUID(), brief: '另一份背景', agents: args.agents });
+  const replay = f.tools.call(f.context, 'group_invite', args, 'invite'); assert.equal(replay.shareId, original.shareId); assert.equal(replay.state, 'closed'); assert.equal(replay.requiresOwnerReview, false);
+});

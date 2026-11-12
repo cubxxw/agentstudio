@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, appendFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
@@ -10,7 +10,7 @@ const root = process.env.AGENTROOM_EVIDENCE_DIR;
 if (!root) throw new Error('Set managed AGENTROOM_EVIDENCE_DIR');
 const real = process.argv.includes('--real'), publicTest = process.argv.includes('--public');
 const output = await mkdtemp(join(root, real ? 'native-real-' : 'native-synthetic-'));
-const env = cleanDesktopTestEnv({ ...process.env, AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_CLAUDE_BIN: '/missing-play-claude', AGENTSTUDIO_PI_BIN: '/missing-play-pi' });
+const env = cleanDesktopTestEnv({ ...process.env, AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTROOM_AUTO_GROUP_NETWORK: publicTest ? '1' : '0', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_CLAUDE_BIN: '/missing-play-claude', AGENTSTUDIO_PI_BIN: '/missing-play-pi' });
 if (!real) {
   const home = join(output, 'codex-home'); await mkdir(home);
   await writeFile(join(home, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'synthetic-local-only' }), { mode: 0o600 });
@@ -31,6 +31,8 @@ const request = async (path, body) => page.evaluate(async ({ path, body }) => {
 try {
   const packaged = process.env.AGENTROOM_TEST_EXECUTABLE;
   app = await launchDesktopTest(_electron, { executablePath: packaged || require('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+  if (!real) app.process().stderr?.on('data', bytes => { void appendFile(join(output, 'electron-startup.log'), bytes); });
+  await writeFile(join(output, 'native-state.json'), JSON.stringify(await app.evaluate(({ app, BrowserWindow }) => ({ ready: app.isReady(), windows: BrowserWindow.getAllWindows().map(win => ({ id: win.id, url: win.webContents.getURL() })) })), null, 2));
   page = await app.firstWindow(); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1240, height: 900 }));
   await expect(page.getByTestId('im-app')).toBeVisible();
   const contacts = (await request('/contacts')).contacts; assert.ok(contacts.some(c => c.id === 'agent_codex'), 'Codex contact missing');

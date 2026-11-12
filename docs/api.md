@@ -6,7 +6,7 @@ Owner APIs use trusted personal IPC/HTTP only; the separate guest listener never
 
 | Method | Path | Contract |
 | --- | --- | --- |
-| GET / POST | `/api/chats/:threadId/sharing` | Current sharing/roster; `action:prepare` with `{clientId,brief,hostName?,agents:[{contactId,persona}],maxGuests?,maxTurns?,ttlHours?}`, `publish {clientId,version}`, `remove {clientId,participantId}` or `close {clientId}` |
+| GET / POST | `/api/chats/:threadId/sharing` | Current sharing/roster; `action:prepare` with `{clientId,brief,hostName?,agents:[{contactId,persona}],maxGuests?,maxTurns?,ttlHours?}`, `publish {clientId,shareId,version}`, `remove {clientId,participantId}` or `close {clientId}`; `acknowledge-run {clientId,runId,confirmedStopped:true}` clears only an owner-reviewed unknown shared execution |
 | GET / POST | `/api/chats/:threadId/artifacts` | List real group artifacts; `action:create {kind:note|poll|quiz,title,text?,choices?,clientId}`, `edit {artifactId,revisionId,hash,text,clientId}`, `act {artifactId,revisionId,choiceId,clientId}` |
 | GET / POST | `/api/group-rules` | Versioned `{version,createGroups,externalInvites:review|auto_new_group|disabled,maxGroupsPerRequest:1..3}` |
 | POST | `/api/playrooms/:shareId/invite` | Exactly `{}`; explicit owner reveal of `{roomId,token,localUrl,url}`; no public URL without a live tunnel |

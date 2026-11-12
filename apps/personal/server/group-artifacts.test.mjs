@@ -14,7 +14,7 @@ async function fixture(t) {
   t.after(async () => { await sharing.close(); await creation.runtime.close(); store.close(); await rm(dir, { recursive: true, force: true }); });
   store.put('contact', { id: 'agent_codex', kind: 'agent', name: '搭子', instructions: 'PRIVATE', binding: { type: 'local', localAgentId: 'codex' }, version: 1 });
   const thread = messenger.createChat({ kind: 'group', title: '一起玩', memberIds: ['agent_codex'] });
-  const room = sharing.prepare(thread.id, { brief: '公开背景', agents: [{ contactId: 'agent_codex', persona: '公开搭子' }], clientId: crypto.randomUUID() }); sharing.publish(thread.id, { version: room.share.version, clientId: crypto.randomUUID() });
+  const room = sharing.prepare(thread.id, { brief: '公开背景', agents: [{ contactId: 'agent_codex', persona: '公开搭子' }], clientId: crypto.randomUUID() }); sharing.publish(thread.id, { shareId: room.id, version: room.share.version, clientId: crypto.randomUUID() });
   const enter = name => sharing.join({ invite: sharing.invitation(room.id).token, nickname: name, clientId: crypto.randomUUID() }).room.me.id;
   return { store, sharing, artifacts, creation, thread, a: enter('甲'), b: enter('乙') };
 }
@@ -37,4 +37,21 @@ test('poll and quiz actions synchronize by real actor, are replay safe and canno
   assert.throws(() => f.artifacts.editNote(f.thread.id, f.a, { artifactId: poll.id, revisionId: poll.revisionId, hash: 'x', path: '../../auth.json', text: 'x', clientId: crypto.randomUUID() }), e => e.status === 400);
   f.sharing.action(f.sharing.current(f.thread.id).id, 'self', { type: 'remove', participantId: f.a, clientId: crypto.randomUUID() });
   assert.throws(() => f.artifacts.read(f.thread.id, f.a, poll.id), e => e.status === 403);
+});
+test('publication cannot promote private in-flight tools or draft-era artifacts into the guest audience', async t => {
+  const f = await fixture(t); f.creation.options.groupSharing = f.sharing;
+  const group = f.sharing.messenger.createChat({ kind: 'group', title: '原私有群', memberIds: ['agent_codex'] });
+  const run = f.store.appendRun(group, { text: 'PRIVATE_REQUEST', mode: 'codex', localAgentId: 'codex', contactId: 'agent_codex', contactSnapshot: { instructions: 'PRIVATE_ROLE' } }); run.status = 'running'; f.store.put('thread', group);
+  const room = f.sharing.prepare(group.id, { brief: '公开简介', agents: [{ contactId: 'agent_codex', persona: '公开搭子' }], clientId: crypto.randomUUID() });
+  const privateNote = f.artifacts.create(group.id, 'self', { kind: 'note', title: '未审核便笺', text: 'PRIVATE_DRAFT_NOTE', clientId: crypto.randomUUID() });
+  f.sharing.publish(group.id, { shareId: room.id, version: f.sharing.info(group.id).share.version, clientId: crypto.randomUUID() });
+  assert.throws(() => f.creation.context(group.id, run.id), e => e.status === 403); assert.equal(f.creation.canPublishConversation(group.id, run.id), false);
+  const guest = f.sharing.join({ invite: f.sharing.invitation(room.id).token, nickname: '新朋友', clientId: crypto.randomUUID() }).room.me.id;
+  assert.ok(!f.artifacts.list(group.id, guest).some(a => a.id === privateNote.id));
+});
+test('one interrupted legacy artifact migration cannot prevent workspace startup or discard the old plan', async t => {
+  const f = await fixture(t), room = f.sharing.current(f.thread.id); room.groupArtifactsMigrated = false; room.board = { notes: '保留的旧计划', tasks: [], choices: [] }; f.store.put('play_room', room);
+  const create = f.artifacts.create; f.artifacts.create = () => { const error = new Error('pending'); error.code = 'operation_unknown'; throw error; };
+  assert.doesNotThrow(() => f.artifacts.migrate()); f.artifacts.create = create;
+  assert.equal(f.store.require('play_room', room.id).board.notes, '保留的旧计划'); assert.equal(f.sharing.migrationWarnings(f.thread.id)[0].text, '保留的旧计划'); assert.doesNotThrow(() => f.artifacts.migrate());
 });

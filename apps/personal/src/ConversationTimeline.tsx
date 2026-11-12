@@ -22,7 +22,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
       avatarDataUrl: (run?.connectionId && serviceImages[run.connectionId]) || original?.avatarDataUrl };
   };
   const bubble = (message: Message, run?: Run, preview = false) => {
-    if (message.groupCard) return <button className="group-chat-card" data-testid={`group-card-${message.groupCard.threadId}`} onClick={() => onOpenGroup?.(message.groupCard!.threadId)}><strong>{message.groupCard.title}</strong><span>{message.groupCard.state === "draft" ? "邀请等你确认" : message.groupCard.state === "published" ? "分享邀请已就绪" : "伙伴已在群里"}</span><small>打开群聊</small></button>;
+    if (message.groupCard) return <button className="group-chat-card" data-testid={`group-card-${message.groupCard.threadId}`} onClick={() => onOpenGroup?.(message.groupCard!.threadId)}><strong>{message.groupCard.title}</strong><span>{message.groupCard.state === "draft" ? "邀请等你确认" : message.groupCard.state === "published" ? "公开范围已确认" : "伙伴已在群里"}</span><small>打开群聊</small></button>;
     if (message.role === "system") return <div className="im-schedule-event" data-testid="im-schedule-event"><Clock3 size={13} /><RichText text={message.text} /></div>;
     const current = contacts.find(contact => contact.id === message.contactId);
     const sender = message.contactSnapshot ? { ...message.contactSnapshot, avatar: message.contactSnapshot.avatar ?? null, ...(run?.connectionId ? originalAvatar(run) : {}) } : current;
@@ -33,7 +33,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
       {incoming && group && <button className="im-message-avatar" aria-label={`查看${sender?.name || "助手"}`} title={sender?.name || "助手"} data-testid="im-message-avatar" disabled={!sender} onClick={() => sender && onContact(sender.id)}><Avatar contact={sender} size="small" /></button>}
       <div className="im-bubble" data-testid="im-message-content">
         {group && <div className="group-message-sender">{message.contactId === viewerId ? "你" : sender?.name || "朋友"}<span>{sender?.kind === "agent" || message.role === "assistant" ? "AI" : message.contactId === "self" ? "主人" : "朋友"}</span></div>}
-        {reply && <div className="im-reply-quote"><span>{reply.role === "user" ? "你" : reply.contactSnapshot?.name || "助手"}</span>{reply.text.slice(0, 120)}</div>}
+        {reply && <div className="im-reply-quote"><span>{reply.contactId === viewerId ? "你" : reply.contactSnapshot?.name || contacts.find(c => c.id === reply.contactId)?.name || "朋友"}</span>{reply.text.slice(0, 120)}</div>}
         <RichText text={message.text} onSource={sourceId => { const found = thread.messages.flatMap(item => item.attachments || []).find(source => source.id === sourceId); if (found) onSource(found); else onError("找不到这处引用的原始资料"); }} />
         {message.attachments?.map((source, i) => <button className="im-attachment" key={source.id || i} onClick={() => onSource(source)}><FileText size={17} />{source.name}</button>)}
         {message.skippedContacts?.map(contact => <p className="im-field-hint" key={contact.id}>{contact.name} 未参与回复：{contact.reason}</p>)}

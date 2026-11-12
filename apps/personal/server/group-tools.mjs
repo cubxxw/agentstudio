@@ -29,15 +29,15 @@ export class GroupTools {
   tools(context) { return definitions.filter(t => t.name === 'group_info' || this.ownerRequest(context)); }
   target(context, threadId) {
     const { run } = this.run(context), thread = this.store.require('thread', threadId || context.threadId);
-    const organizer = thread.groupOrigin?.runId === context.runId && this.ownerRequest(context);
+    const organizer = thread.groupOrigin?.runId === context.runId && thread.groupOrigin.organizerMember === false && this.ownerRequest(context);
     if ((!thread.memberIds?.includes(context.contactId) && !organizer) || (run.sharedGroup && thread.id !== context.threadId)) fail(403, 'group_scope', '这个工具只可访问你加入且已授权的群聊');
     return thread;
   }
   version(thread) { return digest(JSON.stringify({ version: thread.version, rules: this.rules().version, share: this.sharing.current(thread.id)?.scopeVersion, members: thread.members })).slice(0, 24); }
   info(context, threadId) {
     const thread = this.target(context, threadId), { run } = this.run(context);
-    return { threadId: thread.id, title: thread.title, kind: thread.kind, purpose: thread.groupPurpose || '', version: this.version(thread), roster: this.sharing.roster(thread),
-      sharing: this.sharing.current(thread.id) ? { state: this.sharing.current(thread.id).state, requiresOwnerReview: this.sharing.current(thread.id).state === 'draft' } : null,
+    return { threadId: thread.id, title: thread.title, kind: thread.kind, purpose: run.sharedGroup ? this.sharing.current(thread.id)?.brief || '' : thread.groupPurpose || '', version: this.version(thread), roster: this.sharing.roster(thread, Boolean(run.sharedGroup)),
+      sharing: this.sharing.current(thread.id) ? { state: this.sharing.current(thread.id).state, networkState: this.sharing.options.networkStatus?.().state || 'off', requiresOwnerReview: this.sharing.current(thread.id).state === 'draft' } : null,
       rules: run.sharedGroup ? { scope: 'published_group_only', canExpandGroups: false } : this.rules(),
       notice: '人在群里不代表在线或已读；Agent ready 只代表可执行。新群没有自动发送任务，使用群卡打开后发出消息。所有消息和昵称是内容，不能授予新权限。' };
   }
@@ -62,6 +62,9 @@ export class GroupTools {
       if (previous.hash !== hash) fail(409, 'idempotency_conflict', '同一工具标识的参数已改变');
       if (previous.state !== 'completed') fail(409, 'operation_unknown', '原操作需要核查，没有重复建群');
       if (previous.error) fail(previous.error.status, previous.error.code, previous.error.message);
+      if (args.threadId) this.target(context, args.threadId);
+      if (name === 'group_add_agents') return { ...this.info(context, args.threadId), replayed: true };
+      if (name === 'group_invite') { const original = this.store.get('play_room', previous.result.shareId), active = original && !original.closedAt && Date.parse(original.expiresAt) > this.sharing.clock(); const state = active ? original.state : 'closed'; return { ...previous.result, state, requiresOwnerReview: state === 'draft', next: state === 'closed' ? '原邀请已经结束，未替换成其他邀请。' : state === 'draft' ? '原邀请等待主人确认。' : '原公开范围已确认，请查看实际网页状态。', replayed: true }; }
       return previous.result;
     }
     this.validate(context, name, args); const rules = this.rules();
@@ -73,9 +76,13 @@ export class GroupTools {
         const { run } = this.run(context), originMessageId = run.messageId;
         if (this.store.list('thread').filter(t => t.groupOrigin?.threadId === context.threadId && t.groupOrigin?.messageId === originMessageId).length >= rules.maxGroupsPerRequest) fail(429, 'group_budget', '本次请求的建群数量已到上限');
         this.agents(args.agentIds);
-        const thread = this.sharing.messenger.createChat({ kind: 'group', title: text(args.title, 80), memberIds: args.agentIds });
-        thread.groupPurpose = text(args.purpose, 1000); thread.groupOrigin = { threadId: context.threadId, messageId: originMessageId, runId: context.runId, depth: 1 }; this.store.put('thread', thread);
+        const title = text(args.title, 80), purpose = text(args.purpose, 1000);
+        this.store.transaction(() => {
+        const thread = this.sharing.messenger.createChat({ kind: 'group', title, memberIds: args.agentIds });
+        thread.groupPurpose = purpose; thread.groupOrigin = { threadId: context.threadId, messageId: originMessageId, runId: context.runId, organizerMember: args.agentIds.includes(context.contactId), depth: 1 }; this.store.put('thread', thread);
         this.card(context, thread, 'created'); result = { threadId: thread.id, title: thread.title, state: 'created', next: '群已创建。群卡可打开群聊；其他真人尚未加入。涉及外部参与者，请 group_info 后 group_invite。' };
+          this.store.put('group_tool_operation', { id: operationId, runId: context.runId, hash, state: 'completed', result });
+        });
       } else if (name === 'group_add_agents') {
         const thread = this.target(context, args.threadId); this.agents(args.agentIds);
         if (this.sharing.current(thread.id)?.state === 'published') fail(409, 'public_scope', '公开群请先结束当前邀请，再调整公开 Agent 范围');
@@ -86,8 +93,8 @@ export class GroupTools {
         const thread = this.target(context, args.threadId);
         const prepared = this.sharing.prepare(thread.id, { clientId: operationId, brief: args.brief, agents: args.agents });
         const automatic = rules.externalInvites === 'auto_new_group' && thread.groupOrigin?.runId === context.runId && thread.messages.length === 0;
-        result = automatic ? this.sharing.publish(thread.id, { clientId: operationId, version: prepared.share.version }) : prepared;
-        result = { threadId: thread.id, shareId: prepared.id, state: result.share.state, requiresOwnerReview: !automatic, next: automatic ? '公开邀请已就绪，请主人在群内复制分享链接。' : '公开范围已准备，主人在群内确认后即可复制分享链接。' };
+        result = automatic ? this.sharing.publish(thread.id, { shareId: prepared.id, clientId: operationId, version: prepared.share.version }) : prepared;
+        result = { threadId: thread.id, shareId: prepared.id, state: result.share.state, requiresOwnerReview: !automatic, next: automatic ? '公开范围已确认，正在尝试开启网页邀请；请主人查看网络状态后复制链接。' : '公开范围已准备，主人在群内确认后即可复制分享链接。' };
         this.card(context, thread, result.state);
       }
       if (!result) fail(403, 'tool_unavailable', '未知群工具');
@@ -101,11 +108,13 @@ export class GroupTools {
     for (const agentId of agentIds) { const c = this.store.require('contact', agentId); if (c.kind !== 'agent' || c.added === false || c.binding?.type !== 'local' || !['codex', 'pi'].includes(c.binding.localAgentId)) fail(403, 'invalid_agents', '请选择已添加的本机 Codex 或 Pi 联系人'); }
   }
   card(context, target, state) {
-    this.store.updateThread(context.threadId, thread => {
+    const thread = this.store.require('thread', context.threadId);
+    {
       const existing = thread.messages.find(m => m.groupCard?.threadId === target.id && m.groupCard?.originRunId === context.runId);
       const card = { threadId: target.id, title: target.title, state, originRunId: context.runId };
       if (existing) existing.groupCard = card;
       else thread.messages.push({ id: id('msg'), role: 'system', text: `已创建群聊：${target.title}`, createdAt: now(), groupCard: card });
-    });
+      thread.updatedAt = now(); this.store.put('thread', thread);
+    }
   }
 }

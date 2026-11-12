@@ -26,7 +26,7 @@ export class PersonalStore {
     this.lockDb = new DatabaseSync(this.lockPath);
     // Never open/close this inode through fs: POSIX close would release another
     // SQLite connection's process lock. SQLite must manage every descriptor.
-    try { chmodSync(this.lockPath, 0o600); this.lockDb.exec('PRAGMA busy_timeout=0; BEGIN EXCLUSIVE;'); }
+    try { chmodSync(this.lockPath, 0o600); this.lockDb.exec('PRAGMA busy_timeout=100; BEGIN EXCLUSIVE;'); }
     catch { this.lockDb.close(); this.lockDb = null; throw new Error('Personal workspace is already open in another process'); }
     this.databasePath = join(dataDir, 'personal.sqlite');
     try {
@@ -250,7 +250,7 @@ export class PersonalStore {
       let changed = false;
       for (const run of thread.runs) {
         if (!['running', 'verifying'].includes(run.status) && !run.cancelPending) continue;
-        if (run.cancelPending) { run.stopUnconfirmed = true; run.requiresReconciliation = true; run.cancelPending = false; }
+        if (run.cancelPending || run.sharedGroup && run.mode === 'codex') { run.stopUnconfirmed = true; run.requiresReconciliation = true; run.cancelPending = false; }
         run.status = run.mode === 'local' ? 'blocked' : 'unknown';
         run.error = run.mode === 'local' ? '服务重启中断了本地整理，可重试' : '服务重启时任务尚未确认结果；先核查，避免重复执行';
         run.finishedAt = now();

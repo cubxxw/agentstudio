@@ -645,7 +645,7 @@ export class PersonalWorker {
         addReaction(message, { emoji: decision.emoji, contactId: selected.contactId, contactSnapshot: selected.contactSnapshot, runId, createdAt: now(), recipientIds: audienceForRun(thread, selected), ...(selected.artifactReads?.length ? { artifactReads: selected.artifactReads } : {}) });
       }
       delete selected.progress;
-      selected.participation = decision; selected.status = 'completed'; selected.finishedAt = now();
+      selected.participation = decision; if (selected.sharedGroup) selected.sharedPublishedAt = now(); selected.status = 'completed'; selected.finishedAt = now();
       selected.verificationState = 'not_applicable'; selected.requiresReconciliation = false;
       acknowledgeInput(thread, selected);
       thread.summary = decision.action === 'reaction' ? `${selected.contactSnapshot.name} 回应了 ${decision.emoji}` : `${selected.contactSnapshot.name} 已阅，本次保持安静`;
@@ -663,7 +663,8 @@ export class PersonalWorker {
     this.change(threadId, runId, (thread, run) => {
       const artifact = this.store.saveArtifact(threadId, runId, title, body, source);
       thread.artifacts.push(artifact);
-      thread.messages.push({ id: id('msg'), role: 'assistant', text: source === 'local' ? '本地统计与完整原文报告已保存并校验。可在成果中查看和下载 Markdown。' : body, createdAt: now(), runId, artifactId: artifact.id, attachments: [],
+      if (run.sharedGroup) run.sharedPublishedAt = now();
+      thread.messages.push({ id: id('msg'), role: 'assistant', ...(run.sharedGroup ? { groupShareId: run.sharedGroup.id } : {}), text: source === 'local' ? '本地统计与完整原文报告已保存并校验。可在成果中查看和下载 Markdown。' : body, createdAt: now(), runId, artifactId: artifact.id, attachments: [],
         ...(run.contactSnapshot ? { contactId: run.contactId, contactSnapshot: run.contactSnapshot, recipientIds: audienceForRun(thread, run), artifactReads: structuredClone(run.artifactReads || []) } : {}) });
       if (!outcome.status || outcome.status === 'completed') acknowledgeInput(thread, run);
       delete run.progress; run.status = outcome.status || 'completed'; run.finishedAt = now(); run.verificationState = outcome.verificationState || 'verified';

@@ -10,7 +10,7 @@ const { chromium, expect } = require('@playwright/test'), evidence = process.env
 if (!evidence) throw new Error('Set AGENTROOM_EVIDENCE_DIR');
 await mkdir(join(evidence, 'screenshots'), { recursive: true });
 const inventory = { agents: [{ id: 'codex', name: 'Codex', installed: true, auth: { status: 'configured' }, execution: { supported: true } }] };
-const host = await createPersonalServer({ dataDir: join(evidence, `integrated-browser-${Date.now()}`), port: 0, staticDir: resolve(evidence, 'ui'), discoverLocalAgents: async () => inventory,
+const host = await createPersonalServer({ autoGroupNetwork: false, dataDir: join(evidence, `integrated-browser-${Date.now()}`), port: 0, staticDir: resolve(evidence, 'ui'), discoverLocalAgents: async () => inventory,
   guestSession: async () => ({ deps: {}, close() {} }), executeLocalAgent: async input => {
     const context = JSON.parse(input.prompt.split('<untrusted_thread_context>\n')[1].split('\n</untrusted_thread_context>')[0]);
     return { markdown: JSON.stringify({ action: 'reply', text: `${context.agentIdentity.name}：一起把这个周末安排好。` }) };
@@ -71,7 +71,16 @@ try {
   const identity = await b.evaluate(() => fetch(location.pathname.replace('/g/', '/g-api/')).then(r => r.json()).then(r => r.me.id));
   await b.reload(); await expect(b.getByTestId('group-guest-chat')).toBeVisible();
   assert.equal(await b.evaluate(() => fetch(location.pathname.replace('/g/', '/g-api/')).then(r => r.json()).then(r => r.me.id)), identity);
-  assert.deepEqual(errors, []); assert.equal(host.store.list('play_job').length, 0); assert.equal(host.store.require('thread', thread.id).runs.length, 2);
+  await a.getByTestId('group-message').fill('响应丢失后也只发送一次');
+  await a.route(`**/g-api/${room.id}/actions`, async route => { if (route.request().postDataJSON().type !== 'message') return route.continue(); await route.fetch(); await route.abort(); });
+  await a.getByTestId('group-send').click(); await expect(a.getByTestId('group-reconcile-send')).toBeVisible();
+  await a.unroute(`**/g-api/${room.id}/actions`); await a.reload(); await expect(a.getByTestId('group-guest-chat')).toBeVisible();
+  await a.getByTestId('group-reconcile-send').click(); await expect(a.getByTestId('group-message')).toHaveValue('');
+  await a.route(`**/g-api/${room.id}/actions`, route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'agent_unavailable', message: '这位伙伴暂不可用，请更正消息' } }) }));
+  await a.getByTestId('group-message').fill('确定被拒绝的消息'); await a.getByTestId('group-send').click(); await expect(a.getByRole('alert')).toContainText('更正消息');
+  await expect(a.getByTestId('group-reconcile-send')).toBeHidden(); await a.unroute(`**/g-api/${room.id}/actions`);
+  await a.getByTestId('group-message').fill('更正后的新消息'); await a.getByTestId('group-send').click(); await expect(a.getByTestId('group-message')).toHaveValue('');
+  assert.deepEqual(errors, []); assert.equal(host.store.list('play_job').length, 0); assert.equal(host.store.require('thread', thread.id).runs.length, 6);
   status = 'passed';
 } finally { await writeFile(join(evidence, 'integrated-browser-result.json'), JSON.stringify({ status, errors }, null, 2)); await browser.close(); await host.close(); }
 console.log(`Integrated groups browser acceptance: ${status}`);

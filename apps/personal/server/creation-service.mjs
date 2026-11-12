@@ -21,7 +21,7 @@ export class CreationService {
   context(threadId, runId, { allowYielded = false } = {}) {
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
     if (!run?.contactId || !['running', 'verifying'].includes(run.status) || !thread.memberIds?.includes(run.contactId)) fail(403, 'grant_revoked', '本次 Agent 执行已经停止或不再属于这个群聊');
-    if (run.sharedGroup && !this.options.groupSharing?.canPublishRun(thread, run)) fail(403, 'group_changed', '公开范围或群成员已变化');
+    if (this.options.groupSharing && !this.options.groupSharing.canUseTools(thread, run)) fail(403, 'group_changed', '公开范围或群成员已变化');
     const contact = this.store.require('contact', run.contactId);
     if (contact.binding?.type !== 'local' || contact.binding.localAgentId !== run.localAgentId || !['codex', 'pi'].includes(run.localAgentId)) fail(403, 'binding_changed', '这次执行的助手绑定已经改变');
     const message = thread.messages.find(item => item.id === run.messageId);
@@ -357,7 +357,7 @@ export class CreationService {
   }
   canPublishConversation(threadId, runId) {
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
-    if (run?.sharedGroup && !this.options.groupSharing?.canPublishRun(thread, run)) return false;
+    if (run && this.options.groupSharing && !this.options.groupSharing.canUseTools(thread, run)) return false;
     if (!run?.artifactReads?.length) return true;
     const source = thread.messages.find(message => message.id === run.messageId);
     const audience = (source?.recipientIds || run.participantSnapshot?.map(peer => peer.id) || thread.memberIds || []).filter(contactId => !thread.memberIds || thread.memberIds.includes(contactId));

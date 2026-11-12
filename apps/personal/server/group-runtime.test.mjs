@@ -8,13 +8,13 @@ import { createPersonalServer } from './index.mjs';
 const detected = { agents: [{ id: 'codex', name: 'Codex', installed: true, auth: { status: 'configured' }, execution: { supported: true } }] };
 async function fixture(t, execute) {
   const dir = await mkdtemp(join(tmpdir(), 'group-runtime-')), changes = new EventEmitter(); let homesClosed = 0;
-  const host = await createPersonalServer({ dataDir: dir, port: 0, discoverLocalAgents: async () => detected, executeLocalAgent: execute, guestSession: async () => ({ deps: { env: { HOME: '/isolated-fixture' } }, close: () => homesClosed++ }), onChange: () => changes.emit('change') });
+  const host = await createPersonalServer({ autoGroupNetwork: false, dataDir: dir, port: 0, discoverLocalAgents: async () => detected, executeLocalAgent: execute, guestSession: async () => ({ deps: { env: { HOME: '/isolated-fixture' } }, close: () => homesClosed++ }), onChange: () => changes.emit('change') });
   await host.listen(); host.playrooms.messenger.sync(detected);
   t.after(async () => { await host.close(); await rm(dir, { recursive: true, force: true }); });
   const contact = host.store.require('contact', 'agent_codex'); host.store.put('contact', { ...contact, instructions: 'PRIVATE_ROLE' });
   const thread = host.playrooms.messenger.createChat({ kind: 'group', title: '共享周末', memberIds: ['agent_codex'] });
   thread.messages.push({ id: 'old', role: 'user', text: 'PRIVATE_HISTORY', contactId: 'self' }); host.store.put('thread', thread);
-  const room = host.playrooms.prepare(thread.id, { brief: 'PUBLIC_BRIEF', agents: [{ contactId: contact.id, persona: 'PUBLIC_ROLE' }], clientId: crypto.randomUUID() }); host.playrooms.publish(thread.id, { clientId: crypto.randomUUID(), version: room.share.version });
+  const room = host.playrooms.prepare(thread.id, { brief: 'PUBLIC_BRIEF', agents: [{ contactId: contact.id, persona: 'PUBLIC_ROLE' }], clientId: crypto.randomUUID() }); host.playrooms.publish(thread.id, { shareId: room.id, clientId: crypto.randomUUID(), version: room.share.version });
   const wait = predicate => new Promise((resolve, reject) => { const check = () => { const current = host.store.require('thread', thread.id); if (predicate(current)) { clearTimeout(timer); changes.off('change', check); resolve(current); } }; const timer = setTimeout(() => { changes.off('change', check); reject(new Error(JSON.stringify(host.store.require('thread', thread.id).runs))); }, 5000); changes.on('change', check); check(); });
   return { host, thread, room, wait, closed: () => homesClosed };
 }

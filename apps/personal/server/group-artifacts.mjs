@@ -39,7 +39,7 @@ export class GroupArtifacts {
   }
   scope(threadId, actor, artifactId) {
     this.sharing.member(threadId, actor); const record = this.store.require('group_artifact', artifactId), room = this.sharing.current(threadId);
-    if (record.threadId !== threadId || (room && record.shareId !== room.id)) fail(403, 'artifact_scope', '这个作品版本没有分享到当前群邀请');
+    if (record.threadId !== threadId || (room?.state === 'published' && record.shareId !== room.id)) fail(403, 'artifact_scope', '这个作品版本没有分享到当前群邀请');
     return record;
   }
   create(threadId, actor, input) {
@@ -61,13 +61,13 @@ export class GroupArtifacts {
       this.files.write(stage.id, { path, text: body, expectedHash: null }, context);
       const integrated = this.files.integrate(this.files.submit(stage.id, context).id, context);
       const current = this.store.require('workspace_artifact', artifact.id); current.presentation = input.kind; current.groupThreadId = threadId; this.store.put('workspace_artifact', current); this.files.project(current);
-      this.store.put('group_artifact', { id: artifact.id, threadId, shareId: this.sharing.current(threadId)?.id || null, kind: input.kind, revisionId: integrated.artifact.headRevisionId, createdBy: actor });
+      this.store.put('group_artifact', { id: artifact.id, threadId, shareId: this.sharing.current(threadId)?.state === 'published' ? this.sharing.current(threadId).id : null, kind: input.kind, revisionId: integrated.artifact.headRevisionId, createdBy: actor });
       return this.read(threadId, actor, artifact.id);
     });
   }
   list(threadId, actor) {
     this.sharing.member(threadId, actor); const room = this.sharing.current(threadId);
-    return this.store.list('group_artifact').filter(a => a.threadId === threadId && (!room || a.shareId === room.id)).map(a => this.read(threadId, actor, a.id));
+    return this.store.list('group_artifact').filter(a => a.threadId === threadId && (room?.state !== 'published' || a.shareId === room.id)).map(a => this.read(threadId, actor, a.id));
   }
   read(threadId, actor, artifactId) {
     const record = this.scope(threadId, actor, artifactId), artifact = this.store.require('workspace_artifact', artifactId);
@@ -104,7 +104,8 @@ export class GroupArtifacts {
   }
   migrate() {
     for (const room of this.store.list('play_room')) {
-      if (!room.threadId || room.groupArtifactsMigrated) continue;
+      if (!room.threadId || room.groupArtifactsMigrated || room.groupArtifactsMigrationError) continue;
+      try {
       {
         const definitions = [];
         if (room.board?.notes) definitions.push({ kind: 'note', title: '共同便笺', text: room.board.notes });
@@ -116,6 +117,7 @@ export class GroupArtifacts {
         });
       }
       room.groupArtifactsMigrated = true; this.store.put('play_room', room);
+      } catch { this.store.put('play_room', { ...this.store.require('play_room', room.id), groupArtifactsMigrationError: true }); }
     }
   }
 }

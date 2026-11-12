@@ -26,13 +26,25 @@ export class GroupSharing extends Playrooms {
   }
   active(room) { super.active(room); if (room.state !== 'published') groupError(403, 'publication_pending', '主人还在确认共同背景，暂时不能加入'); }
   current(threadId) { return this.store.list('play_room').find(room => room.threadId === threadId && !room.closedAt && Date.parse(room.expiresAt) > this.clock()); }
+  retireExpired(thread) {
+    if (thread.kind !== 'group') return;
+    const current = this.current(thread.id), allowed = new Set(current?.state === 'published' ? current.participants.filter(p => !p.removedAt).map(p => p.id) : []);
+    const retired = thread.memberIds.filter(actor => this.store.get('contact', actor)?.externalGuest && !allowed.has(actor));
+    if (!retired.length) return;
+    thread.memberIds = thread.memberIds.filter(actor => !retired.includes(actor)); thread.members = thread.members.filter(m => !retired.includes(m.contactId)); thread.version++; this.store.put('thread', thread);
+    for (const room of this.store.list('play_room').filter(r => r.threadId === thread.id)) {
+      let changed = false; for (const participant of room.participants) if (retired.includes(participant.id) && !participant.removedAt) { participant.removedAt = this.stamp(); changed = true; }
+      if (changed) { room.version++; room.scopeVersion++; if (Date.parse(room.expiresAt) <= this.clock()) room.closedAt ||= this.stamp(); this.store.put('play_room', room); }
+    }
+    queueMicrotask(() => { if (!this.closed) this.cancelPublic(thread.id); });
+  }
   member(threadId, actorId) {
-    const thread = this.store.require('thread', threadId);
+    const thread = this.store.require('thread', threadId); this.retireExpired(thread);
     if (thread.kind !== 'group' || !thread.memberIds.includes(actorId)) groupError(403, 'membership_required', '你已不在这个群聊中');
     if (actorId !== 'self') { const room = this.current(threadId); if (this.store.require('contact', actorId).externalGuest && !room) groupError(403, 'invitation_missing', '这个群聊没有开放访问'); if (room?.state === 'published' || this.store.require('contact', actorId).externalGuest) this.active(room); }
     return thread;
   }
-  prepare(threadId, body) {
+  prepare(threadId, body, inTransaction = false) {
     groupFields(body, ['clientId', 'brief', 'hostName', 'agents', 'maxGuests', 'maxTurns', 'ttlHours', 'template']);
     const thread = this.member(threadId, 'self');
     if (!Array.isArray(body.agents) || !body.agents.length || body.agents.length > 10) groupError(400, 'agents_required', '请选择公开的 Agent 及其角色说明');
@@ -42,13 +54,18 @@ export class GroupSharing extends Playrooms {
       if (!thread.memberIds.includes(contact.id) || contact.kind !== 'agent' || contact.binding?.type !== 'local' || !['codex', 'pi'].includes(contact.binding.localAgentId)) groupError(400, 'unsupported_agent', '公开群聊暂支持群内的本机 Codex 和 Pi');
       const publicContact = this.messenger.publicContact(contact);
       if (contact.binding.localAgentId === 'codex' && (publicContact.profile?.guestCompatible === false || publicContact.execution && publicContact.execution.provider !== 'openai')) groupError(409, 'guest_configuration_unsupported', '请使用兼容公开群聊的 Codex 内置配置或 Pi');
-      return { contactId: contact.id, persona: groupText(item.persona, 1500), backend: contact.binding.localAgentId, executionSnapshot: publicContact.execution || contact.executionSnapshot };
+      return { contactId: contact.id, persona: groupText(item.persona, 1500), backend: contact.binding.localAgentId, binding: structuredClone(contact.binding), executionSnapshot: publicContact.execution || contact.executionSnapshot };
     });
     if (new Set(agents.map(a => a.contactId)).size !== agents.length) groupError(400, 'invalid_input', 'Agent 不能重复');
     const brief = groupText(body.brief, 6000), hostName = groupText(body.hostName, 40, this.store.require('contact', 'self').name);
     const maxGuests = integer(body.maxGuests, 5, 10), maxTurns = integer(body.maxTurns, 30, 30), ttlHours = integer(body.ttlHours, 24, 72);
-    const result = this.store.idempotent(`group:prepare:${threadId}`, body.clientId, body, () => {
+    const effect = () => {
       if (this.current(threadId)) groupError(409, 'sharing_exists', '这个群已有邀请，请先结束后再调整公开背景');
+      for (const old of this.store.list('play_room').filter(r => r.threadId === threadId && !r.closedAt)) {
+        old.closedAt = this.stamp(); for (const participant of old.participants.filter(p => !p.isOwner && !p.removedAt)) participant.removedAt = this.stamp(); this.store.put('play_room', old);
+      }
+      const retired = thread.memberIds.filter(contactId => this.store.require('contact', contactId).externalGuest);
+      if (retired.length) { thread.memberIds = thread.memberIds.filter(contactId => !retired.includes(contactId)); thread.members = thread.members.filter(m => !retired.includes(m.contactId)); thread.version++; this.store.put('thread', thread); }
       const roomId = id('pr'), token = randomBytes(32).toString('base64url');
       const credential = { id: roomId, type: 'play-invite', url: `https://agentroom.invalid/${roomId}`, credentialVersion: 1 };
       credential.credentialRef = this.store.vault.create(token, credential);
@@ -57,32 +74,41 @@ export class GroupSharing extends Playrooms {
         maxGuests, maxTurns, turns: 0, version: 1, scopeVersion: 1, createdAt: this.stamp(), expiresAt: new Date(this.clock() + ttlHours * 3600000).toISOString(),
         credential, inviteHash: digest(token), participants: [{ id: 'self', name: hostName, isOwner: true, joinedAt: this.stamp() }], artifactGrants: [] };
       this.store.put('play_room', room); return { id: roomId };
-    });
+    };
+    const result = inTransaction ? effect() : this.store.idempotent(`group:prepare:${threadId}`, body.clientId, body, effect);
     this.changed(); return this.owner(result.id);
   }
-  publish(threadId, body) {
-    groupFields(body, ['clientId', 'version']); const room = this.current(threadId);
+  publish(threadId, body, inTransaction = false) {
+    groupFields(body, ['clientId', 'version', 'shareId']);
+    const room = typeof body.shareId === 'string' ? this.store.get('play_room', body.shareId) : null;
+    if (!room || room.threadId !== threadId || this.current(threadId)?.id !== room.id) groupError(409, 'invitation_changed', '这份邀请已经更换，请重新查看公开范围后确认');
     if (!room) groupError(404, 'not_found', '请先准备公开邀请');
-    this.store.idempotent(`group:publish:${room.id}`, body.clientId, body, () => {
+    let published = false;
+    const effect = () => {
       const current = this.store.require('play_room', room.id), thread = this.member(threadId, 'self');
       if (current.version !== body.version) groupError(409, 'version_conflict', '群信息已更新，请重新确认');
       if (current.state !== 'draft') groupError(409, 'already_published', '邀请已经开放');
-      current.state = 'published'; current.boundaryMessageId = thread.messages.at(-1)?.id || null; current.publishedAt = this.stamp(); current.version++;
+      for (const agent of current.agents) this.validateAgent(thread, agent);
+      current.state = 'published'; current.boundaryMessageId = thread.messages.at(-1)?.id || null; current.publishedAt = this.stamp(); current.version++; published = true;
       this.store.put('play_room', current); return { accepted: true };
-    }); this.changed(); return this.owner(room.id);
+    };
+    if (inTransaction) effect(); else this.store.idempotent(`group:publish:${room.id}`, body.clientId, body, effect);
+    if (published) queueMicrotask(() => { if (this.closed || !this.store.get('play_room', room.id)) return; for (const run of this.store.require('thread', threadId).runs.filter(r => !r.sharedGroup && !terminal(r))) this.options.worker?.cancel(threadId, run.id); void this.options.openNetwork?.()?.catch?.(() => {}); });
+    this.changed(); return this.owner(room.id);
   }
   info(threadId, viewerId = 'self') {
     const thread = this.member(threadId, viewerId), room = this.current(threadId);
-    return room ? this.project(room, viewerId) : { threadId, legacyJobs: viewerId === 'self' ? this.legacyJobs(threadId) : [], thread: { id: thread.id, title: thread.title }, share: null, roster: this.roster(thread) };
+    return room ? this.project(room, viewerId) : { threadId, legacyJobs: viewerId === 'self' ? this.legacyJobs(threadId) : [], uncertainRuns: viewerId === 'self' ? this.uncertainRuns(threadId) : [], migrationWarnings: viewerId === 'self' ? this.migrationWarnings(threadId) : [], thread: { id: thread.id, title: thread.title }, share: null, roster: this.roster(thread) };
   }
-  roster(thread) {
+  roster(thread, publicScope = false) {
+    this.retireExpired(thread);
     const room = this.current(thread.id);
-    return thread.memberIds.map(contactId => {
+    return thread.memberIds.filter(contactId => !publicScope || !room || contactId === 'self' || room.agents.some(a => a.contactId === contactId) || room.participants.some(p => p.id === contactId && !p.removedAt)).map(contactId => {
       const contact = this.store.require('contact', contactId), guest = room?.participants.find(p => p.id === contactId && !p.removedAt);
       const runs = thread.runs.filter(r => r.contactId === contactId && !terminal(r));
       return { ...person(contact), name: contactId === 'self' && room ? room.hostName : contact.name, membership: 'joined',
         presence: contactId === 'self' ? 'host' : contact.kind === 'agent' ? 'unknown' : guest?.lastSeenAt && this.clock() - Date.parse(guest.lastSeenAt) < 45000 ? 'recently_active' : 'unknown',
-        execution: contact.kind !== 'agent' ? null : runs.some(r => r.status === 'needs_input') ? 'waiting_owner' : runs.length ? 'running' : this.messenger.publicContact(contact).availability === 'ready' ? 'ready' : 'unavailable' };
+        execution: contact.kind !== 'agent' ? null : runs.some(r => r.status === 'unknown' || r.stopUnconfirmed || r.requiresReconciliation) ? 'unknown' : runs.some(r => ['blocked', 'needs_input'].includes(r.status)) ? 'waiting_owner' : runs.some(r => ['running', 'verifying'].includes(r.status)) ? 'running' : runs.some(r => r.status === 'queued') ? 'queued' : this.messenger.publicContact(contact).availability === 'ready' ? 'ready' : 'unavailable' };
     });
   }
   publicMessages(thread, room) {
@@ -92,15 +118,15 @@ export class GroupSharing extends Playrooms {
         reactions: (message.reactions || []).filter(r => thread.memberIds.includes(r.contactId)).map(r => ({ emoji: r.emoji, contactId: r.contactId, createdAt: r.createdAt })) }));
   }
   project(room, actorId) {
-    const thread = this.store.require('thread', room.threadId), roster = this.roster(thread);
-    const messages = this.publicMessages(thread, room), runs = thread.runs.filter(r => r.sharedGroup?.id === room.id && this.canPublishRun(thread, r)).map(r => ({ id: r.id, contactId: r.contactId, contactSnapshot: roster.find(p => p.id === r.contactId), mode: 'codex', messageId: r.messageId, status: r.status, createdAt: r.createdAt, deliveryState: r.deliveryState, ...(['blocked', 'failed', 'unknown'].includes(r.status) ? { error: '这次回复需要主人核查，可以继续整理群作品。' } : {}) }));
+    const thread = this.store.require('thread', room.threadId), roster = this.roster(thread, actorId !== 'self');
+    const messages = this.publicMessages(thread, room), runs = thread.runs.filter(r => r.sharedGroup?.id === room.id && (r.sharedPublishedAt || this.canPublishRun(thread, r))).map(r => ({ id: r.id, contactId: r.contactId, contactSnapshot: roster.find(p => p.id === r.contactId), mode: 'codex', messageId: r.messageId, status: r.status, createdAt: r.createdAt, deliveryState: r.deliveryState, ...(['blocked', 'failed', 'unknown'].includes(r.status) ? { error: '这次回复需要主人核查，可以继续整理群作品。' } : {}) }));
     return { id: room.id, threadId: thread.id, title: thread.title, template: room.template, brief: room.brief, hostName: room.hostName, agentName: room.agentName,
       expiresAt: room.expiresAt, closed: Boolean(room.closedAt) || Date.parse(room.expiresAt) <= this.clock(), version: room.version,
       share: { id: room.id, state: room.state, version: room.version, maxGuests: room.maxGuests, maxTurns: room.maxTurns, agents: room.agents?.map(({ contactId, persona }) => ({ contactId, persona })) },
-      ...(actorId === 'self' ? { legacyJobs: this.legacyJobs(thread.id) } : {}),
+      ...(actorId === 'self' ? { legacyJobs: this.legacyJobs(thread.id), uncertainRuns: this.uncertainRuns(thread.id), migrationWarnings: this.migrationWarnings(thread.id) } : {}),
       roster, contacts: roster, participants: roster.filter(p => p.kind === 'human').map(p => ({ ...p, isOwner: p.id === 'self' })), me: roster.find(p => p.id === actorId),
       remainingTurns: Math.max(0, room.maxTurns - room.turns),
-      thread: { id: thread.id, kind: 'group', title: thread.title, groupAvatar: thread.groupAvatar, memberIds: thread.memberIds, version: thread.version,
+      thread: { id: thread.id, kind: 'group', title: thread.title, groupAvatar: thread.groupAvatar, memberIds: roster.map(p => p.id), version: thread.version,
         status: thread.status, createdAt: thread.createdAt, updatedAt: thread.updatedAt, messages, runs, artifacts: [], decisions: [], events: [], memoryIds: [] },
       messages, jobs: runs.map(r => ({ ...r, actorId: thread.runs.find(run => run.id === r.id).sharedGroup.actorId })), artifacts: this.artifacts?.list(thread.id, actorId) || [] };
   }
@@ -112,7 +138,8 @@ export class GroupSharing extends Playrooms {
   }
   join(body) {
     groupFields(body, ['invite', 'nickname', 'clientId']); const room = this.byInvite(body.invite), name = groupText(body.nickname, 32);
-    const accepted = this.store.idempotent(`group:join:${room.id}`, body.clientId, { nickname: name }, () => {
+    const legacy = this.store.replay(`play:join:${room.id}`, body.clientId, { nickname: name });
+    const accepted = legacy.found ? legacy.value : this.store.idempotent(`group:join:${room.id}`, body.clientId, { nickname: name }, () => {
       const current = this.store.require('play_room', room.id); this.active(current); const thread = this.store.require('thread', current.threadId);
       if (current.participants.filter(p => !p.isOwner && !p.removedAt).length >= current.maxGuests) groupError(429, 'guest_limit', '这次邀请的名额已满');
       const actorId = id('guest');
@@ -128,18 +155,27 @@ export class GroupSharing extends Playrooms {
     this.changed(); return { secret, room: this.project(current, accepted.actorId) };
   }
   prepareMessage(thread, body, actorId) {
+    this.retireExpired(thread);
     const room = this.current(thread.id); if (!room || room.state !== 'published') return null;
     this.active(room); this.member(thread.id, actorId);
     groupText(body.text, 4000);
     if (thread.messages.filter(m => m.groupShareId === room.id).length >= 300) groupError(429, 'message_limit', '本次邀请的消息已满，请主人结束后重新邀请');
     if (body.attachments?.length || body.memoryIds?.length || body.action) groupError(400, 'public_scope', '公开群聊只接受消息文字；文件请通过群作品明确分享');
-    const pending = this.store.list('thread').flatMap(t => t.runs).filter(r => r.sharedGroup && !terminal(r));
-    if (pending.length >= 20) groupError(429, 'queue_full', '任务有点多，请稍后再试');
-    const agentCount = room.agents.filter(a => thread.memberIds.includes(a.contactId) && thread.responsePolicies[a.contactId] !== 'manual').length;
-    if (room.turns + agentCount > room.maxTurns) groupError(429, 'turn_limit', '本次邀请的 Agent 次数已用完');
     if (body.replyTo && !this.publicMessages(thread, room).some(m => m.id === body.replyTo)) groupError(403, 'private_message', '这条消息没有公开到当前邀请');
     return room;
   }
+  validateAgent(thread, agent) {
+    const contact = this.store.get('contact', agent.contactId), expected = agent.binding || { type: 'local', localAgentId: agent.backend };
+    if (!contact || !thread.memberIds.includes(agent.contactId) || JSON.stringify(contact.binding) !== JSON.stringify(expected)) groupError(409, 'published_agent_changed', '公开 Agent 的成员或执行绑定已变化，请结束这次邀请后重新审核');
+  }
+  agentAllowed(thread, contactId) { const room = this.current(thread.id); if (!room || room.state !== 'published') return true; const agent = room.agents.find(a => a.contactId === contactId); if (agent) this.validateAgent(thread, agent); return Boolean(agent); }
+  validateDispatch(thread, inputs) {
+    const room = this.current(thread.id); if (!room || room.state !== 'published') return;
+    const pending = this.store.list('thread').flatMap(t => t.runs).filter(r => r.sharedGroup && ['queued', 'running', 'verifying'].includes(r.status));
+    if (pending.length + inputs.length > 20) groupError(429, 'queue_full', '任务有点多，请稍后再试');
+    if (room.turns + inputs.length > room.maxTurns) groupError(429, 'turn_limit', '本次邀请的 Agent 次数已用完');
+  }
+  canUseTools(thread, run) { return run.sharedGroup ? this.canPublishRun(thread, run) : this.current(thread.id)?.state !== 'published'; }
   prepareRun(thread, input, body, actorId) {
     const room = this.current(thread.id); if (!room || room.state !== 'published') return input;
     const agent = room.agents.find(a => a.contactId === input.contactId);
@@ -154,6 +190,16 @@ export class GroupSharing extends Playrooms {
     const thread = this.member(threadId, actorId); const room = this.current(threadId); if (actorId !== 'self') this.active(room);
     const result = this.messenger.appendMessage(thread, body, this.options.validateInput, actorId); this.changed(); this.kick(); return result;
   }
+  uncertainRuns(threadId) { return this.store.require('thread', threadId).runs.filter(r => r.sharedGroup && r.stopUnconfirmed).map(r => ({ id: r.id, status: r.status })); }
+  acknowledgeRun(threadId, body) {
+    groupFields(body, ['clientId', 'runId', 'confirmedStopped']); this.member(threadId, 'self');
+    this.store.idempotent(`group:run-stop:${threadId}`, body.clientId, body, () => {
+      const thread = this.store.require('thread', threadId), run = thread.runs.find(r => r.id === body.runId);
+      if (!run?.sharedGroup || !run.stopUnconfirmed || run.status !== 'unknown' || body.confirmedStopped !== true) groupError(409, 'review_required', '请先在本机核查原执行确实已经停止');
+      Object.assign(run, { status: 'failed', stopUnconfirmed: false, requiresReconciliation: false, cancelPending: false, error: '主人已核查原执行结束，没有重发。' }); this.store.refreshThread(thread); this.store.put('thread', thread); return { accepted: true };
+    }); this.changed(); this.kick(); return this.info(threadId);
+  }
+  migrationWarnings(threadId) { return this.store.list('play_room').filter(r => r.threadId === threadId && r.groupArtifactsMigrationError).map(r => ({ id: r.id, text: [r.board?.notes || '', ...(r.board?.tasks || []).map(t => `- [${t.done ? 'x' : ' '}] ${t.label}`), ...(r.board?.choices || []).map(c => `${c.label}：${c.votes?.length || 0} 票`)].filter(Boolean).join('\n') })); }
   legacyJobs(threadId) {
     const rooms = this.store.list('play_room').filter(r => r.threadId === threadId).map(r => r.id);
     return this.store.list('play_job').filter(j => rooms.includes(j.roomId) && j.status === 'unknown').map(j => ({ id: j.id, roomId: j.roomId, status: j.status }));
@@ -166,7 +212,7 @@ export class GroupSharing extends Playrooms {
         const job = this.store.require('play_job', body.jobId);
         if (job.roomId !== roomId || job.status !== 'unknown' || body.confirmedStopped !== true) groupError(409, 'review_required', '请先核查原执行确实已经停止');
         this.store.put('play_job', { ...job, status: 'failed', error: '主人已核查原执行结束，没有重发。' }); return { accepted: true };
-      }); this.changed(); return this.owner(roomId);
+      }); this.changed(); return this.project(this.store.require('play_room', roomId), actorId);
     }
     const room = this.store.require('play_room', roomId); this.member(room.threadId, actorId); if (!(actorId === 'self' && body?.type === 'close' && room.state === 'draft')) this.active(room);
     const allowed = { reaction: ['messageId', 'emoji', 'active'], message: ['text', 'replyTo'], close: [], remove: ['participantId'], artifact_create: ['kind', 'title', 'text', 'choices'], artifact_edit: ['artifactId', 'revisionId', 'hash', 'text'], artifact_act: ['artifactId', 'revisionId', 'choiceId'] };
@@ -181,6 +227,7 @@ export class GroupSharing extends Playrooms {
       else this.artifacts.act(room.threadId, actorId, input);
       return this.project(this.store.require('play_room', roomId), actorId);
     }
+    if (this.store.replay(`play:action:${roomId}:${actorId}`, body.clientId, body).found) return this.project(this.store.require('play_room', roomId), actorId);
     this.store.idempotent(`group:action:${roomId}:${actorId}`, body.clientId, body, () => {
       if (body.type === 'message') this.send(room.threadId, actorId, { text: body.text, replyTo: body.replyTo });
       else if (body.type === 'reaction') {
@@ -200,7 +247,7 @@ export class GroupSharing extends Playrooms {
         this.store.put('thread', thread); this.store.put('play_room', current); this.cancelPublic(thread.id);
       }
       return { accepted: true };
-    }); this.changed(); return this.owner(roomId);
+    }); this.changed(); return this.project(this.store.require('play_room', roomId), actorId);
   }
   rotate(room) { const token = randomBytes(32).toString('base64url'); room.credential = { ...room.credential, credentialVersion: room.credential.credentialVersion + 1 }; room.credential.credentialRef = this.store.vault.create(token, room.credential); room.inviteHash = digest(token); }
   cancelPublic(threadId) { for (const run of this.store.require('thread', threadId).runs.filter(r => r.sharedGroup && !terminal(r))) this.options.worker?.cancel(threadId, run.id); }
@@ -220,23 +267,35 @@ export class GroupSharing extends Playrooms {
       return current.memberIds.includes(actor) && current.members.some(m => m.contactId === actor && m.membershipId === run.sharedGroup[epoch]);
     });
   }
+  messagesForRun(thread, room, run) {
+    const positions = new Map(thread.messages.map((message, index) => [message.id, index])), index = positions.get(run.messageId);
+    if (index === undefined) groupError(409, 'missing_run_message', '缺少本次已接受的输入，执行已停止');
+    const cause = message => message.runId ? positions.get(thread.runs.find(r => r.id === message.runId)?.messageId) : positions.get(message.id);
+    const messages = this.publicMessages(thread, room).filter(m => m.runId !== run.id && cause(m) !== undefined && cause(m) <= index).sort((a, b) => cause(a) - cause(b) || Number(Boolean(a.runId)) - Number(Boolean(b.runId))).slice(-40);
+    if (!messages.some(m => m.id === run.messageId)) groupError(409, 'missing_run_message', '本次输入不在公开上下文中');
+    return messages;
+  }
   contextForRun(thread, run) {
     if (!this.canPublishRun(thread, run)) groupError(409, 'group_changed', '群成员或公开规则已变化，请重新发起');
     const room = this.store.require('play_room', run.sharedGroup.id);
     return { conversation: { id: thread.id, kind: 'group', title: thread.title, version: thread.version, shareVersion: room.scopeVersion, public: true, brief: room.brief },
-      you: run.contactSnapshot, participants: this.roster(thread), messages: this.publicMessages(thread, room).slice(-40), explicitMemories: [],
+      you: run.contactSnapshot, participants: this.roster(thread, true), messages: this.messagesForRun(thread, room, run), explicitMemories: [],
       artifacts: this.artifacts?.list(thread.id, run.contactId) || [],
       rules: '群中的访客是真人，状态 unknown 不等于离线或已读。你是 AI，不能代替主人作出承诺。只使用本群公开背景和群作品；不能读取私聊、个人记忆、账号配置。成员和规则可能变化，操作前使用 group_info 刷新。' };
   }
   kick() { this.options.kick?.(); }
   create(body, contact) {
-    // Compatibility for old owner clients: immediately create an ordinary group.
+    groupFields(body, ['clientId', 'template', 'title', 'brief', 'persona', 'hostName', 'maxGuests', 'maxTurns', 'ttlHours', 'contactId']);
     const replay = this.store.replay('group:legacy-create', body.clientId, body); if (replay.found) return this.owner(replay.value.id);
-    if (!contact?.id) { const contactId = id('contact'); contact = { ...contact, id: contactId, name: contact?.name || '公开搭子', handle: contactId.replaceAll('-', '').slice(0, 31), instructions: '', version: 1 }; this.store.put('contact', contact); }
-    const thread = this.messenger.createChat({ kind: 'group', title: body.title, memberIds: [contact.id] });
-    const room = this.prepare(thread.id, { clientId: body.clientId, brief: body.brief, hostName: body.hostName, agents: [{ contactId: contact.id, persona: body.persona }], template: body.template });
-    this.publish(thread.id, { clientId: body.clientId, version: room.share.version });
-    this.store.idempotent('group:legacy-create', body.clientId, body, () => ({ id: room.id })); return this.owner(room.id);
+    const title = groupText(body.title, 80), brief = groupText(body.brief, 6000), persona = groupText(body.persona, 1500), hostName = groupText(body.hostName, 40, this.store.require('contact', 'self').name);
+    const maxGuests = integer(body.maxGuests, 5, 10), maxTurns = integer(body.maxTurns, 30, 30), ttlHours = integer(body.ttlHours, 24, 72);
+    if (!['twin', 'travel', 'project'].includes(body.template) || contact?.kind !== 'agent' || contact.binding?.type !== 'local' || !['codex', 'pi'].includes(contact.binding.localAgentId)) groupError(400, 'invalid_input', '请选择支持的玩法和本机 Codex/Pi');
+    const created = this.store.idempotent('group:legacy-create', body.clientId, body, () => {
+      if (!contact.id) { const contactId = id('contact'); contact = { ...contact, id: contactId, name: contact.name || '公开搭子', handle: contactId.replaceAll('-', '').slice(0, 31), instructions: '', version: 1 }; this.store.put('contact', contact); }
+      const thread = this.messenger.createChat({ kind: 'group', title, memberIds: [contact.id] });
+      const room = this.prepare(thread.id, { clientId: body.clientId, brief, hostName, agents: [{ contactId: contact.id, persona }], template: body.template, maxGuests, maxTurns, ttlHours }, true);
+      this.publish(thread.id, { shareId: room.id, clientId: body.clientId, version: room.share.version }, true); return { id: room.id };
+    }); return this.owner(created.id);
   }
   migrate() {
     for (const room of this.store.list('play_room')) {

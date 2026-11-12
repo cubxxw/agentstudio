@@ -150,10 +150,10 @@ export class Messenger {
     return this.publicContact(contact);
   }
 
-  members(values) {
+  members(values, threadId) {
     if (!Array.isArray(values) || values.length < 1 || values.length > 30 || values.some(v => typeof v !== 'string')) fail('请选择 1–30 位联系人');
     const ids = [...new Set([SELF, ...values])];
-    for (const memberId of ids) this.store.require('contact', memberId);
+    for (const memberId of ids) { const contact = this.store.require('contact', memberId); if (contact.externalGuest && (!threadId || contact.groupId !== threadId)) fail('访客身份只属于原群邀请，不能挪到其他群', 403, 'guest_scope'); }
     if (ids.length < 2) fail('请选择至少一位其他联系人');
     return ids;
   }
@@ -182,7 +182,7 @@ export class Messenger {
     const thread = this.store.require('thread', threadId);
     if (thread.kind !== 'group') fail('只有群聊可以修改成员和群响应策略');
     if (body.version !== thread.version) fail('群信息已更新，请重新打开后编辑', 409, 'version_conflict');
-    const memberIds = body.memberIds === undefined ? thread.memberIds : this.members(body.memberIds);
+    const memberIds = body.memberIds === undefined ? thread.memberIds : this.members(body.memberIds, threadId);
     // Ordinary accepted replies retain snapshots; artifact grants are rechecked below.
     const members = memberIds.map(contactId => thread.members.find(m => m.contactId === contactId) || { contactId, membershipId: id('membership'), visibleAfterMessageId: thread.messages.at(-1)?.id || null });
     const responsePolicies = { ...thread.responsePolicies };
@@ -213,6 +213,7 @@ export class Messenger {
     const mentions = new Set([...basic.text.matchAll(/(^|[^\p{L}\p{N}_@])@([a-z][a-z0-9_-]{1,31})(?![\p{L}\p{N}_-])/giu)].map(m => m[2].toLowerCase()));
     const targets = thread.memberIds.filter(x => x !== SELF).map(x => this.publicContact(this.store.require('contact', x))).filter(contact => {
       if (contact.kind !== 'agent') return false;
+      if (this.options.groupSharing && !this.options.groupSharing.agentAllowed(thread, contact.id)) return false;
       if (thread.kind === 'direct') return true;
       const policy = thread.responsePolicies[contact.id] || 'auto';
       return policy !== 'manual' && (policy === 'auto' || policy === 'always' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id);
@@ -244,6 +245,7 @@ export class Messenger {
         responsePolicy: thread.kind === 'direct' ? 'direct' : thread.responsePolicies[contact.id] || 'auto' };
       return [this.options.groupSharing?.prepareRun(thread, prepared, body, actorId) || prepared];
     });
+    this.options.groupSharing?.validateDispatch(thread, inputs);
     let messageId;
     for (const input of inputs) {
       const run = this.store.appendRun(thread, { ...input, ...(messageId ? { reuseMessageId: messageId } : {}) });

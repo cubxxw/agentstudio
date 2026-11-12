@@ -7,7 +7,7 @@ import { createPersonalServer } from './index.mjs';
 
 test('trusted workspace manages rooms while separate guest listener rejects owner API', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'play-host-'));
-  const host = await createPersonalServer({ dataDir: dir, port: 0, discoverLocalAgents: async () => ({ agents: [] }), playExecute: async () => '真实测试传输' }); await host.listen();
+  const host = await createPersonalServer({ autoGroupNetwork: false, dataDir: dir, port: 0, discoverLocalAgents: async () => ({ agents: [] }), playExecute: async () => '真实测试传输' }); await host.listen();
   t.after(async () => { await host.close(); await rm(dir, { recursive: true, force: true }); });
   host.store.put('contact', { id: 'agent_test', kind: 'agent', name: '测试助手', binding: { type: 'local', localAgentId: 'codex' }, configuration: {} });
   const api = async (path, body) => { const response = await fetch(`http://127.0.0.1:${host.address().port}/api${path}`, { method: body ? 'POST' : 'GET', headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); return { status: response.status, body: await response.json() }; };
@@ -21,7 +21,7 @@ test('trusted workspace manages rooms while separate guest listener rejects owne
 });
 test('workspace switching counts shared runs in the canonical worker ledger', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'play-blockers-'));
-  const host = await createPersonalServer({ dataDir: dir, port: 0, discoverLocalAgents: async () => ({ agents: [] }) }); await host.listen();
+  const host = await createPersonalServer({ autoGroupNetwork: false, dataDir: dir, port: 0, discoverLocalAgents: async () => ({ agents: [] }) }); await host.listen();
   t.after(async () => { await host.close(); await rm(dir, { recursive: true, force: true }); });
   const room = host.playrooms.create({ template: 'twin', title: '合成等待', brief: '仅合成背景', persona: '合成角色', clientId: crypto.randomUUID() }, { kind: 'agent', name: '测试', binding: { type: 'local', localAgentId: 'codex' } });
   const thread = host.store.require('thread', room.threadId);

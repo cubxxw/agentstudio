@@ -162,6 +162,8 @@ export async function createPersonalServer(options = {}) {
   creation.options.groupTools = new GroupTools(playrooms);
   playrooms.artifacts = new GroupArtifacts(playrooms, creation); playrooms.artifacts.migrate();
   const playNetwork = new PlayNetwork(playrooms, { ...options.playNetwork, notify });
+  playrooms.options.networkStatus = () => playNetwork.status();
+  if (options.autoGroupNetwork !== false && process.env.AGENTROOM_AUTO_GROUP_NETWORK !== '0') playrooms.options.openNetwork = () => playNetwork.start();
   const scheduler = new AgentScheduler(store, messenger, { clock: options.schedulerNow, validateInput: input => validateInput(store, input),
     refresh: async () => messenger.sync(await localAgents()), kick: () => worker.kick(), notify });
   worker.options.agentScheduler = scheduler;
@@ -281,7 +283,7 @@ export async function createPersonalServer(options = {}) {
         if (method === 'GET') return json(response, 200, playrooms.info(match[1]));
         if (method === 'POST') {
           const { action, ...body } = await readJSON(request);
-          const result = action === 'prepare' ? playrooms.prepare(match[1], body) : action === 'publish' ? playrooms.publish(match[1], body) : action === 'close' || action === 'remove' ? playrooms.action(playrooms.info(match[1]).id, 'self', { ...body, type: action }) : invalid('请选择群邀请操作');
+          const result = action === 'acknowledge-run' ? playrooms.acknowledgeRun(match[1], body) : action === 'prepare' ? playrooms.prepare(match[1], body) : action === 'publish' ? playrooms.publish(match[1], body) : action === 'close' || action === 'remove' ? playrooms.action(playrooms.info(match[1]).id, 'self', { ...body, type: action }) : invalid('请选择群邀请操作');
           notify({ threadId: match[1] }); return json(response, 200, result);
         }
       }
