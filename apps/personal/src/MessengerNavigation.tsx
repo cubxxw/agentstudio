@@ -9,14 +9,18 @@ import type { Contact, ThreadSummary } from "./types";
 
 export type MessengerScreen = "chats" | "contacts" | "approvals" | "library";
 
-export function NavigationRail({ screen, owner, pending, onScreen, onSettings, onRefresh }: {
-  screen: MessengerScreen; owner: string; pending: number;
+function UnreadBadge({ count = 0, testId }: { count?: number; testId: string }) {
+  return count > 0 ? <span className="im-unread-badge" data-testid={testId} aria-label={`${count} 条未读消息`}>{count > 99 ? "99+" : count}</span> : null;
+}
+
+export function NavigationRail({ screen, owner, pending, unread = 0, onScreen, onSettings, onRefresh }: {
+  screen: MessengerScreen; owner: string; pending: number; unread?: number;
   onScreen: (screen: MessengerScreen) => void; onSettings: () => void; onRefresh: () => void;
 }) {
   return <nav className="im-rail" aria-label="主导航" data-testid="im-rail">
     <div className="im-rail-drag" />
     <button className="im-owner" aria-label="个人与设置" title={owner || "个人与设置"} data-testid="im-profile" onClick={onSettings}><Avatar contact={{ name: owner || "我", kind: "human", color: "teal" }} /><span className="im-owner-dot" /></button>
-    <div className="im-rail-pages">{([["chats", MessageCircle, "聊天"], ["contacts", Users, "联系人"], ["approvals", ShieldCheck, "审批"], ["library", FolderOpen, "作品"]] as const).map(([id, Icon, label]) => <button key={id} className={`im-nav-item ${screen === id ? "selected" : ""}`} aria-label={label} title={label} aria-current={screen === id ? "page" : undefined} data-testid={`im-nav-${id}`} onClick={() => onScreen(id)}><span><Icon size={21} strokeWidth={1.7} />{id === "approvals" && pending > 0 && <b>{pending}</b>}</span></button>)}</div>
+    <div className="im-rail-pages">{([["chats", MessageCircle, "聊天"], ["contacts", Users, "联系人"], ["approvals", ShieldCheck, "审批"], ["library", FolderOpen, "作品"]] as const).map(([id, Icon, label]) => <button key={id} className={`im-nav-item ${screen === id ? "selected" : ""}`} aria-label={id === "chats" && unread > 0 ? `${label}，${unread} 条未读消息` : label} title={label} aria-current={screen === id ? "page" : undefined} data-testid={`im-nav-${id}`} onClick={() => onScreen(id)}><span><Icon size={21} strokeWidth={1.7} />{id === "chats" && <UnreadBadge count={unread} testId="im-unread-total" />}{id === "approvals" && pending > 0 && <b>{pending}</b>}</span></button>)}</div>
     <div className="im-rail-bottom"><button className="im-icon" aria-label="刷新联系人和会话" title="刷新联系人和会话" data-testid="im-refresh" onClick={onRefresh}><RefreshCw size={18} /></button><button className="im-icon" aria-label="连接与设置" title="连接与设置" data-testid="im-settings" onClick={onSettings}><Settings2 size={21} strokeWidth={1.7} /></button></div>
   </nav>;
 }
@@ -26,7 +30,7 @@ export function ListToolbar({ screen, search, filter, pending, inputRef, onSearc
   onSearch: (value: string) => void; onFilter: (value: string) => void; onNew: () => void;
 }) {
   const disclosure = useRef<HTMLDetailsElement>(null);
-  const options = screen === "chats" ? [["all", "全部会话"], ["group", "群聊"], ["pinned", "已置顶"], ["attention", "待审批"]] : screen === "contacts" ? [["all", "全部联系人"], ["agent", "Agent"], ["human", "人"]] : [["all", `待处理${pending ? ` ${pending}` : ""}`], ["history", "历史"]];
+  const options = screen === "chats" ? [["all", "全部会话"], ["unread", "未读消息"], ["group", "群聊"], ["pinned", "已置顶"], ["attention", "待审批"]] : screen === "contacts" ? [["all", "全部联系人"], ["agent", "Agent"], ["human", "人"]] : [["all", `待处理${pending ? ` ${pending}` : ""}`], ["history", "历史"]];
   const activeLabel = options.find(([id]) => id === filter)?.[1];
   useEffect(() => { if (disclosure.current) disclosure.current.open = false; }, [screen]);
   return <div className="im-list-toolbar" data-testid="im-list-toolbar">
@@ -55,7 +59,7 @@ export function ConversationList({ threads, contacts, search, filter, selected, 
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const title = (chat: ThreadSummary) => chat.kind === "direct" ? contacts.find(c => c.id !== "self" && chat.memberIds?.includes(c.id))?.name || chat.title : chat.title;
   const person = (chat: ThreadSummary) => chat.kind === "direct" ? contacts.find(c => c.id !== "self" && chat.memberIds?.includes(c.id)) : undefined;
-  const chats = threads.filter(chat => `${title(chat)} ${chat.lastMessage?.text || chat.summary}`.toLowerCase().includes(search.toLowerCase()) && (filter !== "group" || chat.kind === "group") && (filter !== "pinned" || pins.includes(chat.id)) && (filter !== "attention" || Boolean(chat.pendingApprovals) || chat.status === "needs_input"));
+  const chats = threads.filter(chat => `${title(chat)} ${chat.lastMessage?.text || chat.summary}`.toLowerCase().includes(search.toLowerCase()) && (filter !== "unread" || (chat.unreadCount || 0) > 0) && (filter !== "group" || chat.kind === "group") && (filter !== "pinned" || pins.includes(chat.id)) && (filter !== "attention" || Boolean(chat.pendingApprovals) || chat.status === "needs_input"));
   const pinned = pins.flatMap(id => { const chat = chats.find(chat => chat.id === id); return chat ? [chat] : []; });
   const save = (next: string[]) => {
     setPins(next);
@@ -82,16 +86,16 @@ export function ConversationList({ threads, contacts, search, filter, selected, 
   }, [menu]);
   const showMenu = (id: string, trigger: HTMLElement, x: number, y: number) => setMenu({ id, trigger, x: Math.max(8, Math.min(x, innerWidth - 196)), y: Math.max(8, Math.min(y, innerHeight - 148)) });
   return <>
-    {pinned.length > 0 && <div className="im-pinned" aria-label="置顶会话" data-testid="im-pinned">{pinned.map(chat => <button key={chat.id} className={`im-pinned-chat ${selected === chat.id ? "selected" : ""}`} aria-label={`打开置顶会话：${title(chat)}`} title={`${title(chat)} · 右键管理置顶`} aria-current={selected === chat.id ? "true" : undefined} data-testid={`im-pinned-${chat.id}`} onClick={() => onOpen(chat.id)} onContextMenu={e => { e.preventDefault(); showMenu(chat.id, e.currentTarget, e.clientX, e.clientY); }} onKeyDown={e => {
+    {pinned.length > 0 && <div className="im-pinned" aria-label="置顶会话" data-testid="im-pinned">{pinned.map(chat => <button key={chat.id} className={`im-pinned-chat ${selected === chat.id ? "selected" : ""}`} aria-label={`打开置顶会话：${title(chat)}${chat.unreadCount ? `，${chat.unreadCount} 条未读消息` : ""}`} title={`${title(chat)} · 右键管理置顶`} aria-current={selected === chat.id ? "true" : undefined} data-testid={`im-pinned-${chat.id}`} onClick={() => onOpen(chat.id)} onContextMenu={e => { e.preventDefault(); showMenu(chat.id, e.currentTarget, e.clientX, e.clientY); }} onKeyDown={e => {
       if (e.altKey && ["ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); save(movePin(pins, chat.id, e.key === "ArrowLeft" ? -1 : 1)); }
       if (e.key === "F10" && e.shiftKey) { e.preventDefault(); const rect = e.currentTarget.getBoundingClientRect(); showMenu(chat.id, e.currentTarget, rect.left, rect.bottom); }
-    }}><span className="im-pinned-portrait"><Avatar group={chat.kind === "group"} groupAvatar={chat.groupAvatar} contact={person(chat)} />{Boolean(chat.pendingApprovals) && <span className="im-pinned-attention" />}</span><span className="im-pinned-name">{title(chat)}</span></button>)}</div>}
+    }}><span className="im-pinned-portrait"><Avatar group={chat.kind === "group"} groupAvatar={chat.groupAvatar} contact={person(chat)} /><UnreadBadge count={chat.unreadCount} testId={`im-pinned-unread-${chat.id}`} />{Boolean(chat.pendingApprovals) && <span className="im-pinned-attention" />}</span><span className="im-pinned-name">{title(chat)}</span></button>)}</div>}
     {saveError && <p className="im-list-note" role="status">置顶更改暂未保存，关闭窗口后可能丢失。</p>}
     {chats.map(chat => <div className={`im-chat-item ${selected === chat.id ? "selected" : ""}`} key={chat.id} onContextMenu={e => { e.preventDefault(); const trigger = e.currentTarget.querySelector<HTMLButtonElement>("button")!; showMenu(chat.id, trigger, e.clientX, e.clientY); }}>
-      <button ref={node => { if (node) rows.current.set(chat.id, node); else rows.current.delete(chat.id); }} className={`im-chat-row ${selected === chat.id ? "selected" : ""}`} data-testid={`im-chat-${chat.id}`} aria-current={selected === chat.id ? "true" : undefined} onClick={() => onOpen(chat.id)}><Avatar group={chat.kind === "group"} groupAvatar={chat.groupAvatar} contact={person(chat)} /><span className="im-row-copy"><span className="im-row-title"><strong>{title(chat)}</strong><time dateTime={chat.updatedAt} title={new Date(chat.updatedAt).toLocaleString("zh-CN")}>{conversationTime(chat.updatedAt)}</time></span><span className="im-row-preview">{chat.status === "needs_input" ? <span className="im-attention">等待你审批</span> : chat.status === "running" ? <span className="im-blue">正在回复…</span> : chat.lastMessage?.text ? <MarkdownPreview text={chat.lastMessage.text} /> : "开始这段聊天"}{Boolean(chat.pendingApprovals) && <b className="im-count">{chat.pendingApprovals}</b>}</span></span></button>
+      <button ref={node => { if (node) rows.current.set(chat.id, node); else rows.current.delete(chat.id); }} className={`im-chat-row ${selected === chat.id ? "selected" : ""}`} data-testid={`im-chat-${chat.id}`} aria-label={`${title(chat)}${chat.unreadCount ? `，${chat.unreadCount} 条未读消息` : ""}`} aria-current={selected === chat.id ? "true" : undefined} onClick={() => onOpen(chat.id)}><span className="im-chat-portrait"><Avatar group={chat.kind === "group"} groupAvatar={chat.groupAvatar} contact={person(chat)} /><UnreadBadge count={chat.unreadCount} testId={`im-unread-${chat.id}`} /></span><span className="im-row-copy"><span className="im-row-title"><strong>{title(chat)}</strong><time dateTime={chat.updatedAt} title={new Date(chat.updatedAt).toLocaleString("zh-CN")}>{conversationTime(chat.updatedAt)}</time></span><span className="im-row-preview">{chat.status === "needs_input" ? <span className="im-attention">等待你审批</span> : chat.status === "running" ? <span className="im-blue">正在回复…</span> : chat.lastMessage?.text ? <MarkdownPreview text={chat.lastMessage.text} /> : "开始这段聊天"}{Boolean(chat.pendingApprovals) && <b className="im-count">{chat.pendingApprovals}</b>}</span></span></button>
       <button className={`im-row-pin ${pins.includes(chat.id) ? "is-pinned" : ""}`} aria-label={`${pins.includes(chat.id) ? "取消置顶" : "置顶"}：${title(chat)}`} title={pins.includes(chat.id) ? "取消置顶" : "置顶"} aria-pressed={pins.includes(chat.id)} data-testid={`im-pin-${chat.id}`} onClick={e => { const trigger = e.currentTarget; save(togglePin(pins, chat.id)); restoreFocus(chat.id, trigger); }}>{pins.includes(chat.id) ? <PinOff size={14} /> : <Pin size={14} />}</button>
     </div>)}
-    {!loading && chats.length === 0 && <div className="im-list-empty"><span>{search ? "没有找到匹配的内容" : filter === "pinned" ? "还没有置顶会话" : filter === "attention" ? "暂无待审批的会话" : filter === "group" ? "还没有群聊" : "还没有聊天"}</span>{filter === "pinned" && !search && <small>在会话右侧点置顶，常聊的伙伴就会出现在这里。</small>}{filter === "all" && !search && <button onClick={onNew}>发起第一段聊天</button>}</div>}
+    {!loading && chats.length === 0 && <div className="im-list-empty"><span>{search ? "没有找到匹配的内容" : filter === "unread" ? "没有未读消息" : filter === "pinned" ? "还没有置顶会话" : filter === "attention" ? "暂无待审批的会话" : filter === "group" ? "还没有群聊" : "还没有聊天"}</span>{filter === "pinned" && !search && <small>在会话右侧点置顶，常聊的伙伴就会出现在这里。</small>}{filter === "all" && !search && <button onClick={onNew}>发起第一段聊天</button>}</div>}
     {menu && createPortal(<div ref={menuRef} className="im-conversation-menu" role="menu" aria-label="管理置顶会话" data-testid="im-conversation-menu" style={{ left: menu.x, top: menu.y }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setMenu(null); }} onKeyDown={e => {
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
       e.preventDefault(); const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")]; const index = buttons.indexOf(document.activeElement as HTMLButtonElement);

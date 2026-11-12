@@ -412,3 +412,53 @@ test('a newly joined MCP agent reaches approval with only its post-join context'
   assert.ok(!pending.decisions[0].preview.includes('PRIVATE_BEFORE_MCP'));
   assert.ok(pending.decisions[0].preview.includes('MCP member'));
 });
+
+test('unread counts only incoming messages and read acknowledgments are bounded, monotonic and durable', async t => {
+  const f = await fixture(t);
+  const chat = (await f.api('/chats', { kind: 'direct', memberIds: ['agent_codex'], clientId: key() })).body;
+  const summary = async () => (await f.api('/bootstrap')).body.threads.find(item => item.id === chat.id);
+  assert.equal((await summary()).unreadCount, 0);
+  const before = f.store.require('thread', chat.id).updatedAt;
+  f.store.updateThread(chat.id, thread => thread.messages.push(
+    { id: 'outgoing', role: 'user', text: 'hello', createdAt: '2026-11-12T00:00:00Z' },
+    { id: 'incoming-one', role: 'assistant', text: 'first', createdAt: '2026-11-12T00:00:00Z' },
+    { id: 'system-event', role: 'system', text: 'scheduled', createdAt: '2026-11-12T00:00:00Z' },
+  ));
+  assert.equal((await summary()).unreadCount, 1);
+  assert.equal((await f.api(`/threads/${chat.id}`)).body.unreadCount, 1, 'fetching a transcript is not reading it');
+  const activity = (await summary()).updatedAt;
+  assert.notEqual(activity, before);
+  // A second response arrives after the renderer obtained its first snapshot.
+  f.store.updateThread(chat.id, thread => thread.messages.push({ id: 'incoming-two', role: 'assistant', text: 'second', createdAt: '2026-11-12T00:00:00Z' }));
+  const updatedAt = (await summary()).updatedAt;
+  const first = await f.api(`/threads/${chat.id}/read`, { messageId: 'incoming-one' });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.unreadCount, 1, 'a snapshot cannot consume a later reply');
+  assert.equal((await summary()).updatedAt, updatedAt, 'reading must not reorder chats');
+  const last = await f.api(`/threads/${chat.id}/read`, { messageId: 'incoming-two' });
+  assert.equal(last.body.unreadCount, 0);
+  assert.equal((await f.api(`/threads/${chat.id}/read`, { messageId: 'incoming-one' })).body.unreadCount, 0);
+  assert.equal((await f.api(`/threads/${chat.id}/read`, { messageId: 'missing' })).status, 400);
+  assert.equal((await f.api(`/threads/${chat.id}/read`, { messageId: 'outgoing' })).status, 400);
+  assert.equal((await f.api(`/threads/${chat.id}/read`, { messageId: 'system-event' })).status, 400);
+  await f.restart();
+  assert.equal((await summary()).unreadCount, 0);
+  f.store.updateThread(chat.id, thread => thread.messages.push({ id: 'incoming-three', role: 'assistant', text: 'after restart', createdAt: '2026-11-12T00:00:00Z' }));
+  assert.equal((await summary()).unreadCount, 1);
+  await f.restart();
+  assert.equal((await summary()).unreadCount, 1, 'restarting cannot reset unread replies');
+});
+
+test('first unread upgrade baselines old transcripts once and counts subsequent group replies', async t => {
+  const f = await fixture(t);
+  const chat = (await f.api('/chats', { kind: 'group', title: 'Group unread', memberIds: ['agent_codex'], clientId: key() })).body;
+  f.store.updateThread(chat.id, thread => thread.messages.push({ id: 'legacy-reply', role: 'assistant', text: 'old', createdAt: '2026-11-12T00:00:00Z' }));
+  f.store.delete('setting', 'unread-migration-v1');
+  await f.restart();
+  assert.equal((await f.api(`/threads/${chat.id}`)).body.unreadCount, 0);
+  f.store.updateThread(chat.id, thread => thread.messages.push(
+    { id: 'group-a', role: 'assistant', text: 'a', createdAt: '2026-11-12T00:00:00Z' },
+    { id: 'group-b', role: 'assistant', text: 'b', createdAt: '2026-11-12T00:00:00Z' },
+  ));
+  assert.equal((await f.api(`/threads/${chat.id}`)).body.unreadCount, 2);
+});

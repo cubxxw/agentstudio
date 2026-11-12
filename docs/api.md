@@ -91,7 +91,7 @@ Native `services` catalog instances may include `avatarDataUrl`, a main-generate
 | Method | Paths |
 | --- | --- |
 | GET | `/api/health`, `/api/bootstrap`, `/api/contacts`, `/api/contacts/:id`, `/api/contacts/:id/control`, `/api/host/discovery`, `/api/approvals`, `/api/integrations`, `/api/connections`, `/api/memories`, `/api/threads/:id`, `/api/artifacts/:id`, `/api/connections/:id/tools` |
-| POST | `/api/contacts`, `/api/contacts/:id`, `/api/contacts/:id/control`, `/api/contacts/:id/run`, `/api/chats`, `/api/chats/:id`, `/api/threads`, `/api/connections`, `/api/memories`, `/api/integrations/refresh`, `/api/integrations/connect`, `/api/integrations/local/codex`, `/api/integrations/local/claude`, `/api/threads/:id/messages`, `/api/threads/:id/retry`, `/api/threads/:id/reconcile`, `/api/threads/:id/cancel`, `/api/decisions/:id` |
+| POST | `/api/contacts`, `/api/contacts/:id`, `/api/contacts/:id/control`, `/api/contacts/:id/run`, `/api/chats`, `/api/chats/:id`, `/api/threads`, `/api/connections`, `/api/memories`, `/api/integrations/refresh`, `/api/integrations/connect`, `/api/integrations/local/codex`, `/api/integrations/local/claude`, `/api/threads/:id/messages`, `/api/threads/:id/read`, `/api/threads/:id/retry`, `/api/threads/:id/reconcile`, `/api/threads/:id/cancel`, `/api/decisions/:id` |
 | DELETE | `/api/connections/:id`, `/api/memories/:id` |
 
 Main forwards to its own utility's random loopback port after validating the sender document and ownership handshake. There is no renderer route for SSE or artifact download: `onChanged` invalidates the UI snapshot, and `saveArtifact` uses a native dialog plus byte/hash readback. Runtime restart does not replay POST requests. `GET /api/health` includes the build reference, backend/UI hashes and desktop runtime versions.
@@ -402,3 +402,12 @@ Explicit local `POST /api/sharing/invite` with `{}` returns `{url,token}` for in
 ### Native service recovery state
 
 The desktop owner privately projects native instance readiness and durable receipt metadata to its utility. Contacts may retain `avatarService` and a bounded `avatarDataUrl` while disconnected; readiness is observed independently of a saved connection. Catalog instances include `hasCredentials: false` when the original login record is missing. This adds no HTTP or preload mutation route. Prior-generation dispatch failures can become `failed/not_sent` only with matching owner/frozen identity evidence and an intact ledger without the stable message ID; current-process timeouts remain unknown and are never replayed. See [native service recovery](personal/native-service-recovery.md).
+
+
+## Personal conversation unread state
+
+`GET /api/bootstrap` thread summaries and `GET /api/threads/:id` include `unreadCount`. It counts persisted assistant messages after the workspace's read cursor; owner messages, system events, stream progress, reactions and approvals do not increment it. Fetching a thread does not mark it read.
+
+`POST /api/threads/:id/read` accepts `{messageId}` for an assistant message in that conversation and returns `{unreadCount}`. It is naturally idempotent and monotonic without `clientId`: acknowledging a rendered older snapshot cannot read a later response or move the cursor backwards. It persists a separate `thread_read` document without changing the transcript, version or activity time, and invalidates snapshots only when advancing. Unknown/non-incoming message IDs return 400; unknown threads return 404. The fixed personal IPC allows this route.
+
+First upgrade baselines existing transcripts as read once; subsequent incoming messages and read cursors survive utility restarts. The renderer acknowledges only a visible, focused conversation at the latest messages with no covering modal. These are local owner read states, not receipts sent to external agents.

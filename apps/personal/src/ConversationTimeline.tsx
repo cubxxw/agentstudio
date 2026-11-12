@@ -45,7 +45,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
     </article>;
   };
   return <>
-    {allRows.length > rows.length && <button className="im-load-more" onClick={onMore}>查看更早的消息</button>}
+    {allRows.length > rows.length && <button className="im-load-more" data-testid="im-load-more" onClick={onMore}>查看更早的消息</button>}
     {rows.map((row, i) => {
       const at = row.type === "message" ? row.message.createdAt : row.run.createdAt;
       const previous = rows[i - 1]; const previousAt = previous?.type === "message" ? previous.message.createdAt : previous?.run.createdAt;

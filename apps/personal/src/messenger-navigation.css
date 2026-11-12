@@ -83,3 +83,11 @@
 }
 @media (hover: none) { .im-row-pin { opacity: 1; width: 30px; height: 30px; } }
 @media (prefers-contrast: more) { .im-pinned-chat.selected .im-pinned-portrait { border-width: 2px; } }
+
+/* Incoming messages use red badges; approval indicators keep their own color. */
+.im-chat-portrait { position: relative; display: inline-flex; flex: 0 0 40px; width: 40px; height: 40px; }
+.im-chat-portrait > .im-avatar { width: 40px; height: 40px; border-radius: 12px; font-size: 17px; }
+.im-unread-badge { position: absolute; z-index: 1; top: -5px; right: -7px; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; border: 2px solid var(--im-paper); border-radius: 20px; background: #ef4444; color: #fff; font: 600 10px/1 -apple-system, BlinkMacSystemFont, sans-serif; white-space: nowrap; pointer-events: none; }
+.im-pinned-portrait > .im-unread-badge { top: -2px; right: -3px; border-color: var(--im-sidebar); }
+.im-pinned-portrait:has(.im-unread-badge) > .im-pinned-attention { top: auto; bottom: 1px; }
+.im-nav-item .im-unread-badge { top: -8px; right: -12px; border-color: var(--im-sidebar); }
