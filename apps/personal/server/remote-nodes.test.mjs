@@ -12,7 +12,8 @@ const discover = async () => ({ agents: [] });
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'agentroom-enrollment-'));
   let executions = 0;
-  const node = await createAgentNode({ dataDir: join(root, 'node'), token, port: 0, agents: ['codex', 'claude'], name: 'Test server', discover,
+  const node = await createAgentNode({ dataDir: join(root, 'node'), token, port: 0, agents: ['codex', 'claude'], name: 'Test server',
+    discover: async () => ({ agents: ['codex', 'claude'].map(id => ({ id, installed: true, auth: { status: 'configured' } })) }),
     execute: async () => { executions++; return { markdown: 'Synthetic node answer' }; } });
   const n = await node.listen(), url = `http://127.0.0.1:${n.port}`;
   const app = await createPersonalServer({ dataDir: join(root, 'mac'), port: 0, discoverLocalAgents: discover, codexCommand: '/missing-synthetic', remotePollMs: 5 });
@@ -61,6 +62,25 @@ test('node check reports fresh observations; removing its connections removes it
   assert.equal(check.status, 200); assert.equal(check.body.status, 'reachable'); assert.ok(check.body.checkedAt);
   for (const c of added.connections) assert.equal((await request(`/connections/${c.id}`, undefined, 'DELETE')).status, 200);
   assert.equal((await request('/integrations')).body.nodes.length, 0);
+});
+
+test('contact presence expires and a failed check preserves the last directory and last successful timestamp', async t => {
+  const { request, url, app, node } = await fixture(t);
+  const added = (await request('/nodes/connect', { url, token })).body;
+  let people = (await request('/contacts')).body.contacts;
+  const imported = people.find(c => c.binding?.type === 'connection');
+  assert.equal(imported.presence.state, 'online');
+  const stamp = imported.presence.lastSeenAt;
+  await node.close();
+  assert.equal((await request(`/nodes/${added.node.id}/check`, {})).status, 502);
+  people = (await request('/contacts')).body.contacts;
+  assert.equal(people.find(c => c.id === imported.id).presence.state, 'reconnecting');
+  assert.equal(people.find(c => c.id === imported.id).presence.lastSeenAt, stamp);
+  const stored = app.store.require('remote_node', added.node.id);
+  app.store.put('remote_node', { ...stored, lastSeenAt: new Date(Date.now() - 65_000).toISOString() });
+  const offline = (await request('/contacts')).body.contacts.find(c => c.id === imported.id);
+  assert.equal(offline.presence.state, 'offline'); assert.equal(offline.availability, 'disconnected');
+  assert.equal((await request('/integrations')).body.nodes[0].agents.length, 2);
 });
 
 test('lost first receipt reconciles by pre-persisted task id with exactly one remote execution', async t => {

@@ -11,6 +11,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   BrowserWindow,
+  clipboard,
   app,
   dialog,
   ipcMain,
@@ -377,6 +378,16 @@ function registerPersonalIpc() {
           const result = await dialog.showOpenDialog(mainWindow!, { title: "导出所选作品版本", properties: ["openDirectory", "createDirectory"] });
           return result.canceled ? null : result.filePaths[0] || null;
         } });
+    } finally { nativeOperations--; }
+  });
+  ipcMain.handle(PERSONAL_IPC.copyDeviceInvitation, async event => {
+    if (!fromPersonal(event) || !personalHost || switchingWorkspace || quitting) throw new Error("forbidden");
+    nativeOperations++;
+    try {
+      const response = await personalHost.request({ path: "/api/sharing/invite", method: "POST", body: {} });
+      const invitation = response.body as { url?: string; token?: string };
+      if (switchingWorkspace || quitting || !fromPersonal(event) || response.status !== 200 || typeof invitation?.url !== "string" || typeof invitation.token !== "string") throw new Error("连接信息暂时不可用");
+      clipboard.writeText(JSON.stringify({ url: invitation.url, token: invitation.token }));
     } finally { nativeOperations--; }
   });
   ipcMain.handle(PERSONAL_IPC.restart, async (event) => {

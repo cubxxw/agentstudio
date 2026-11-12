@@ -7,6 +7,7 @@ import cueIcon from "@agentstudio/brand/assets/cue.png";
 import { api, key } from "./api";
 import { desktopBridge } from "./native";
 import { Avatar } from "./ContactAvatar";
+import { DeviceSharing } from "./DeviceSharing";
 import { RemoteNodes } from "./RemoteNodes";
 import type { NativeIntegrationReply, NativeIntegrationRequest, PersonalServiceId } from "./desktop-contract";
 import type { Bootstrap, Integrations, LocalAgent } from "./types";
@@ -253,6 +254,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
       </div>}
     </section>
 
+    <DeviceSharing onRefresh={() => refresh()} />
     <RemoteNodes nodes={integrations?.nodes || []} onRefresh={() => refresh()} />
 
     <section className="integration-section" aria-labelledby="connections-tools-title">

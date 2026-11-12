@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { isArtifactId, isTrustedDocument, personalCsp, readPersonalRequest, readNativeIntegration } from "../src/shared/personal-api";
 
 describe("personal IPC capabilities", () => {
+  it("allows explicit local device sharing controls and rejects network administration routes", () => {
+    expect(readPersonalRequest({ path: "/api/sharing", method: "GET" }).path).toBe("/api/sharing");
+    for (const path of ["/api/sharing", "/api/sharing/invite"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
+    for (const path of ["/api/sharing/invite?token=x", "/api/sharing/exec", "/api/sharing/files", "http://100.64.0.1:18750/api/sharing"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
+  });
   it("accepts the existing task, approval, memory and connection routes", () => {
     expect(readPersonalRequest({ path: "/api/bootstrap", method: "GET" })).toEqual({ path: "/api/bootstrap", method: "GET" });
     expect(readPersonalRequest({ path: "/api/threads/thr_own/messages", method: "POST", body: { text: "补充", clientId: "accepted-request-id" } }).path).toBe("/api/threads/thr_own/messages");

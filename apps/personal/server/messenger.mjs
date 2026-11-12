@@ -1,3 +1,4 @@
+import { nodePresence } from './remote-nodes.mjs';
 import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
 import { APIError, id, now } from './store.mjs';
 import { imSettings, addReaction, REACTIONS } from './im-participation.mjs';
@@ -55,10 +56,26 @@ export class Messenger {
     const profile = base?.profile || (contact.discovered ? contact.profile : null);
     if (connection?.type === 'mcp' && !chatBinding) configurationError = '请在联系人设置中明确选择聊天助手，工具连接本身没有对话模型';
     if (contact.kind === 'agent' && chatBinding?.type === 'local' && profile) { try { execution = resolveExecution(profile, contact.configuration || {}); } catch (error) { configurationError = error.message; } }
-    return { ...contact, connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
+    const node = connection?.node ? this.store.get('remote_node', connection.node.id) : null;
+    const observed = node?.agents.find(agent => agent.id === connection.node.agentId);
+    const runs = this.store.list('thread').flatMap(thread => thread.runs).filter(run => run.contactId === contact.id);
+    let presence = contact.kind !== 'agent' ? null : node ? { ...nodePresence(node), ...(observed?.activity || {}) }
+      : chatBinding?.type === 'local' ? { state: (base?.availability || contact.availability) === 'ready' ? 'online' : 'attention', deviceName: '这台 Mac',
+        running: runs.filter(run => ['running', 'verifying'].includes(run.status)).length, waiting: runs.filter(run => run.status === 'needs_input').length, lastSeenAt: null }
+      : { state: connection ? 'unknown' : 'offline', deviceName: '', lastSeenAt: null };
+    let remoteAvailability = null;
+    if (node) {
+      if (!observed) remoteAvailability = 'disconnected';
+      else if (presence.state !== 'online') remoteAvailability = 'disconnected';
+      else if (observed.availability === 'login_required') remoteAvailability = 'login_required';
+      else if (observed.availability === 'not_installed') remoteAvailability = 'not_installed';
+      else if (observed.availability !== 'configured') remoteAvailability = 'unsupported';
+      if (remoteAvailability && presence.state === 'online') presence = { ...presence, state: 'attention', reason: !observed ? '来源设备已停止共享这位联系人' : observed.availability === 'unsupported' ? '这位伙伴暂时只能在来源设备中聊天' : '需要在来源设备检查登录或配置' };
+    }
+    return { ...contact, presence, connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
       : configurationError ? { availability: 'configuration_required', providerName: connection?.name || base?.providerName || '' }
       : chatBinding?.type === 'local' ? { availability: base?.availability || 'not_installed', providerName: connection?.name || base?.providerName || chatBinding.localAgentId }
-        : { availability: connection ? 'ready' : 'disconnected', providerName: connection?.name || '连接已移除' }) };
+        : { availability: remoteAvailability || (connection ? 'ready' : 'disconnected'), providerName: connection?.name || '连接已移除' }) };
   }
   contacts() { return this.store.list('contact').map(c => this.publicContact(c)).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')); }
 
@@ -136,7 +153,7 @@ export class Messenger {
     if (body.kind === 'direct') {
       const peer = this.store.require('contact', memberIds.find(x => x !== SELF));
       if (peer.added === false) this.store.put('contact', { ...peer, added: true, addedAt: now() });
-      const existing = this.store.list('thread').find(t => t.kind === 'direct' && t.memberIds.includes(memberIds.find(x => x !== SELF)));
+      const existing = this.store.list('thread').find(t => !t.purpose && t.kind === 'direct' && t.memberIds.includes(memberIds.find(x => x !== SELF)));
       if (existing) return existing;
     }
     const title = body.kind === 'direct' ? this.store.require('contact', memberIds.find(x => x !== SELF)).name : text(body.title, 80);

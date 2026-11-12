@@ -35,9 +35,11 @@ export type Integrations = {
   presets: { id: string; name: string; description: string; account: string; connectionId: string | null }[];
   nodes?: RemoteNode[];
 };
+export type Presence = { state: "online" | "reconnecting" | "offline" | "attention" | "unknown"; deviceName: string; lastSeenAt?: string | null; checkedAt?: string; reason?: string; running?: number; waiting?: number };
 export type RemoteNode = {
-  id: string; name: string; origin: string; status: "reachable" | "unreachable"; checkedAt: string;
-  agents: { id: string; name: string; url: string; availability: "configured" | "not_installed" | "login_required" | "unknown" | "withdrawn"; connectionId: string }[];
+  presence?: Presence;
+  id: string; name: string; origin: string; status: "reachable" | "unreachable" | "attention"; checkedAt: string;
+  agents: { id: string; name: string; url: string; availability: "configured" | "not_installed" | "login_required" | "unknown" | "withdrawn" | "unsupported" | "configuration_required"; connectionId: string }[];
 };
 export type Attachment = {
   id?: string;
@@ -167,6 +169,7 @@ export type Connection = {
 export type Memory = { id: string; text: string; createdAt: string };
 export type ResponsePolicy = "auto" | "mention" | "always" | "manual";
 export type Contact = {
+  presence?: Presence | null;
   chatBackend?: { type: "local"; localAgentId: LocalAgentId } | null;
   connectionType?: "a2a" | "mcp" | null;
   id: string; kind: "agent" | "human"; name: string; handle: string;

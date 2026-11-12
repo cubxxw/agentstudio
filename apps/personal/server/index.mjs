@@ -14,6 +14,7 @@ import { CreationService } from './creation-service.mjs';
 import { ArtifactAPI } from './artifact-api.mjs';
 import { AgentScheduler } from './agent-scheduler.mjs';
 import { RemoteNodes } from './remote-nodes.mjs';
+import { DesktopSharing } from './desktop-sharing.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
 import { ProviderApprovals } from './provider-approvals.mjs';
 import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
@@ -106,7 +107,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -144,6 +145,7 @@ export async function createPersonalServer(options = {}) {
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
+  const sharing = new DesktopSharing(store, messenger, { refresh: async () => messenger.sync(await localAgents()), validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, addresses: options.sharingAddresses, port: options.sharingPort });
   const scheduler = new AgentScheduler(store, messenger, { clock: options.schedulerNow, validateInput: input => validateInput(store, input),
     refresh: async () => messenger.sync(await localAgents()), kick: () => worker.kick(), notify });
   worker.options.agentScheduler = scheduler;
@@ -213,6 +215,7 @@ export async function createPersonalServer(options = {}) {
     ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers() + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length;
   const cancelWorkspaceSwitch = () => {
     if (!switchPrepared || shuttingDown) return;
+    sharing.suspended = false;
     switchPrepared = false; scheduler.closed = false; scheduler.start(options.schedulerTickMs ?? 30_000);
   };
   const server = http.createServer(async (request, response) => {
@@ -265,6 +268,15 @@ export async function createPersonalServer(options = {}) {
         const body = await readJSON(request);
         const result = store.idempotent(`reaction:${match[1]}`, body.clientId, body, () => messenger.react(match[1], body));
         notify({ threadId: match[1] }); return json(response, 200, result);
+      }
+      if (method === 'GET' && path === '/api/sharing') { messenger.sync(await localAgents()); return json(response, 200, sharing.status()); }
+      if (method === 'POST' && path === '/api/sharing') return json(response, 200, await sharing.save(await readJSON(request)));
+      if (method === 'POST' && path === '/api/sharing/invite') {
+        await readJSON(request);
+        // Explicit, trusted local reveal: ordinary responses always redact secrets.
+        const invitation = sharing.invitation();
+        response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        response.end(JSON.stringify(invitation)); return;
       }
       if (method === 'GET' && path === '/api/contacts') return json(response, 200, { contacts: messenger.sync(await localAgents()) });
       if (method === 'GET' && path === '/api/host/discovery') {
@@ -379,7 +391,7 @@ export async function createPersonalServer(options = {}) {
       if (method === 'GET' && path === '/api/bootstrap') {
         return json(response, 200, {
           workspace: { onboardingCompleted: Boolean(store.get('setting', 'workspace-onboarding')?.completed), displayName: store.get('contact', 'self')?.name || '你' },
-          threads: store.list('thread').filter(t => t.purpose !== 'agent_onboarding').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, groupAvatar, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
+          threads: store.list('thread').filter(t => !['agent_onboarding', 'device_request'].includes(t.purpose)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, groupAvatar, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
             ...(kind ? { kind, memberIds, version } : {}), ...(kind === 'group' ? { groupAvatar: groupAvatar ?? null } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
             pendingApprovals: decisions.filter(d => d.state === 'pending').length, ...unread.state({ id: threadId, messages }) })),
           connections: store.list('connection').map(publicConnection), memories: store.list('memory'),
@@ -532,6 +544,7 @@ export async function createPersonalServer(options = {}) {
           (!['completed', 'failed', 'cancelled'].includes(run.status) || (run.status === 'cancelled' && ['sending', 'delivered', 'unknown'].includes(run.deliveryState) && !['canceled', 'cancelled'].includes(run.remoteStatus)))))) {
           throw new APIError(409, 'connection_in_use', '此连接仍有进行中或待核查任务，请先处理任务');
         }
+        remoteNodes.suppress(store.get('connection', connectionId));
         store.delete('connection', connectionId);
         store.vault.removeForConnection(connectionId);
         notify(); return json(response, 200, { ok: true });
@@ -563,16 +576,18 @@ export async function createPersonalServer(options = {}) {
   });
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
+  remoteNodes.start(notify, options.nodePollMs);
+  sharing.start();
   worker.start();
   providerApprovals.start();
   scheduler.start(options.schedulerTickMs ?? 30_000);
   return {
-    server, store, worker, scheduler, creation, providerApprovals,
+    server, store, worker, scheduler, creation, providerApprovals, sharing,
     registerNativeSource: (source) => providerApprovals.register(source),
     cancelWorkspaceSwitch,
     async prepareWorkspaceSwitch() {
       if (switchPrepared || shuttingDown) throw new Error('Workspace is already switching');
-      switchPrepared = true;
+      switchPrepared = true; sharing.suspended = true;
       try {
         await scheduler.close();
         const deadline = Date.now() + 5000;
@@ -596,6 +611,7 @@ export async function createPersonalServer(options = {}) {
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
+      await sharing.close(); await remoteNodes.close();
       stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await creation.close(); artifactAPI.close(); await stopped; store.close();
     },
   };

@@ -15,6 +15,7 @@ export const PERSONAL_IPC = {
   saveArtifact: "agentstudio:personal:save-artifact",
   artifactAction: "agentstudio:personal:artifact-action",
   restart: "agentstudio:personal:restart",
+  copyDeviceInvitation: "agentstudio:personal:copy-device-invitation",
   integration: "agentstudio:personal:integration",
   testWorkspace: "agentstudio:personal:test-workspace",
 } as const;
@@ -22,6 +23,7 @@ export const PERSONAL_IPC = {
 const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
+    /^\/api\/sharing$/,
     /^\/api\/im\/settings$/,
     /^\/api\/library\/artifacts$/,
     new RegExp(`^/api/(collaborations|capability-requests)/${opaqueId}$`),
@@ -41,6 +43,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
+    /^\/api\/sharing(?:\/invite)?$/,
     /^\/api\/im\/settings$/,
     new RegExp(`^/api/threads/${opaqueId}/reactions$`),
     new RegExp(`^/api/library/artifacts/${opaqueId}/(files|preview|share|resolve-local|change)$`),
