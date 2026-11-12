@@ -209,6 +209,8 @@ export class PersonalStore {
     const run = { id: id('run'), status: 'queued', mode: input.mode || 'codex', connectionId: input.connectionId || null,
       localAgentId: input.localAgentId || 'codex',
       ...(input.executionSnapshot ? { executionSnapshot: structuredClone(input.executionSnapshot) } : {}),
+      ...(input.sharedGroup ? { sharedGroup: structuredClone(input.sharedGroup) } : {}),
+      ...(input.groupOrigin ? { groupOrigin: structuredClone(input.groupOrigin) } : {}),
       ...(input.contactId ? { contactId: input.contactId, contactSnapshot: input.contactSnapshot,
         participantSnapshot: input.participantSnapshot, conversationSnapshot: input.conversationSnapshot, visibleAfterMessageId: input.visibleAfterMessageId,
         responsePolicy: input.responsePolicy, imPolicy: input.imPolicy, participantMemberships: input.participantMemberships } : {}),

@@ -204,7 +204,9 @@ export class Messenger {
     return saved;
   }
 
-  appendMessage(thread, body, validateInput) {
+  appendMessage(thread, body, validateInput, actorId = SELF) {
+    if (!thread.memberIds.includes(actorId)) fail('你已不在这个群聊中', 403, 'membership_required');
+    const publication = this.options.groupSharing?.prepareMessage(thread, body, actorId);
     const basic = validateInput({ ...body, mode: 'local', localAgentId: 'codex', action: undefined });
     const reply = body.replyTo ? thread.messages.find(m => m.id === body.replyTo) : null;
     if (body.replyTo && !reply) fail('回复的消息已不存在');
@@ -228,7 +230,7 @@ export class Messenger {
       const input = validateInput({ ...body, mode: binding.type === 'local' ? 'codex' : 'connection',
         localAgentId: binding.localAgentId || contact.chatBackend?.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
       const goal = this.store.get('agent_control', contact.id)?.goal;
-      return [{ ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
+      const prepared = { ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
         imPolicy: { allowSilence: (thread.responsePolicies[contact.id] !== 'always') && (thread.allowSilence ?? imSettings(this.store).allowSilence), allowReactions: true },
         participantMemberships: structuredClone(thread.members),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
@@ -239,7 +241,8 @@ export class Messenger {
           }), replyToContactId: reply?.contactId || null,
           explicitlyAddressed: thread.kind === 'direct' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id } },
         visibleAfterMessageId: thread.members.find(m => m.contactId === contact.id)?.visibleAfterMessageId || null,
-        responsePolicy: thread.kind === 'direct' ? 'direct' : thread.responsePolicies[contact.id] || 'auto' }];
+        responsePolicy: thread.kind === 'direct' ? 'direct' : thread.responsePolicies[contact.id] || 'auto' };
+      return [this.options.groupSharing?.prepareRun(thread, prepared, body, actorId) || prepared];
     });
     let messageId;
     for (const input of inputs) {
@@ -251,7 +254,8 @@ export class Messenger {
       thread.messages.push({ id: messageId, role: 'user', text: basic.text, attachments: basic.attachments.map(a => ({ ...a, id: id('att'), size: Buffer.byteLength(a.text) })), createdAt: now() });
     }
     const message = thread.messages.find(m => m.id === messageId);
-    Object.assign(message, { contactId: SELF, recipientIds: [...thread.memberIds], replyTo: reply?.id || null, ...(skippedContacts.length ? { skippedContacts } : {}), deliveryState: thread.memberIds.some(x => x !== SELF && this.store.require('contact', x).kind === 'human') ? 'local_only' : 'saved' });
+    Object.assign(message, { contactId: actorId, recipientIds: [...thread.memberIds], replyTo: reply?.id || null, ...(publication ? { groupShareId: publication.id } : {}), ...(skippedContacts.length ? { skippedContacts } : {}), deliveryState: publication ? 'saved' : thread.memberIds.some(x => x !== SELF && this.store.require('contact', x).kind === 'human') ? 'local_only' : 'saved' });
+    this.options.groupSharing?.acceptedMessage(publication, inputs.length);
     if (!inputs.length) thread.summary = basic.text.slice(0, 120);
     thread.updatedAt = now();
     return this.store.put('thread', thread);
