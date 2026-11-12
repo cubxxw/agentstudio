@@ -1,6 +1,6 @@
 # Integrated Group Collaboration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make account-free sharing, agent coordination and artifacts capabilities of normal group chats.
 
@@ -33,10 +33,10 @@ Files: create `apps/personal/server/group-sharing.mjs`, `group-sharing.test.mjs`
 
 Interfaces: `GroupSharing(store,{messenger,creation,validateInput,kick,notify,worker,...guestOptions})` supplies `prepare(threadId,body)`, `publish(threadId,body)`, `info(threadId,viewerId)`, `join(body)`, `send(threadId,actorId,body)`, `prepareRun(thread,input,body,actorId)`, `contextForRun(thread,run)` and `canPublishRun(thread,run)`. Guest HTTP remains separate from private owner API. Legacy room capability maps to `threadId` and is migrated idempotently.
 
-- [ ] Add HTTP tests: accepted visitor creates a real scoped contact/member, posts exactly one canonical message/run, owner sees same thread; no old history/private identity; pending shares cannot preview; close/remove/idempotence/quotas and legacy migration.
-- [ ] Run `node --test apps/personal/server/group-sharing.test.mjs`; expect missing module.
-- [ ] Implement service, trusted owner routes `/api/chats/:id/sharing` and existing scoped invite copy compatibility, canonical actor-aware Messenger hook and run snapshot fields.
-- [ ] Run focused sharing/messenger/integration tests; commit with passing evidence.
+- [x] Add HTTP tests: accepted visitor creates a real scoped contact/member, posts exactly one canonical message/run, owner sees same thread; no old history/private identity; pending shares cannot preview; close/remove/idempotence/quotas and legacy migration.
+- [x] Run `node --test apps/personal/server/group-sharing.test.mjs`; expect missing module.
+- [x] Implement service, trusted owner routes `/api/chats/:id/sharing` and existing scoped invite copy compatibility, canonical actor-aware Messenger hook and run snapshot fields.
+- [x] Run focused sharing/messenger/integration tests; commit with passing evidence.
 
 ### Task 2: Agent group tools, rules and scoped runtime
 
@@ -44,10 +44,10 @@ Files: create `group-tools.mjs`, `group-tools.test.mjs`; modify `creation-servic
 
 Interfaces: `GroupTools(sharing)` provides `tools(context)`, `call(context,name,args,callId)` and `validate(context,name,args)`; tools `group_contacts/create/info/add_agents/invite`. Owner API `/api/group-rules` is versioned. `creation.tools(context)` merges permitted tools and disables cached dynamic group info. Shared runs use accepted public context and strict execution/auth session.
 
-- [ ] Write broker tests: owner agent creates normal group, selects contacts and prepares invitation; replay does not create twice; stale member version has no mutation; guest agent cannot access private contacts/create/share; rules and depth budget limit expansion.
-- [ ] Run focused tests; expect tool availability/snapshot failures.
-- [ ] Wire tools and worker public-context execution, live roster/status, source-chat group cards and membership revalidation; forbid unrestricted fallback for shared runs.
-- [ ] Run tool/context/membership and existing native-tool tests; commit.
+- [x] Write broker tests: owner agent creates normal group, selects contacts and prepares invitation; replay does not create twice; stale member version has no mutation; guest agent cannot access private contacts/create/share; rules and depth budget limit expansion.
+- [x] Run focused tests; expect tool availability/snapshot failures.
+- [x] Wire tools and worker public-context execution, live roster/status, source-chat group cards and membership revalidation; forbid unrestricted fallback for shared runs.
+- [x] Run tool/context/membership and existing native-tool tests; commit.
 
 ### Task 3: Shared notes and activities as real artifacts
 
@@ -55,10 +55,10 @@ Files: create `group-artifacts.mjs`, `group-artifacts.test.mjs`; modify group se
 
 Interfaces: `GroupArtifacts(sharing,creation)` supplies `create(threadId,actor,input)`, `list(threadId,actor)`, `read(threadId,actor,artifactId)`, `editNote(threadId,actor,input)` and `act(threadId,actor,input)`. Notes use fixed `note.md` + current revision/hash; activities use fixed versioned `activity.json`, bounded choices and actor-scoped state. Permission check precedes internal owner artifact capability, contribution identity comes from actor.
 
-- [ ] Tests: note appears in real Library, immutable revisions and CAS conflict; correct guest contribution; no cross-group or unpublished version access; duplicate votes/answers and two guest synchronization; no arbitrary paths or identity fields; migrated old notes preserved.
-- [ ] Run tests; expect missing module.
-- [ ] Implement bounded artifact creation/read/edit/actions, public revision manifests and migration hook, tools available only to their scoped group.
-- [ ] Run artifact + group + creation regressions; commit.
+- [x] Tests: note appears in real Library, immutable revisions and CAS conflict; correct guest contribution; no cross-group or unpublished version access; duplicate votes/answers and two guest synchronization; no arbitrary paths or identity fields; migrated old notes preserved.
+- [x] Run tests; expect missing module.
+- [x] Implement bounded artifact creation/read/edit/actions, public revision manifests and migration hook, tools available only to their scoped group.
+- [x] Run artifact + group + creation regressions; commit.
 
 ### Task 4: One conversation experience and release
 
@@ -66,7 +66,7 @@ Files: create `GroupCollaboration.tsx`, `GroupArtifacts.tsx`, shared conversatio
 
 Interfaces: shared conversation view accepts canonical public `Thread`, scoped contacts, viewerId and action transport. Owner group controls cover roster, sharing rules/approval/copy/revoke and group artifacts. Guest is the same chat with narrow capabilities. Source-chat group cards open actual thread IDs. Remove standalone gallery/navigation from product entry.
 
-- [ ] Add browser tests before UI changes: normal group in list, same owner/guest timeline, membership statuses, shared artifacts, two guests/agents, 390px, reconnect and draft preservation; expect absent integrated controls.
-- [ ] Implement UI, notes/activity templates and invitation acceptance using canonical group state; preserve legacy invitation routing.
+- [x] Add browser tests before UI changes: normal group in list, same owner/guest timeline, membership statuses, shared artifacts, two guests/agents, 390px, reconnect and draft preservation; expect absent integrated controls.
+- [x] Implement UI, notes/activity templates and invitation acceptance using canonical group state; preserve legacy invitation routing.
 - [ ] Update docs/api, clients, architecture and user flow; run applicable personal/desktop/dev suites and typechecks/builds.
 - [ ] Perform independent whole-branch review; fix Critical/Important with regressions. Run actual scoped CLI and native package acceptance, bounded public check, PR/CI/merge/install with preserved data. Record unavailable tracking or network evidence honestly.

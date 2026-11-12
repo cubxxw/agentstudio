@@ -1,22 +1,22 @@
 # AgentRoom API contracts
 
-## Account-free invitation rooms
+## Sharing and tools inside group chats
 
-Owner routes remain on the trusted personal API and native fixed IPC. They are never mounted on the separate guest listener.
+Owner APIs use trusted personal IPC/HTTP only; the separate guest listener never mounts them.
 
 | Method | Path | Contract |
 | --- | --- | --- |
-| GET / POST | `/api/playrooms` | List / create with `{clientId,template:"twin"|"travel"|"project",title,brief,persona,hostName,contactId,maxGuests?,maxTurns?,ttlHours?}` |
-| GET | `/api/playrooms/:id` | Owner room projection, including common state and job statuses |
-| POST | `/api/playrooms/:id/invite` | Exactly `{}`; explicit reveal of `{roomId,token,localUrl,url}`; public URL is null without a live tunnel |
-| POST | `/api/playrooms/:id/actions` | `{type,clientId,…}`; common actions plus owner-only `close`, `remove {participantId}`, `acknowledge {jobId,confirmedStopped:true}` |
-| GET / POST | `/api/play-network` | Status / `{action:"start"|"stop"}`; owned temporary tunnel for the guest listener only |
+| GET / POST | `/api/chats/:threadId/sharing` | Current sharing/roster; `action:prepare` with `{clientId,brief,hostName?,agents:[{contactId,persona}],maxGuests?,maxTurns?,ttlHours?}`, `publish {clientId,version}`, `remove {clientId,participantId}` or `close {clientId}` |
+| GET / POST | `/api/chats/:threadId/artifacts` | List real group artifacts; `action:create {kind:note|poll|quiz,title,text?,choices?,clientId}`, `edit {artifactId,revisionId,hash,text,clientId}`, `act {artifactId,revisionId,choiceId,clientId}` |
+| GET / POST | `/api/group-rules` | Versioned `{version,createGroups,externalInvites:review|auto_new_group|disabled,maxGroupsPerRequest:1..3}` |
+| POST | `/api/playrooms/:shareId/invite` | Exactly `{}`; explicit owner reveal of `{roomId,token,localUrl,url}`; no public URL without a live tunnel |
+| GET / POST | `/api/play-network` | Status / `{action:start|stop}`, forwards only the guest listener |
 
-Native `copyPlayInvitation({roomId,local:boolean})` retrieves the canonical invitation in main and writes that URL to the clipboard. It rejects arbitrary text, URLs and paths. Invitation reveal and device enrollment reveal are intentional local exceptions to ordinary secret redaction. Guest Codex is restricted to verified 0.163.0 built-in OpenAI/file authentication, with a private empty home and only a link to the existing owner auth file; unsupported versions, customization or account sources fail closed. Pi retains its explicit no-context/no-extension tool restrictions.
+`/api/playrooms` and its per-room owner routes remain compatibility aliases which create/project ordinary groups. Native `copyPlayInvitation({roomId,local})` retains its fixed target and clipboard behavior. Models never receive its bearer URL. Tool sessions expose `group_contacts`, `group_create`, `group_info`, `group_add_agents`, `group_invite` in owner-request conversations, with rules and current membership checks. Public runs expose only `group_info` and scoped `group_artifact_list/create/edit`; generic private Library, creation, directory and expansion tools are unavailable. Dynamic member reads bypass result caches. Mutations use `group_info.version`, durable replay barriers and a per-request creation budget; creating a group does not automatically dispatch a model query to it.
 
-Guest-only routes: `POST /g-api/preview {invite}` returns reviewed background without history; `POST /g-api/join {invite,nickname,clientId}` accepts and creates an independent identity; `GET /g-api/:roomId` reads common state; `POST /g-api/:roomId/actions` accepts `message {text}`, `vote {choiceId}`, `task {taskId,done}` and `notes {text,version}`, each with `type` and immutable `clientId`. Joined guests see the existing common room history. An HttpOnly SameSite=Strict room cookie is required after acceptance (Secure under public HTTPS); sessions are hashed and checked against room expiry/removal on every request. Mutations require JSON and same-origin checks. Ordinary projections exclude invitation secrets, execution snapshots and private diagnostics.
+Guest routes remain `POST /g-api/preview {invite}`, `POST /g-api/join {invite,nickname,clientId}`, `GET /g-api/:shareId`, `POST /g-api/:shareId/actions`. Actions are `message {text,replyTo?}`, `reaction {messageId,emoji,active}`, `artifact_create`, `artifact_edit` and `artifact_act` with the same narrow artifact fields above. Actor identity comes only from the HttpOnly/SameSite=Strict scoped session cookie, Secure under HTTPS. Unknown identity fields are rejected. Preview of an unapproved draft is forbidden; acceptance creates a real thread member. Guests see explicitly published context and subsequent public messages, not pre-publication private history. Responses include a canonical safe `thread`, roster and current artifact revisions; no private instructions, memories, execution diagnostics, paths or owner APIs.
 
-Defaults: 24 hours, 5 guests, 30 model turns. Maximum: 72 hours, 10 guests, 30 turns; messages 4000 characters, notes/replies 12000. Notes use version conflict detection. Removing a guest rotates the invitation and revokes their identity; closing revokes all guest access. Running work after restart or unconfirmed stop requires explicit owner reconciliation, including in a closed/expired room. No model request is automatically replayed. See [workflow and capability boundaries](personal/guest-playrooms.md).
+Defaults: 24 hours, 5 visitors, 30 model executions across all agents, including owner posts. Maximum: 72 hours, 10 guests, 30 executions; 4000-character messages, 300 public human messages, 12 group artifacts, 12000-character notes. Removal rotates the invitation and stops late publication. Closing revokes guest access while retaining the group/history. Public retries require a new message under current scope/budget. Existing unresolved executor attempts retain the global stop barrier and never replay automatically. Codex public execution uses the verified 0.163.0 built-in OpenAI file-auth adaptation, an empty HOME/CODEX_HOME and only a link to the current owner auth file; Pi retains explicit no-context/no-extension restrictions. See [workflow](personal/guest-playrooms.md).
 
 ## Workspace onboarding and native test profiles
 

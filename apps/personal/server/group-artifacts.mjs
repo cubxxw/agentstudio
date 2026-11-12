@@ -34,7 +34,7 @@ export class GroupArtifacts {
       return previous.result;
     }
     this.store.put('group_artifact_operation', { id, hash, state: 'pending', threadId, actor });
-    try { const result = effect(id); this.store.put('group_artifact_operation', { id, hash, state: 'completed', result, threadId, actor }); this.sharing.changed(); return result; }
+    try { const result = effect(id); this.store.put('group_artifact_operation', { id, hash, state: 'completed', result, threadId, actor }); const room = this.sharing.current(threadId); if (room) { room.version++; this.store.put('play_room', room); } this.sharing.changed(); return result; }
     catch (error) { this.store.put('group_artifact_operation', { id, hash, state: 'completed', error: { status: error.status || 500, code: error.code || 'artifact_failed', message: error.status ? error.message : '作品修改未完成，请核查' }, threadId, actor }); throw error; }
   }
   scope(threadId, actor, artifactId) {
@@ -105,12 +105,15 @@ export class GroupArtifacts {
   migrate() {
     for (const room of this.store.list('play_room')) {
       if (!room.threadId || room.groupArtifactsMigrated) continue;
-      if (!room.closedAt && Date.parse(room.expiresAt) > this.sharing.clock()) {
+      {
         const definitions = [];
         if (room.board?.notes) definitions.push({ kind: 'note', title: '共同便笺', text: room.board.notes });
         if (room.board?.tasks?.length) definitions.push({ kind: 'note', title: '一起完成', text: room.board.tasks.map(task => `- [${task.done ? 'x' : ' '}] ${task.label}`).join('\n') });
         if (room.board?.choices?.length >= 2) definitions.push({ kind: 'poll', title: '一起选个方向', choices: room.board.choices.map(c => c.label) });
-        definitions.forEach((input, index) => this.create(room.threadId, 'self', { ...input, clientId: `migrate_${room.id}_${index}` }));
+        definitions.forEach((input, index) => {
+          const artifact = this.create(room.threadId, 'self', { ...input, clientId: `migrate_${room.id}_${index}` });
+          if (input.kind === 'poll') { const votes = {}; room.board.choices.forEach((choice, i) => { for (const actor of choice.votes || []) votes[actor] = `choice_${i}`; }); this.store.put('group_activity', { id: artifact.id, revisionId: artifact.revisionId, votes }); }
+        });
       }
       room.groupArtifactsMigrated = true; this.store.put('play_room', room);
     }

@@ -52,3 +52,9 @@ test('standing rules are versioned and constrain expansion; auto publication app
   assert.equal(f.tools.call(f.context, 'group_invite', { threadId: result.threadId, version: info.version, brief: '明确公开背景', agents: [{ contactId: 'agent_codex', persona: '公开角色' }] }, 'invite').state, 'published');
   assert.throws(() => f.tools.call(f.context, 'group_create', { title: '太多了', purpose: 'x', agentIds: ['agent_codex'] }, 'exceed'), e => e.code === 'group_budget');
 });
+test('the organizing agent can prepare an invitation for its own newly created group of other specialists', async t => {
+  const f = await fixture(t); f.store.put('contact', { ...f.store.require('contact', 'agent_codex'), id: 'specialist', name: '路线专家', handle: 'specialist', discovered: false });
+  const result = f.tools.call(f.context, 'group_create', { title: '交给专家', purpose: '旅行', agentIds: ['specialist'] }, 'create');
+  const info = f.tools.call(f.context, 'group_info', { threadId: result.threadId }, 'info');
+  assert.ok(info.roster.some(c => c.id === 'specialist'));
+});

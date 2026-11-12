@@ -29,7 +29,8 @@ export class GroupTools {
   tools(context) { return definitions.filter(t => t.name === 'group_info' || this.ownerRequest(context)); }
   target(context, threadId) {
     const { run } = this.run(context), thread = this.store.require('thread', threadId || context.threadId);
-    if (!thread.memberIds?.includes(context.contactId) || (run.sharedGroup && thread.id !== context.threadId)) fail(403, 'group_scope', '这个工具只可访问你加入且已授权的群聊');
+    const organizer = thread.groupOrigin?.runId === context.runId && this.ownerRequest(context);
+    if ((!thread.memberIds?.includes(context.contactId) && !organizer) || (run.sharedGroup && thread.id !== context.threadId)) fail(403, 'group_scope', '这个工具只可访问你加入且已授权的群聊');
     return thread;
   }
   version(thread) { return digest(JSON.stringify({ version: thread.version, rules: this.rules().version, share: this.sharing.current(thread.id)?.scopeVersion, members: thread.members })).slice(0, 24); }

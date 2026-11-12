@@ -26,6 +26,7 @@ test('workspace switching counts shared runs in the canonical worker ledger', as
   const room = host.playrooms.create({ template: 'twin', title: '合成等待', brief: '仅合成背景', persona: '合成角色', clientId: crypto.randomUUID() }, { kind: 'agent', name: '测试', binding: { type: 'local', localAgentId: 'codex' } });
   const thread = host.store.require('thread', room.threadId);
   host.store.appendRun(thread, { text: '等待', mode: 'codex', localAgentId: 'codex', contactId: thread.memberIds.find(id => id !== 'self'), sharedGroup: { id: room.id, actorId: 'self' } });
+  thread.runs[0].status = 'unknown'; thread.runs[0].requiresReconciliation = true;
   host.store.put('thread', thread);
   const result = await (await fetch(`http://127.0.0.1:${host.address().port}/api/workspace/status`)).json();
   assert.equal(result.blockingRuns, 1); assert.equal(host.store.list('play_job').length, 0);

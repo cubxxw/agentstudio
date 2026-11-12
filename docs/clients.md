@@ -31,23 +31,20 @@ Welcome's primary action opens the shared local picker; skipping still enters th
 
 The card is shared by contact details and the chat-header profile. It describes next-message configuration and adapter capabilities, not a verified execution or cross-model intelligence score. Unknown quota is “暂不可获取”; common accounts may share quota. General friend relationships and multi-computer pairing remain staged separately; temporary invitations use the guest-room flow below. Isolated synthetic acceptance: `node dev/local-agent-cards-acceptance.mjs` (or `--native`), output selected through `AGENTROOM_CARDS_EVIDENCE_DIR`.
 
-## Guest playrooms
+## Ordinary shared groups
 
-The star navigation action and chat share action open three editable invitation templates: AI twin, travel and co-creation. Only reviewed background and persona are published. The owner chooses local Codex/Pi and explicitly starts a temporary public tunnel before copying a web invitation. Guests accept with a nickname without an account, then share messages, travel votes, tasks and versioned notes. AI identity remains visible. Narrow screens switch between chat and plan; disconnect pauses actions without clearing drafts. See [workflow](personal/guest-playrooms.md).
+Sharing is a group capability. The group header opens members, artifacts, invitation review and Agent rules; there is no standalone room gallery/navigation. Existing private chats offer visible draft prompts for a digital twin, travel and co-creation. Agent-created group cards open actual chat IDs. Guest acceptance uses a nickname without an account and opens the same ConversationTimeline; the current viewer's messages appear outgoing, with trusted owner/friend/AI attribution. Mobile offers chat/artifact tabs and a current member popover. Presence unknown never implies read/offline. Notes and bounded poll/consensus games use real immutable Library artifacts, preserve dirty drafts and show CAS conflicts.
 
-| Element | `data-testid` |
+| Surface | Test IDs |
 | --- | --- |
-| Entry / gallery / template | `im-playrooms-open`, `im-share-room`, `play-gallery`, `play-case-twin`, `play-case-travel`, `play-case-project` |
-| Reviewed creation | `play-title`, `play-brief`, `play-persona`, `play-host-name`, `play-agent`, `play-create`, `play-back` |
-| Invitation acceptance | `play-invitation`, `play-nickname`, `play-join` |
-| Room / composer / tabs | `play-room`, `play-messages`, `play-message`, `play-send`, `play-tab-chat`, `play-tab-plan` |
-| Plan | `play-vote-<choiceId>`, `play-votes-<choiceId>`, `play-task-<taskId>`, `play-notes`, `play-save-notes`, `play-load-latest`, `play-notes-conflict`, `play-export` |
-| Owner controls | `play-copy-invite`, `play-copy-local`, `play-network-start`, `play-network-stop`, `play-close-room` |
-| Connection | `play-connection-state` |
-| Saved room / unknown execution | `play-open-<roomId>`, `play-reconcile-<jobId>` |
-| Trusted message role | `play-message-role-owner`, `play-message-role-guest`, `play-message-role-agent` |
+| Group controls | `group-sharing-open`, `group-collaboration`, `group-tab-people/artifacts/invite/rules`, `group-roster` |
+| Invitation review | `group-recipe-twin/travel/project`, `group-brief`, `group-prepare`, `group-publish`, `group-copy-invite`, `group-copy-local` |
+| Acceptance | `play-invitation`, `play-nickname`, `play-join`, `play-connection-state` |
+| Guest conversation | `group-guest-chat`, `group-message`, `group-send`, `group-guest-chat-tab`, `group-guest-artifacts`, existing `im-timeline/im-message` |
+| Artifacts | `group-artifact-note/poll/quiz`, `group-artifact-title/text/create`, `group-note-<id>`, `group-note-save-<id>`, `group-choice-<id>-<choiceId>` |
+| Source chat / rules | `group-card-<threadId>`, `group-rules-save` |
 
-Browser acceptance: `node dev/playrooms-acceptance.mjs`. Native acceptance: `node dev/playrooms-native-acceptance.mjs [--real] [--public]`; use an isolated managed `AGENTROOM_EVIDENCE_DIR` and freshly built assets. Synthetic and actual-model receipts are separate.
+Browser acceptance: `dev/integrated-groups-acceptance.mjs`; native: `dev/integrated-groups-native-acceptance.mjs [--real] [--public]`. Set managed `AGENTROOM_EVIDENCE_DIR`; synthetic transport and actual-model receipts remain distinct. Old playroom script names alias these flows. [Workflow](personal/guest-playrooms.md).
 
 ## Personal conversation workspace
 
@@ -98,7 +95,7 @@ Every personal conversation uses this Messenger shell, including old `?workspace
 
 Conversation-list message previews render Markdown emphasis, inline code and strikethrough on a single ellipsized line. Headings, lists, tables and code blocks are flattened into inline content with spaces; links show their label and images their alternative text, without adding interactive controls or fetching images inside the conversation button. Approval and running status still take precedence.
 
-Completed replies display their Markdown content without a sender name, model, per-message time, delivery checkmark or original-artifact link. Direct replies have no repeated avatar; groups retain an avatar button with the sender's accessible name and hover title. Incomplete replies, local-only human delivery and actionable run states remain visible. Reply/copy tools appear on hover or keyboard focus; touch devices give them a separate row. Day separators and sidebar update times remain orientation aids. Normal connected status and composer keyboard hints are omitted. Focus mode hides the conversation list while keeping the navigation rail available; its toolbar button and shortcuts reveal the list before changing screens. The message timeline uses a slim, rounded scrollbar with a transparent track (6 CSS pixels in Electron), a muted thumb that becomes clearer on hover or keyboard focus, and stronger visibility in increased-contrast or forced-color modes.
+Completed direct replies display their Markdown content without a sender name, model, per-message time, delivery checkmark or original-artifact link. Groups show a compact sender and trusted owner/friend/AI label. Direct replies have no repeated avatar; groups retain an avatar button with the sender's accessible name and hover title. Incomplete replies, local-only human delivery and actionable run states remain visible. Reply/copy tools appear on hover or keyboard focus; touch devices give them a separate row. Day separators and sidebar update times remain orientation aids. Normal connected status and composer keyboard hints are omitted. Focus mode hides the conversation list while keeping the navigation rail available; its toolbar button and shortcuts reveal the list before changing screens. The message timeline uses a slim, rounded scrollbar with a transparent track (6 CSS pixels in Electron), a muted thumb that becomes clearer on hover or keyboard focus, and stronger visibility in increased-contrast or forced-color modes.
 
 The left rail contains the owner's profile, chats, contacts and approvals, with refresh and settings at the bottom. The owner opens the existing settings dialog. Selection uses icon color and a soft rounded surface, with no leading bar. The native personal window reserves a 42px drag strip above the three panes for its system traffic lights; all panes start below it, including focus and narrow detail views. The list has no redundant screen heading. Its top row combines a search input, a separate filter disclosure inside the same field surface, and an adjacent plus button. Search and filtering compose without opening each other; opening a conversation preserves the current chat query and filter. Contacts and approvals have their own filter choices, reset when switching screens.
 

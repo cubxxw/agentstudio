@@ -340,3 +340,7 @@ Cue 是 Manus 出的个人 agent 应用（cue.im），每个 agent 有自己的�
 ### Tailscale server agents
 
 Personal workspaces support authenticated server-node enrollment, multiple agents per server, existing contact/group execution, and durable A2A task reconciliation. Desktop database synchronization, server-initiated inbox delivery and high availability remain future work. See [remote nodes](personal/remote-nodes.md).
+
+### Integrated group collaboration (2026-11-12)
+
+Normal groups now own nickname invitations, member/status cards and shared note/activity artifacts. Owner-request agents can select contacts, create groups and prepare reviewed or rule-authorized invitations through native tools. The guest frontend reuses the Messenger timeline; public runs use explicit context and strict CLI isolation. Automatic recursive group dispatch, unrestricted public website/game execution and permanent verified friend identities remain outside this slice.

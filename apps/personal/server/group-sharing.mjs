@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { Playrooms } from './playrooms.mjs';
+import { addReaction, REACTIONS } from './im-participation.mjs';
 import { APIError, digest, id, now } from './store.mjs';
 
 export const groupError = (status, code, message) => { throw new APIError(status, code, message); };
@@ -28,7 +29,7 @@ export class GroupSharing extends Playrooms {
   member(threadId, actorId) {
     const thread = this.store.require('thread', threadId);
     if (thread.kind !== 'group' || !thread.memberIds.includes(actorId)) groupError(403, 'membership_required', '你已不在这个群聊中');
-    if (actorId !== 'self') { const room = this.current(threadId); if (!room) groupError(403, 'invitation_missing', '这个群聊没有开放访问'); this.active(room); }
+    if (actorId !== 'self') { const room = this.current(threadId); if (this.store.require('contact', actorId).externalGuest && !room) groupError(403, 'invitation_missing', '这个群聊没有开放访问'); if (room?.state === 'published' || this.store.require('contact', actorId).externalGuest) this.active(room); }
     return thread;
   }
   prepare(threadId, body) {
@@ -72,7 +73,7 @@ export class GroupSharing extends Playrooms {
   }
   info(threadId, viewerId = 'self') {
     const thread = this.member(threadId, viewerId), room = this.current(threadId);
-    return room ? this.project(room, viewerId) : { threadId, thread: { id: thread.id, title: thread.title }, share: null, roster: this.roster(thread) };
+    return room ? this.project(room, viewerId) : { threadId, legacyJobs: viewerId === 'self' ? this.legacyJobs(threadId) : [], thread: { id: thread.id, title: thread.title }, share: null, roster: this.roster(thread) };
   }
   roster(thread) {
     const room = this.current(thread.id);
@@ -92,10 +93,11 @@ export class GroupSharing extends Playrooms {
   }
   project(room, actorId) {
     const thread = this.store.require('thread', room.threadId), roster = this.roster(thread);
-    const messages = this.publicMessages(thread, room), runs = thread.runs.filter(r => r.sharedGroup?.id === room.id && this.canPublishRun(thread, r)).map(r => ({ id: r.id, contactId: r.contactId, messageId: r.messageId, status: r.status, createdAt: r.createdAt, deliveryState: r.deliveryState }));
+    const messages = this.publicMessages(thread, room), runs = thread.runs.filter(r => r.sharedGroup?.id === room.id && this.canPublishRun(thread, r)).map(r => ({ id: r.id, contactId: r.contactId, contactSnapshot: roster.find(p => p.id === r.contactId), mode: 'codex', messageId: r.messageId, status: r.status, createdAt: r.createdAt, deliveryState: r.deliveryState, ...(['blocked', 'failed', 'unknown'].includes(r.status) ? { error: '这次回复需要主人核查，可以继续整理群作品。' } : {}) }));
     return { id: room.id, threadId: thread.id, title: thread.title, template: room.template, brief: room.brief, hostName: room.hostName, agentName: room.agentName,
       expiresAt: room.expiresAt, closed: Boolean(room.closedAt) || Date.parse(room.expiresAt) <= this.clock(), version: room.version,
       share: { id: room.id, state: room.state, version: room.version, maxGuests: room.maxGuests, maxTurns: room.maxTurns, agents: room.agents?.map(({ contactId, persona }) => ({ contactId, persona })) },
+      ...(actorId === 'self' ? { legacyJobs: this.legacyJobs(thread.id) } : {}),
       roster, contacts: roster, participants: roster.filter(p => p.kind === 'human').map(p => ({ ...p, isOwner: p.id === 'self' })), me: roster.find(p => p.id === actorId),
       remainingTurns: Math.max(0, room.maxTurns - room.turns),
       thread: { id: thread.id, kind: 'group', title: thread.title, groupAvatar: thread.groupAvatar, memberIds: thread.memberIds, version: thread.version,
@@ -152,9 +154,22 @@ export class GroupSharing extends Playrooms {
     const thread = this.member(threadId, actorId); const room = this.current(threadId); if (actorId !== 'self') this.active(room);
     const result = this.messenger.appendMessage(thread, body, this.options.validateInput, actorId); this.changed(); this.kick(); return result;
   }
+  legacyJobs(threadId) {
+    const rooms = this.store.list('play_room').filter(r => r.threadId === threadId).map(r => r.id);
+    return this.store.list('play_job').filter(j => rooms.includes(j.roomId) && j.status === 'unknown').map(j => ({ id: j.id, roomId: j.roomId, status: j.status }));
+  }
   action(roomId, actorId, body) {
-    const room = this.store.require('play_room', roomId); this.member(room.threadId, actorId); this.active(room);
-    const allowed = { message: ['text', 'replyTo'], close: [], remove: ['participantId'], artifact_create: ['kind', 'title', 'text', 'choices'], artifact_edit: ['artifactId', 'revisionId', 'hash', 'text'], artifact_act: ['artifactId', 'revisionId', 'choiceId'] };
+    if (body?.type === 'acknowledge') {
+      groupFields(body, ['type', 'clientId', 'jobId', 'confirmedStopped']);
+      if (actorId !== 'self') groupError(403, 'owner_required', '只有主人可以核查旧执行');
+      this.store.idempotent(`group:legacy-stop:${roomId}`, body.clientId, body, () => {
+        const job = this.store.require('play_job', body.jobId);
+        if (job.roomId !== roomId || job.status !== 'unknown' || body.confirmedStopped !== true) groupError(409, 'review_required', '请先核查原执行确实已经停止');
+        this.store.put('play_job', { ...job, status: 'failed', error: '主人已核查原执行结束，没有重发。' }); return { accepted: true };
+      }); this.changed(); return this.owner(roomId);
+    }
+    const room = this.store.require('play_room', roomId); this.member(room.threadId, actorId); if (!(actorId === 'self' && body?.type === 'close' && room.state === 'draft')) this.active(room);
+    const allowed = { reaction: ['messageId', 'emoji', 'active'], message: ['text', 'replyTo'], close: [], remove: ['participantId'], artifact_create: ['kind', 'title', 'text', 'choices'], artifact_edit: ['artifactId', 'revisionId', 'hash', 'text'], artifact_act: ['artifactId', 'revisionId', 'choiceId'] };
     if (!Object.hasOwn(allowed, body?.type)) groupError(400, 'invalid_input', '不支持这个群聊操作');
     groupFields(body, ['type', 'clientId', ...allowed[body.type]]);
     if (['close', 'remove'].includes(body.type) && actorId !== 'self') groupError(403, 'owner_required', '只有主人可以管理邀请');
@@ -168,7 +183,13 @@ export class GroupSharing extends Playrooms {
     }
     this.store.idempotent(`group:action:${roomId}:${actorId}`, body.clientId, body, () => {
       if (body.type === 'message') this.send(room.threadId, actorId, { text: body.text, replyTo: body.replyTo });
-      else {
+      else if (body.type === 'reaction') {
+        const thread = this.store.require('thread', room.threadId), message = thread.messages.find(m => m.id === body.messageId);
+        if (!message || !this.publicMessages(thread, room).some(m => m.id === body.messageId) || !REACTIONS.includes(body.emoji) || typeof body.active !== 'boolean') groupError(400, 'invalid_reaction', '请选择本群已公开消息和支持的表情');
+        if (body.active) addReaction(message, { emoji: body.emoji, contactId: actorId, contactSnapshot: person(this.store.require('contact', actorId)), recipientIds: [...thread.memberIds], createdAt: now() });
+        else message.reactions = (message.reactions || []).filter(r => r.contactId !== actorId || r.emoji !== body.emoji);
+        this.store.put('thread', thread);
+      } else {
         const current = this.store.require('play_room', roomId), thread = this.store.require('thread', room.threadId);
         const targets = current.participants.filter(p => !p.isOwner && !p.removedAt && (body.type === 'close' || p.id === body.participantId));
         if (body.type === 'remove' && !targets.length) groupError(400, 'invalid_guest', '请选择仍在群中的访客');
@@ -220,6 +241,7 @@ export class GroupSharing extends Playrooms {
   migrate() {
     for (const room of this.store.list('play_room')) {
       if (room.threadId) continue;
+      this.store.transaction(() => {
       const contactId = `shared_agent_${room.id}`;
       this.store.put('contact', { id: contactId, name: room.agentName, handle: `shared_${room.id.replaceAll('-', '').slice(-20)}`, kind: 'agent', instructions: '', description: '旧邀请中的公开角色', binding: { type: 'local', localAgentId: room.backend }, configuration: room.configuration || {}, version: 1, groupLegacy: true });
       const thread = this.messenger.createChat({ kind: 'group', title: room.title, memberIds: [contactId] });
@@ -228,6 +250,7 @@ export class GroupSharing extends Playrooms {
       }
       thread.messages = (room.messages || []).map(message => ({ ...message, contactId: message.actorId === 'agent' ? contactId : message.actorId, groupShareId: room.id, attachments: [] })); this.store.put('thread', thread);
       this.store.put('play_room', { ...room, threadId: thread.id, state: 'published', scopeVersion: 1, agents: [{ contactId, persona: room.persona, backend: room.backend, executionSnapshot: room.executionSnapshot }], artifactGrants: [] });
+      });
     }
   }
 }

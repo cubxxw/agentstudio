@@ -19,7 +19,7 @@ import { DesktopSharing } from './desktop-sharing.mjs';
 import { GroupSharing } from './group-sharing.mjs';
 import { GroupTools } from './group-tools.mjs';
 import { GroupArtifacts } from './group-artifacts.mjs';
-import { createPlayExecutor } from './play-executor.mjs';
+import { createPlayExecutor, sweepGuestHomes } from './play-executor.mjs';
 import { PlayNetwork } from './play-network.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
 import { ProviderApprovals } from './provider-approvals.mjs';
@@ -123,6 +123,7 @@ export async function createPersonalServer(options = {}) {
   const store = new PersonalStore(dataDir);
   const unread = new UnreadMessages(store);
   store.recover();
+  try { await sweepGuestHomes(join(dataDir, 'workspaces'), /^run_[A-Za-z0-9_-]+$/); } catch (error) { store.close(); throw error; }
   // Adopt existing populated workspaces without interrupting their normal entry.
   if (!store.get('setting', 'workspace-onboarding') && (store.list('thread').length || store.list('connection').length || store.list('memory').length || store.list('contact').some(contact => contact.id !== 'self' && !contact.discovered))) {
     store.put('setting', { id: 'workspace-onboarding', completed: true, adoptedAt: now() });
