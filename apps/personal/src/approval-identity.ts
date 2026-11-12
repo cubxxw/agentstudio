@@ -8,7 +8,7 @@ export function approvalContact(approval: Approval, contacts: Contact[]) {
   const sameBackend = current && (connectionId ? current.binding?.type === "connection" && current.binding.connectionId === connectionId
     : current.binding?.type === "local" && current.binding.localAgentId === original.avatarAgent);
   // Names follow the address book. Backend identity and portraits follow this request.
-  return { ...original,
+  return { ...original, avatar: original.avatar ?? null,
     ...(current ? { name: current.name, handle: current.handle, color: current.color, icon: current.icon } : {}),
     ...(sameBackend ? { avatarDataUrl: current.avatarDataUrl, avatarService: current.avatarService } : {}),
     ...(connectionId ? { binding: { type: "connection" as const, connectionId }, avatarAgent: undefined } : {}),

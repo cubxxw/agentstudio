@@ -23,3 +23,7 @@ AgentRoom's own icon, and official images of the services AgentRoom connects to.
 Grok Bot's bot avatars (its shapes) are not shipped: the Mac app draws them on the user's Mac with the installed Grok Bot app's own code (see `apps/desktop/src/main/connectors/grokavatar.ts`).
 
 AgentRoom's own UI icons come from [Lucide](https://lucide.dev) (ISC) on desktop and [Ionicons](https://ionic.io/ionicons) (MIT) on mobile.
+
+## Generated role portraits
+
+The personal renderer uses `@dicebear/core` and `@dicebear/bottts`, pinned to 9.4.2. Core is MIT; Bottts by Pablo Stanley is free for personal and commercial use. Sources: https://www.dicebear.com/styles/bottts/ and https://github.com/dicebear/dicebear/tree/9.4.2. The selected descriptor is saved, with no external image request. Existing product marks and real native Bot pictures remain available.

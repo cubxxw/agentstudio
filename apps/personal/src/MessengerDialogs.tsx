@@ -1,3 +1,5 @@
+import { AgentAvatarEditor } from "./AgentAvatarEditor";
+import { defaultAgentAvatar } from "./agent-avatar";
 import { useRef, useState } from "react";
 import { Bot, Check, Plus, Settings2, UserRound, Users } from "lucide-react";
 import { api, key } from "./api";
@@ -7,7 +9,7 @@ import type { GroupAvatar as GroupAppearance } from "./types";
 import { Avatar, avatarIcons, avatarLabels } from "./ContactAvatar";
 import { AgentOptions } from "./AgentOptions";
 export { Avatar } from "./ContactAvatar";
-import type { AgentConfiguration, Contact, ResponsePolicy, Thread } from "./types";
+import type { AgentAvatar, AgentConfiguration, Contact, ResponsePolicy, Thread } from "./types";
 
 export const availabilityText: Record<Contact["availability"], string> = {
   ready: "已连接", configuration_required: "需要完善配置", self: "本人", local_only: "本地联系人 · 尚未接入消息网络",
@@ -31,6 +33,7 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
   const [description, setDescription] = useState(contact?.description || "");
   const [instructions, setInstructions] = useState(contact?.instructions || "");
   const [color, setColor] = useState(contact?.color || "blue");
+  const [avatar, setAvatar] = useState<AgentAvatar | null>(() => contact ? contact.avatar === undefined ? (!contact.discovered && (!contact.icon || contact.icon === "auto") && !contact.avatarDataUrl && !contact.avatarService ? defaultAgentAvatar(contact) : null) : contact.avatar : defaultAgentAvatar({ id: key() }));
   const [icon, setIcon] = useState(contact?.icon || "auto");
   const [configuration, setConfiguration] = useState<AgentConfiguration>(contact?.configuration || { modelMode: "follow", thinking: "follow" });
   const [refreshing, setRefreshing] = useState(false);
@@ -50,7 +53,7 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
   const submit = async () => {
     setBusy(true); setError("");
     try {
-      const fields = { kind, name, handle, description, instructions, color, icon, ...(kind === "agent" ? { configuration, chatBackend: isToolConnection && chatBackend ? JSON.parse(chatBackend) : null } : {}), binding: kind === "agent" ? JSON.parse(backend) : null, ...(contact ? { version: contact.version } : {}) };
+      const fields = { kind, name, handle, description, instructions, color, icon, avatar: kind === "agent" ? avatar : null, ...(kind === "agent" ? { configuration, chatBackend: isToolConnection && chatBackend ? JSON.parse(chatBackend) : null } : {}), binding: kind === "agent" ? JSON.parse(backend) : null, ...(contact ? { version: contact.version } : {}) };
       const signature = JSON.stringify(fields);
       if (pending.current?.signature !== signature) pending.current = { signature, clientId: key() };
       const saved = await api<Contact>(contact ? `/contacts/${contact.id}` : "/contacts", { ...fields, clientId: pending.current.clientId });
@@ -64,7 +67,16 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
         <button type="button" aria-pressed={kind === "agent"} data-testid="im-kind-agent" onClick={() => setKind("agent")}><Bot size={16} />Agent</button>
         <button type="button" aria-pressed={kind === "human"} data-testid="im-kind-human" onClick={() => setKind("human")}><UserRound size={16} />人</button>
       </div>}
-      <div className="im-identity-preview"><Avatar contact={{ name: name || "A", color, kind, icon, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService, avatarDataUrl: selectedBackend?.avatarDataUrl }} size="large" /><span>{name || "新的联系人"}<small>@{handle}</small></span></div>
+      {(!avatar || kind === "human") && <div className="im-identity-preview"><Avatar contact={{ name: name || "A", color, kind, icon, avatar, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService, avatarDataUrl: selectedBackend?.avatarDataUrl }} size="large" /><span>{name || "新的联系人"}<small>@{handle}</small></span></div>}
+      {kind === "agent" && <>
+        <div className="im-segment" aria-label="头像来源">
+          <button type="button" aria-pressed={Boolean(avatar) && icon === "auto"} data-testid="im-avatar-mode-robot" onClick={() => { setIcon("auto"); setAvatar(avatar || defaultAgentAvatar({ id: contact?.id || handle, name, description, color })); }}>角色头像</button>
+          <button type="button" aria-pressed={!avatar && icon === "auto"} data-testid="im-avatar-mode-provider" onClick={() => { setIcon("auto"); setAvatar(null); }}>助手原头像</button>
+        </div>
+        {avatar && icon === "auto" && <AgentAvatarEditor name={name} value={avatar} onChange={next => { setAvatar(next); setColor(next.palette); }} />}
+      </>}
+      {(!avatar || kind === "human") && <div className="im-avatar-picker" aria-label="联系人图标">{Object.entries(avatarIcons).map(([id, Icon]) => <button key={id} type="button" aria-label={avatarLabels[id]} title={avatarLabels[id]} aria-pressed={icon === id} data-testid={`im-avatar-icon-${id}`} onClick={() => { setIcon(id); setAvatar(null); }}>{id === "auto" ? <Avatar contact={{ name: name || "A", color, kind, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService, avatarDataUrl: selectedBackend?.avatarDataUrl }} size="small" /> : <Icon size={20} />}</button>)}</div>}
+      {(!avatar || kind === "human") && <div className="im-colors" aria-label="头像颜色">{["blue", "violet", "teal", "orange", "rose"].map(c => <button className={`im-color ${c}`} type="button" key={c} aria-label={`${c}头像`} aria-pressed={color === c} onClick={() => setColor(c)}>{color === c && <Check size={15} />}</button>)}</div>}
       <label>名称<input autoFocus required maxLength={80} value={name} onChange={e => setName(e.target.value)} data-testid="im-contact-name" /></label>
       <label>用户名<span className="im-field-hint">群聊中通过 @{handle} 提及</span><input required pattern="[a-z][a-z0-9_-]{1,31}" maxLength={32} value={handle} onChange={e => setHandle(e.target.value.toLowerCase())} data-testid="im-contact-handle" /></label>
       <label>简介<input maxLength={300} placeholder="一句话介绍这位联系人" value={description} onChange={e => setDescription(e.target.value)} data-testid="im-contact-description" /></label>
@@ -83,8 +95,6 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
         <p className="im-field-hint">身份和聊天记录保存在这台 Mac。更改身份从下一条消息起生效。</p>
       </>}
       {kind === "human" && <p className="im-callout">先保存到本机通讯录。对方尚不能收到消息，后续接入消息网络后再启用投递。</p>}
-      <div className="im-avatar-picker" aria-label="联系人图标">{Object.entries(avatarIcons).map(([id, Icon]) => <button key={id} type="button" aria-label={avatarLabels[id]} title={avatarLabels[id]} aria-pressed={icon === id} data-testid={`im-avatar-icon-${id}`} onClick={() => setIcon(id)}>{id === "auto" ? <Avatar contact={{ name: name || "A", color, kind, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService, avatarDataUrl: selectedBackend?.avatarDataUrl }} size="small" /> : <Icon size={20} />}</button>)}</div>
-      <div className="im-colors" aria-label="头像颜色">{["blue", "violet", "teal", "orange", "rose"].map(c => <button className={`im-color ${c}`} type="button" key={c} aria-label={`${c}头像`} aria-pressed={color === c} onClick={() => setColor(c)}>{color === c && <Check size={15} />}</button>)}</div>
       {error && <p role="alert" className="im-error">{error}</p>}
       <button className="im-primary" disabled={busy || refreshing || (kind === "agent" && backend === "null")} data-testid="im-contact-save">{busy ? "正在保存…" : contact ? "保存更改" : "添加联系人"}</button>
     </form>

@@ -23,7 +23,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
   const bubble = (message: Message, run?: Run, preview = false) => {
     if (message.role === "system") return <div className="im-schedule-event" data-testid="im-schedule-event"><Clock3 size={13} /><RichText text={message.text} /></div>;
     const current = contacts.find(contact => contact.id === message.contactId);
-    const sender = message.contactSnapshot ? { ...message.contactSnapshot, ...(run?.connectionId ? originalAvatar(run) : {}) } : current;
+    const sender = message.contactSnapshot ? { ...message.contactSnapshot, avatar: message.contactSnapshot.avatar ?? null, ...(run?.connectionId ? originalAvatar(run) : {}) } : current;
     const reply = message.replyTo ? thread.messages.find(item => item.id === message.replyTo) : null;
     const incoming = message.role !== "user", group = thread.kind === "group";
     const incomplete = preview && !["running", "verifying"].includes(run?.status || "");
@@ -55,7 +55,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
           {row.messages.map(message => <div key={message.id}>{bubble(message, row.run)}</div>)}
           {!row.messages.length && row.run.progress?.text && bubble({ id: `preview-${row.run.id}`, text: row.run.progress.text, role: "assistant", createdAt: row.run.startedAt || row.run.createdAt, contactId: row.run.contactId, contactSnapshot: row.run.contactSnapshot }, row.run, true)}
           {row.run.status !== "completed" && <div className={`im-reply-state ${row.run.status === "queued" ? "queued" : ""} ${["blocked", "failed", "unknown", "cancelled"].includes(row.run.status) ? "attention" : ""}`} data-testid="im-run-status" data-run-id={row.run.id}>
-            {thread.kind === "group" && !row.messages.length && !row.run.progress?.text && <Avatar contact={row.run.contactSnapshot ? { ...row.run.contactSnapshot, ...originalAvatar(row.run) } : undefined} size="small" />}
+            {thread.kind === "group" && !row.messages.length && !row.run.progress?.text && <Avatar contact={row.run.contactSnapshot ? { ...row.run.contactSnapshot, avatar: row.run.contactSnapshot.avatar ?? null, ...originalAvatar(row.run) } : undefined} size="small" />}
             <div role="status" aria-live="polite"><span className="im-reply-label">{thread.kind === "group" && row.run.contactSnapshot?.name ? `${row.run.contactSnapshot.name} · ` : ""}{["running", "verifying"].includes(row.run.status) ? <><span className="im-typing-dots" aria-hidden="true"><i /><i /><i /></span>{row.run.progress?.phase === "thinking" ? "正在思考" : row.run.progress?.text ? "正在回复" : row.run.status === "verifying" ? "正在保存回复" : "正在准备回复"}</> : row.run.status === "queued" ? "已保存，等待助手处理" : runLabel(row.run)}</span>{row.run.error && <p>{row.run.error}</p>}</div>
             {["running", "queued", "verifying", "needs_input"].includes(row.run.status) ? <button className="im-icon" aria-label={`停止${row.run.contactSnapshot?.name || "助手"}`} data-testid={`im-run-stop-${row.run.id}`} disabled={busy === row.run.id} onClick={() => onRun(row.run, "cancel")}><Square size={13} /></button> : ["blocked", "failed", "unknown"].includes(row.run.status) || row.run.requiresReconciliation ? <button className="im-text-button" disabled={busy === row.run.id} onClick={() => onRun(row.run, recovery(row.run).action)}>{recovery(row.run).label}</button> : null}
           </div>}

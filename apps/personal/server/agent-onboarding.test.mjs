@@ -173,3 +173,17 @@ test('restart during cancellation exposes interrupted preparation and preserves 
  assert.equal(recovered.status, 'interrupted'); assert.equal(recovered.cancelPending, false); assert.equal(recovered.stopUnconfirmed, true);
  assert.equal(f.store.require('thread', job.threadId).runs[0].status, 'unknown');
 });
+
+test('agent-selected avatar parameters are validated and adopted without changing their seed', async t => {
+ const f = await setup(t); const job = start(f); const stored = f.store.require('agent_onboarding', job.id);
+ const result = suggestion(stored.context.sources);
+ const avatar = { version: 1, style: 'bottts', seed: 'review-companion-1', palette: 'orange', eyes: 'eva', mouth: 'diagram', top: 'pyramid', motion: true };
+ result.suggestions[0].avatar = avatar;
+ const parsed = f.service.validate(result, stored);
+ f.store.put('agent_onboarding', { ...stored, status: 'completed', probe: { status: 'passed' }, ...parsed });
+ assert.deepEqual(f.service.adopt(job.id, parsed.suggestions[0].id).avatar, avatar);
+ result.suggestions[0].avatar = { ...avatar, top: 'arbitrary-svg' };
+ // Use an unused handle so appearance validation is the failing condition.
+ result.suggestions[0].handle = 'another-reviewer';
+ assert.throws(() => f.service.validate(result, stored), /头像/);
+});

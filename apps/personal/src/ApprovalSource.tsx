@@ -25,7 +25,7 @@ export function ApprovalRow({ approval, contact, selected, onSelect }: { approva
   const states: Record<string, string> = { pending: "等待决定", sending: "正在同步选择", unknown: "结果待核查", cancelled: "已失效" };
   const state = states[approval.state] || "已记录选择";
   return <button className={`im-chat-row im-approval-row ${selected ? "selected" : ""}`} data-testid={`im-approval-${approval.id}`} onClick={onSelect}>
-    <Avatar contact={contact} />
+    <Avatar contact={contact} activity={{ state: ["pending", "sending", "unknown"].includes(approval.state) ? "waiting" : "idle" }} />
     <span className="im-row-copy">
       <span className="im-approval-by"><span>{contact?.name || "未关联联系人"}</span><small>{state}</small></span>
       <strong>{approval.title}</strong>
@@ -39,7 +39,7 @@ export function ApprovalSource({ approval, contact, canOpenContact, onContact, o
   const kind = approval.source?.threadKind === "group" ? "群聊" : approval.source?.threadKind === "direct" ? "私聊" : "任务对话";
   return <section className="im-approval-source" data-testid="im-approval-source" aria-label="审批来源">
     <div className="im-approval-sender">
-      <Avatar contact={contact} size="large" />
+      <Avatar contact={contact} size="large" activity={{ state: ["pending", "sending", "unknown"].includes(approval.state) ? "waiting" : "idle" }} />
       <div><span className="im-muted">请求来自</span><h2>{canOpenContact ? <button data-testid="im-approval-contact" onClick={onContact}>{contact?.name}<ChevronRight size={17} /></button> : contact?.name || "未关联联系人"}</h2>
         {contact?.handle && <p>@{contact.handle}</p>}
         {original && contact?.name !== original.name && <p>发起时：{original.name}</p>}

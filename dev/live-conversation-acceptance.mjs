@@ -60,6 +60,7 @@ try {
   await page.getByTestId('im-contact-name').fill('研究伙伴'); await page.getByTestId('im-contact-handle').fill('research');
   await page.getByTestId('im-extract-identity').click();
   await expect(page.getByTestId('im-contact-instructions')).toHaveValue('你是合成研究伙伴。请先核对来源，再清晰回答。');
+  await page.getByTestId('im-avatar-mode-provider').click();
   await page.getByTestId('im-avatar-icon-research').click(); await capture('identity-and-model');
   await page.getByTestId('im-contact-save').click(); await expect(page.getByTestId('im-contact-detail')).toContainText('alpha');
   const contact = (await request('/contacts')).contacts.find(c => c.handle === 'research');

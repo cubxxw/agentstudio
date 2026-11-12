@@ -10,7 +10,9 @@
     "./desktop-contract": "./src/desktop-contract.ts",
     "./native": "./src/native.ts"
   },
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "dev": "node dev.mjs",
     "build": "tsc --noEmit && vite build",
@@ -26,7 +28,9 @@
     "react-markdown": "10.1.0",
     "remark-cjk-friendly": "2.3.4",
     "remark-cjk-friendly-gfm-strikethrough": "2.3.3",
-    "remark-gfm": "4.0.1"
+    "remark-gfm": "4.0.1",
+    "@dicebear/core": "9.4.2",
+    "@dicebear/bottts": "9.4.2"
   },
   "devDependencies": {
     "@types/react": "19.3.0",
