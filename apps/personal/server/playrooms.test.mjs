@@ -23,7 +23,7 @@ async function fixture(t, execute = async context => `你好 ${context.messages.
 }
 async function settled(f, id) {
   const end = Date.now() + 3000;
-  while (Date.now() < end) { const room = f.rooms.owner(id); if (room.jobs.every(j => !['queued', 'running'].includes(j.status))) return room; await new Promise(r => setTimeout(r, 10)); }
+  while (Date.now() < end) { const room = f.rooms.owner(id); if (room.jobs.every(j => !['queued', 'running', 'stopping'].includes(j.status))) return room; await new Promise(r => setTimeout(r, 10)); }
   throw new Error('Room did not settle');
 }
 test('anonymous preview publishes only reviewed brief; acceptance gives a scoped HttpOnly identity', async t => {
@@ -113,6 +113,30 @@ test('a full length Chinese shared note fits the byte limit and persists', async
 test('digital twin presents the published host identity instead of the underlying CLI brand', async t => {
   const f = await fixture(t), room = f.create({ template: 'twin', hostName: '小熊' });
   assert.equal(room.agentName, '小熊的分身');
+});
+test('cancelling a running child stays durably stopping and restart fences it as unknown', async t => {
+  let finish; const f = await fixture(t, () => new Promise(r => finish = r)), room = f.create();
+  f.rooms.action(room.id, 'self', { type: 'message', text: '等待', clientId: crypto.randomUUID() });
+  while (!finish) await new Promise(r => setImmediate(r));
+  f.rooms.action(room.id, 'self', { type: 'close', clientId: crypto.randomUUID() });
+  try {
+    assert.equal(f.store.list('play_job')[0].status, 'stopping');
+    const recovered = new Playrooms(f.store, {}); await recovered.close();
+    assert.equal(f.store.list('play_job')[0].status, 'unknown');
+  } finally { finish('不得公开'); }
+});
+test('normal and guest executors share the same uncertain-stop barrier', async t => {
+  const f = await fixture(t), room = f.create();
+  f.store.put('thread', { id: 'normal', runs: [{ localAgentId: 'pi', stopUnconfirmed: true }] });
+  assert.throws(() => f.rooms.action(room.id, 'self', { type: 'message', text: '不能绕过', clientId: crypto.randomUUID() }), { code: 'local_agent_stop_unconfirmed' });
+  f.store.put('thread', { id: 'normal', runs: [] });
+  f.store.put('play_job', { id: 'guest-unknown', backend: 'pi', status: 'unknown' });
+  assert.throws(() => f.store.assertExecutorReady('pi'), { code: 'local_agent_stop_unconfirmed' });
+});
+test('accepted guests have independent polling quotas behind the same tunnel peer', async t => {
+  const f = await fixture(t), room = f.create(), a = await f.enter(room), b = await f.enter(room);
+  for (let i = 0; i < 305; i++) assert.equal((await f.request(`/g-api/${room.id}`, undefined, a.cookie)).status, 200);
+  for (let i = 0; i < 305; i++) assert.equal((await f.request(`/g-api/${room.id}`, undefined, b.cookie)).status, 200);
 });
 test('an unconfirmed cancellation remains unknown and blocks further use of the same backend', async t => {
   const f = await fixture(t, (_context, signal) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('private stop details'), { code: 'stop_unconfirmed' })))));

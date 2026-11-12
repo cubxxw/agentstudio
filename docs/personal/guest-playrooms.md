@@ -14,7 +14,7 @@
 
 ## 主人怎么邀请
 
-1. 选本机 Codex 或 Pi，编辑房间名称、主人昵称、共同背景和分身说明。只有这些公开内容和本房间讨论进入访客 Agent。可主动把当前聊天最近八条文本带入编辑框，检查后再发布。
+1. 选本机 Codex 或 Pi，编辑房间名称、主人昵称、共同背景和分身说明。Codex 访客模式目前仅支持内置 OpenAI 配置；自定义提供商或配置 profile 会被拒绝，不会悄悄换提供商。只有这些公开内容和本房间讨论进入访客 Agent。可主动把当前聊天最近八条文本带入编辑框，检查后再发布。
 2. 创建后点「开启网页邀请」。本机需要 `~/.local/bin/cloudflared`；系统只将独立的访客监听器接入临时 HTTPS 通道，不公开个人工作区接口。
 3. 复制邀请给朋友。另一个「本机预览」地址只适用于这台 Mac，不能当成公网邀请。
 4. 主人也可以参与聊天和计划。移除访客会撤销其会话并更换邀请，旧链接不能重新入场；其他已加入的朋友继续使用。关闭房间使邀请及已有访客会话失效。
@@ -33,7 +33,11 @@
 
 邀请随机值加密保存在工作区 vault；会话在服务端只存摘要。邀请放在 URL fragment，加入后从地址栏移除。HTTPS 下的会话 Cookie 带 Secure、HttpOnly、SameSite=Strict；房间、身份、移除和到期每次访问都检查。SQLite 聊天和计划本身不做端到端或整库加密。
 
-网页邀请使用 [Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)，地址临时、无持续可用保证。当前使用轮询，不依赖 SSE。重新开启通道可能需要重发新地址；内容和已有身份保存在本机。通道显示在线表示地址已签发，不能替代实际外网连通或模型验收。
+网页邀请使用 [Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)，地址临时、无持续可用保证。当前使用轮询，不依赖 SSE。同一地址再次打开原邀请会恢复已有座位。重新开启通道换域名后，浏览器无法沿用旧域名的 Cookie：朋友需重新接受，主人可移除旧座位后再发新邀请；内容仍保存在本机。通道显示在线表示地址已签发，不能替代实际外网连通或模型验收。
+
+Codex 访客执行使用私有空白 HOME/CODEX_HOME，显式忽略用户配置和规则，关闭记忆、hooks、技能目录注入和技能搜索，并收窄子进程环境。只将 `auth.json` 链接到当前私有文件认证，不复制凭据，不导入全局 AGENTS；普通刷新仍更新原账号文件。当前仅允许已验证的 **Codex 0.163.0**；Keychain 模式、其他提供商、环境变量认证覆盖或不能确认的账号形式直接拒绝。私有链接不进入作品导出，退出清理，重启清理中断留下的目录。这个认证适配按固定版本的[文件写入实现](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/login/src/auth/storage.rs)验证；不使用内部 app-server 登录协议。
+
+控制项见 [官方配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)。实际模型输入由带私人合成标记的本地假提供商验收，脚本为 `dev/playrooms-codex-isolation.mjs`，同时验证真实 CLI 的认证链接写穿以及本次无刷新调用没有改动认证。子进程强杀后的链接清理由后端回归测试覆盖；真实 Pi 账号可用性需另行验证。
 
 ## 开发验收
 

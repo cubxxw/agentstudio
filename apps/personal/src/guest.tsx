@@ -18,7 +18,14 @@ function GuestApp() {
   const roomId = location.pathname.match(/^\/g\/(pr_[A-Za-z0-9_-]+)$/)?.[1];
   useEffect(() => {
     let alive = true;
-    const start = invite ? request<PlayPreview>('/preview', { invite }).then(value => { if (alive) setPreview(value); }) : roomId ? request<PlayRoom>(`/${roomId}`).then(value => { if (alive) setRoom(value); }) : Promise.reject(new Error('从朋友发来的完整邀请链接进来，就能一起玩。'));
+    const start = (async () => {
+      if (roomId) {
+        try { const current = await request<PlayRoom>(`/${roomId}`); if (alive) { history.replaceState(null, '', `/g/${current.id}`); setRoom(current); } return; }
+        catch (e) { if (!invite || !(e instanceof GuestRequestError) || e.status !== 401) throw e; }
+      }
+      if (!invite) throw new Error('从朋友发来的完整邀请链接进来，就能一起玩。');
+      const value = await request<PlayPreview>('/preview', { invite }); if (alive) setPreview(value);
+    })();
     void start.catch(e => { if (alive) setError(playError(e)); }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [invite, roomId]);

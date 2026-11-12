@@ -37,15 +37,31 @@ try {
     const aContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const bContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const a = await aContext.newPage(), b = await bContext.newPage();
-    for (const [page, name] of [[a, '甲'], [b, '乙']]) {
+    for (const [page, name] of [[a, room.hostName], [b, '乙']]) {
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(invite.localUrl); await expect(page.getByTestId('play-invitation')).toBeVisible();
-      if (name === '甲') await page.screenshot({ path: join(evidence, 'screenshots', `${template}-invitation.png`), fullPage: true });
+      if (page === a) await page.screenshot({ path: join(evidence, 'screenshots', `${template}-invitation.png`), fullPage: true });
       await page.getByTestId('play-nickname').fill(name); await page.getByTestId('play-join').click();
       await expect(page.getByTestId('play-room')).toBeVisible();
     }
     await a.getByTestId('play-message').fill('一起想一个好玩的开场'); await a.getByTestId('play-send').click();
     await expect(b.getByTestId('play-messages')).toContainText('合成验收回复：一起想一个好玩的开场');
+    const identity = await a.evaluate(() => fetch(location.pathname.replace('/g/', '/g-api/')).then(r => r.json()).then(r => r.me.id));
+    await a.goto('about:blank'); await a.goto(invite.localUrl); await expect(a.getByTestId('play-room')).toBeVisible();
+    assert.equal(await a.evaluate(() => fetch(location.pathname.replace('/g/', '/g-api/')).then(r => r.json()).then(r => r.me.id)), identity, 'Original invitation must resume the existing seat');
+    host.playrooms.action(room.id, 'self', { type: 'message', text: '主人在这里', clientId: crypto.randomUUID() });
+    await expect(b.getByTestId('play-message-role-owner')).toHaveText('主人');
+    await expect(b.getByTestId('play-message-role-guest').first()).toHaveText('访客');
+    if (template === 'twin') {
+      let release;
+      await a.route(`**/g-api/${room.id}/actions`, async route => {
+        if (route.request().postDataJSON().type !== 'message') return route.continue();
+        const response = await route.fetch(); await new Promise(resolve => { release = async () => { await route.fulfill({ response }); resolve(); }; });
+      });
+      await a.getByTestId('play-message').fill('已发送的第一句'); await a.getByTestId('play-send').click();
+      await expect.poll(() => Boolean(release)).toBe(true); await a.getByTestId('play-message').fill('等待时写下的下一句'); await release();
+      await expect(a.getByTestId('play-message')).toHaveValue('等待时写下的下一句'); await a.unroute(`**/g-api/${room.id}/actions`);
+    }
     if (template === 'travel') {
       await a.getByTestId('play-vote-choice_0').click();
       await b.getByTestId('play-tab-plan').click();
@@ -83,6 +99,12 @@ try {
     await b.reload(); await expect(b.getByTestId('play-room')).toBeVisible();
     await aContext.close(); await bContext.close(); await owner.getByTestId('play-back').click();
   }
+  const oldest = host.playrooms.list().at(-1);
+  for (let i = 0; i < 13; i++) host.playrooms.create({ template: 'twin', title: `后来的房间 ${i}`, brief: '合成背景', persona: '合成人格', clientId: crypto.randomUUID() }, host.store.get('contact', 'agent_codex'));
+  host.store.put('play_job', { id: 'pj_review_unknown', roomId: oldest.id, backend: 'codex', actorId: 'self', status: 'unknown' });
+  host.store.put('play_job', { id: 'pj_review_failed', roomId: oldest.id, backend: 'codex', actorId: 'self', status: 'failed' });
+  await owner.reload(); await owner.getByTestId('im-playrooms-open').click(); await owner.getByTestId(`play-open-${oldest.id}`).click();
+  await expect(owner.getByTestId('play-reconcile-pj_review_unknown')).toBeVisible();
   assert.deepEqual(errors, []); verdict = 'passed';
 } finally {
   await writeFile(join(evidence, 'browser-verdict.json'), JSON.stringify({ verdict, errors, scope: 'synthetic browser transport, not real model or public tunnel', viewports: ['1280x900', '390x844'] }, null, 2));

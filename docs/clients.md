@@ -44,6 +44,8 @@ The star navigation action and chat share action open three editable invitation 
 | Plan | `play-vote-<choiceId>`, `play-votes-<choiceId>`, `play-task-<taskId>`, `play-notes`, `play-save-notes`, `play-load-latest`, `play-notes-conflict`, `play-export` |
 | Owner controls | `play-copy-invite`, `play-copy-local`, `play-network-start`, `play-network-stop`, `play-close-room` |
 | Connection | `play-connection-state` |
+| Saved room / unknown execution | `play-open-<roomId>`, `play-reconcile-<jobId>` |
+| Trusted message role | `play-message-role-owner`, `play-message-role-guest`, `play-message-role-agent` |
 
 Browser acceptance: `node dev/playrooms-acceptance.mjs`. Native acceptance: `node dev/playrooms-native-acceptance.mjs [--real] [--public]`; use an isolated managed `AGENTROOM_EVIDENCE_DIR` and freshly built assets. Synthetic and actual-model receipts are separate.
 

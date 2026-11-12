@@ -13,10 +13,11 @@ const output = await mkdtemp(join(root, real ? 'native-real-' : 'native-syntheti
 const env = cleanDesktopTestEnv({ ...process.env, AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_CLAUDE_BIN: '/missing-play-claude', AGENTSTUDIO_PI_BIN: '/missing-play-pi' });
 if (!real) {
   const home = join(output, 'codex-home'); await mkdir(home);
-  await writeFile(join(home, 'config.toml'), 'model="synthetic-model"\nmodel_provider="synthetic"\nmodel_reasoning_effort="medium"\n');
+  await writeFile(join(home, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'synthetic-local-only' }), { mode: 0o600 });
+  await writeFile(join(home, 'config.toml'), 'model="synthetic-model"\nmodel_provider="openai"\nmodel_reasoning_effort="medium"\n');
   const command = join(output, 'synthetic-codex.mjs');
   await writeFile(command, `#!${process.execPath}\nconst a=process.argv.slice(2);const out=x=>console.log(JSON.stringify(x));
-if(a.includes('--version'))console.log('codex 0.0.1-synthetic');else if(a[0]==='login')console.log('Logged in');else if(a[0]==='features')console.log('apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin in_app_browser');else if(a[0]==='mcp')out([]);else{let p='';for await(const c of process.stdin)p+=c;out({type:'item.completed',item:{type:'agent_message',text:'合成原生验收：欢迎来会客厅，一起想个有趣的小点子。'}});out({type:'turn.completed'});}`, { mode: 0o700 });
+if(a.includes('--version'))console.log('codex 0.163.0-synthetic');else if(a.includes('--help'))console.log('--ignore-user-config --ignore-rules');else if(a[0]==='login')console.log('Logged in');else if(a[0]==='features')console.log('apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin in_app_browser memories hooks skill_search skip_host_skill_discovery');else if(a[0]==='mcp')out([]);else{let p='';for await(const c of process.stdin)p+=c;out({type:'item.completed',item:{type:'agent_message',text:'合成原生验收：欢迎来会客厅，一起想个有趣的小点子。'}});out({type:'turn.completed'});}`, { mode: 0o700 });
   env.AGENTSTUDIO_CODEX_BIN = command; env.CODEX_HOME = home;
 }
 let app, page, browser, guest, priorClipboard, invitation; const checks = [], polls = [];
@@ -28,7 +29,8 @@ const request = async (path, body) => page.evaluate(async ({ path, body }) => {
   if (response.status >= 400) throw new Error(`Owner API returned ${response.status}`); return response.body;
 }, { path, body });
 try {
-  app = await launchDesktopTest(_electron, { executablePath: require('electron'), args: [resolve('apps/desktop')], env, timeout: 30000 });
+  const packaged = process.env.AGENTROOM_TEST_EXECUTABLE;
+  app = await launchDesktopTest(_electron, { executablePath: packaged || require('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
   page = await app.firstWindow(); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1240, height: 900 }));
   await expect(page.getByTestId('im-app')).toBeVisible();
   const contacts = (await request('/contacts')).contacts; assert.ok(contacts.some(c => c.id === 'agent_codex'), 'Codex contact missing');

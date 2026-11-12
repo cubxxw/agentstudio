@@ -9,6 +9,7 @@ export function PlayRoomView({ room, onAction, onRemove, offline = false }: { ro
   const [conflict, setConflict] = useState(false);
   const [taskEdits, setTaskEdits] = useState<Record<string, boolean>>({});
   const latestNotes = useRef(notes); latestNotes.current = notes;
+  const latestMessage = useRef(message); latestMessage.current = message;
   const pending = useRef(new Map<string, { fingerprint: string; id: string }>()), sending = useRef(false), end = useRef<HTMLDivElement>(null);
   const theme = playCases[room.template];
   const unavailable = room.closed || offline;
@@ -27,7 +28,8 @@ export function PlayRoomView({ room, onAction, onRemove, offline = false }: { ro
   const send = async () => {
     if (!message.trim() || sending.current || ownPending) return;
     sending.current = true;
-    try { await act({ type: 'message', text: message }); setMessage(''); } catch {} finally { sending.current = false; }
+    const submitted = message;
+    try { await act({ type: 'message', text: submitted }); if (latestMessage.current === submitted) setMessage(''); } catch {} finally { sending.current = false; }
   };
   const save = async () => {
     const submitted = notes;
@@ -52,9 +54,9 @@ export function PlayRoomView({ room, onAction, onRemove, offline = false }: { ro
       <section className="play-chat" aria-label="房间讨论"><div className="play-message-list" data-testid="play-messages">
         <div className="play-start-note"><span>这次带来的背景</span><p>{room.brief}</p></div>
         {!room.messages.length && <div className="play-first-word"><span aria-hidden="true">✳</span><h3>{room.template === 'twin' ? '见字，也算见面。' : '好玩的事，从一句话开始。'}</h3><p>先打个招呼，或把一个还没想好的点子丢进来。</p><button onClick={() => setMessage(theme.prompt)}>{theme.prompt}</button></div>}
-        {room.messages.map(m => <article key={m.id} className={`play-message ${m.role === 'assistant' ? 'from-agent' : m.actorId === room.me?.id ? 'from-me' : ''}`}><div className="play-message-meta"><strong>{m.name}</strong>{m.role === 'assistant' && <span>AI</span>}<time>{new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time></div><div className="play-message-body"><RichText text={m.text} /></div></article>)}
+        {room.messages.map(m => <article key={m.id} className={`play-message ${m.role === 'assistant' ? 'from-agent' : m.actorId === room.me?.id ? 'from-me' : ''}`}><div className="play-message-meta"><strong>{m.name}</strong><span data-testid={`play-message-role-${m.role === 'assistant' ? 'agent' : m.actorId === 'self' ? 'owner' : 'guest'}`}>{m.role === 'assistant' ? 'AI' : m.actorId === 'self' ? '主人' : '访客'}</span><time>{new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time></div><div className="play-message-body"><RichText text={m.text} /></div></article>)}
         {working.length > 0 && <div className="play-working" role="status"><Loader2 size={15} className="play-spin" />{room.agentName}{working.some(j => j.status === 'running') ? '正在准备回复' : '会按顺序回复大家'}<span>还可聊 {room.remainingTurns} 轮</span></div>}
-        {room.jobs.filter(j => ['failed', 'unknown'].includes(j.status)).slice(0, 1).map(j => <p className="play-notice" key={j.id}>{j.error || '这次执行需要主人核查。'}{room.me?.isOwner && j.status === 'unknown' && <button onClick={() => { if (window.confirm('请先核查本机原执行确实已经结束。确认后将结束待核查状态，不会重新运行。')) void act({ type: 'acknowledge', jobId: j.id, confirmedStopped: true }).catch(() => {}); }}>我已核查原执行结束</button>}</p>)}
+        {[...room.jobs.filter(j => j.status === 'unknown'), ...room.jobs.filter(j => j.status === 'failed').slice(0, 1)].map(j => <p className="play-notice" key={j.id}>{j.error || '这次执行需要主人核查。'}{room.me?.isOwner && j.status === 'unknown' && <button data-testid={`play-reconcile-${j.id}`} onClick={() => { if (window.confirm('请先核查本机原执行确实已经结束。确认后将结束待核查状态，不会重新运行。')) void act({ type: 'acknowledge', jobId: j.id, confirmedStopped: true }).catch(() => {}); }}>我已核查原执行结束</button>}</p>)}
         <div ref={end} />
       </div><form className="play-composer" onSubmit={e => { e.preventDefault(); void send(); }}><textarea data-testid="play-message" aria-label="说点什么" value={message} maxLength={4000} placeholder={room.template === 'twin' ? '小熊，想和你聊聊…' : '补充一个想法，或问问我们的 AI 搭子…'} disabled={unavailable} onChange={e => setMessage(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} /><button data-testid="play-send" type="submit" aria-label="发送消息" disabled={!message.trim() || busy === 'message' || ownPending || unavailable || room.remainingTurns === 0}>{busy === 'message' ? <Loader2 size={20} className="play-spin" /> : <Send size={19} />}</button><small>只使用本房间公开的背景。Enter 发送，Shift Enter 换行。</small></form></section>
       <aside className="play-plan" aria-label="共同计划"><div className="play-plan-title"><h3>{room.template === 'travel' ? '旅行还没出发，期待先到了。' : room.template === 'project' ? '把点子留在同一张纸上。' : '聊着聊着，留下点什么。'}</h3><span>{theme.mark}</span></div>

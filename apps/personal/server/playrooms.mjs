@@ -22,7 +22,7 @@ export class Playrooms {
     this.store = store; this.options = options; this.clock = options.now || Date.now; this.running = new Map(); this.rate = new Map();
     this.server = createServer((req, res) => { void this.handle(req, res); });
     this.server.requestTimeout = 15000; this.server.headersTimeout = 10000;
-    for (const job of store.list('play_job')) if (['running', 'queued'].includes(job.status)) store.put('play_job', { ...job, status: job.status === 'running' ? 'unknown' : 'failed', error: '服务曾中断，这次请求没有自动重发。', finishedAt: this.stamp() });
+    for (const job of store.list('play_job')) if (['running', 'queued', 'stopping'].includes(job.status)) store.put('play_job', { ...job, status: job.status === 'queued' ? 'failed' : 'unknown', error: '服务曾中断，这次请求没有自动重发。', finishedAt: this.stamp() });
   }
   stamp() { return new Date(this.clock()).toISOString(); }
   active(room) {
@@ -109,6 +109,7 @@ export class Playrooms {
       const current = this.store.require('play_room', roomId); if (!acknowledging) this.active(current);
       if (body.type === 'message') {
         const message = text(body.text, 4000, '消息');
+        this.store.assertExecutorReady(current.backend);
         const jobs = this.store.list('play_job');
         if (jobs.some(j => j.backend === current.backend && j.status === 'unknown')) fail(409, 'execution_unknown', '原执行还在核查，主人处理后才能继续提问');
         if (jobs.some(j => j.roomId === roomId && j.actorId === actorId && ['queued', 'running'].includes(j.status))) fail(409, 'reply_pending', '等这条回复完成，再接着聊');
@@ -150,7 +151,7 @@ export class Playrooms {
   }
   cancel(roomId, actorId) {
     for (const job of this.store.list('play_job')) if (job.roomId === roomId && (!actorId || job.actorId === actorId) && ['queued', 'running'].includes(job.status)) {
-      this.running.get(job.id)?.abort(); this.store.put('play_job', { ...job, status: 'cancelled', finishedAt: this.stamp() });
+      this.store.put('play_job', { ...job, status: job.status === 'running' ? 'stopping' : 'cancelled', finishedAt: this.stamp() }); this.running.get(job.id)?.abort();
     }
   }
   kick() {
@@ -159,21 +160,21 @@ export class Playrooms {
   }
   async pump() {
     while (!this.closed && !this.suspended) {
-      const jobs = this.store.list('play_job'), unknown = new Set(jobs.filter(j => j.status === 'unknown').map(j => j.backend));
-      const job = jobs.reverse().find(j => j.status === 'queued' && !unknown.has(j.backend)); if (!job) return;
+      const jobs = this.store.list('play_job');
+      const job = jobs.reverse().find(j => { if (j.status !== 'queued') return false; try { this.store.assertExecutorReady(j.backend); return true; } catch { return false; } }); if (!job) return;
       const controller = new AbortController(); this.running.set(job.id, controller);
       try {
         const room = this.store.require('play_room', job.roomId); this.active(room);
         this.store.put('play_job', { ...job, status: 'running' }); this.changed();
         const result = await this.options.execute(structuredClone(job.context), controller.signal, job);
         const current = this.store.require('play_room', job.roomId); this.active(current);
-        if (controller.signal.aborted || this.store.require('play_job', job.id).status !== 'running' || !current.participants.some(p => p.id === job.actorId && !p.removedAt)) continue;
+        if (controller.signal.aborted || this.store.require('play_job', job.id).status !== 'running' || !current.participants.some(p => p.id === job.actorId && !p.removedAt)) { if (this.store.require('play_job', job.id).status === 'stopping') this.store.put('play_job', { ...job, status: 'cancelled', finishedAt: this.stamp() }); continue; }
         const reply = text(typeof result === 'string' ? result : result?.markdown, 12000, '助手回复');
         current.messages.push({ id: id('pm'), actorId: 'agent', role: 'assistant', name: current.agentName, text: this.store.vault.redactString(reply), createdAt: this.stamp() }); current.version++;
         this.store.put('play_room', current); this.store.put('play_job', { ...job, status: 'completed', finishedAt: this.stamp() });
       } catch (error) {
         const status = this.store.require('play_job', job.id).status;
-        if (error.code === 'stop_unconfirmed' || status === 'running' || status === 'queued') this.store.put('play_job', { ...job, status: error.code === 'stop_unconfirmed' ? 'unknown' : controller.signal.aborted ? 'cancelled' : 'failed', error: error.code === 'stop_unconfirmed' ? '原执行的停止还未确认，请主人核查后继续。' : '这次没有收到可用回复。内容已保存，稍后可以再问。', finishedAt: this.stamp() });
+        if (error.code === 'stop_unconfirmed' || ['running', 'queued', 'stopping'].includes(status)) this.store.put('play_job', { ...job, status: error.code === 'stop_unconfirmed' ? 'unknown' : controller.signal.aborted ? 'cancelled' : 'failed', error: error.code === 'stop_unconfirmed' ? '原执行的停止还未确认，请主人核查后继续。' : '这次没有收到可用回复。内容已保存，稍后可以再问。', finishedAt: this.stamp() });
       } finally { this.running.delete(job.id); this.changed(); }
     }
   }
@@ -198,11 +199,13 @@ export class Playrooms {
       if (!hosts.has(request.headers.host)) fail(403, 'invalid_host', '房间地址不匹配');
       if (request.headers.origin && ![local, `http://localhost:${this.server.address()?.port}`, this.publicOrigin].includes(request.headers.origin)) fail(403, 'invalid_origin', '请在房间自己的网页中参与');
       if (request.headers['sec-fetch-site'] === 'cross-site' && request.method !== 'GET') fail(403, 'invalid_origin', '请打开邀请页面后参与');
-      const bucket = Math.floor(this.clock() / 60000), rateKey = `${request.socket.remoteAddress}:${bucket}`;
+      const path = new URL(request.url, local).pathname; let match;
+      const scoped = path.match(/^\/g-api\/(pr_[A-Za-z0-9_-]+)(?:\/actions)?$/);
+      const rateActor = scoped ? `${scoped[1]}:${this.authenticate(scoped[1], request.headers.cookie)}` : `entry:${request.socket.remoteAddress}`;
+      const bucket = Math.floor(this.clock() / 60000), rateKey = `${rateActor}:${bucket}`;
       for (const key of this.rate.keys()) if (!key.endsWith(`:${bucket}`)) this.rate.delete(key);
       const count = (this.rate.get(rateKey) || 0) + 1; this.rate.set(rateKey, count);
       if (count > 600) fail(429, 'rate_limit', '大家太热情了，稍等片刻再试');
-      const path = new URL(request.url, local).pathname; let match;
       if (request.method === 'POST' && path === '/g-api/preview') {
         const body = await this.body(request); fields(body, ['invite']); const room = this.byInvite(body.invite);
         return json(200, { id: room.id, template: room.template, title: room.title, brief: room.brief, hostName: room.hostName, agentName: room.agentName, expiresAt: room.expiresAt, participantCount: room.participants.filter(p => !p.removedAt).length });

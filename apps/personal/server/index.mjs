@@ -41,9 +41,7 @@ function validateInput(store, body) {
   if (!['codex', 'local', 'connection'].includes(mode)) invalid('mode 必须是 codex、local 或 connection');
   const localAgentId = body.localAgentId || store.get('setting', 'local-agent')?.agentId || 'codex';
   if (!['codex', 'claude', 'pi'].includes(localAgentId)) invalid('请选择已经支持执行的本机助手');
-  if (mode === 'codex' && store.list('thread').some(thread => thread.runs.some(run => run.stopUnconfirmed && (run.localAgentId || 'codex') === localAgentId))) {
-    throw new APIError(409, 'local_agent_stop_unconfirmed', '这个助手的停止状态尚未确认，请先核查原任务；新要求没有再次发送');
-  }
+  if (mode === 'codex') store.assertExecutorReady(localAgentId);
   if (!Array.isArray(body.attachments ?? []) || (body.attachments?.length || 0) > 20) invalid('每次最多上传 20 份文本资料');
   const attachments = (body.attachments || []).map((item) => {
     const name = textValue(item?.name, '附件名称', 200);
@@ -127,11 +125,12 @@ export async function createPersonalServer(options = {}) {
   if (!store.get('setting', 'workspace-onboarding') && (store.list('thread').length || store.list('connection').length || store.list('memory').length || store.list('contact').some(contact => contact.id !== 'self' && !contact.discovered))) {
     store.put('setting', { id: 'workspace-onboarding', completed: true, adoptedAt: now() });
   }
-  let creation;
+  let creation, playrooms;
   const messenger = new Messenger(store, { onGroupChanged: threadId => creation?.reconcileMembership(threadId) });
   const remoteNodes = new RemoteNodes(store, publicConnection);
   const clients = new Set();
   const notify = (event = {}) => {
+    queueMicrotask(() => playrooms?.kick());
     options.onChange?.(event);
     for (const response of clients) response.write(`event: invalidation\ndata: ${JSON.stringify(event)}\n\n`);
   };
@@ -155,7 +154,7 @@ export async function createPersonalServer(options = {}) {
     if (!room.participants.some(p => p.id === job.actorId && !p.removedAt)) throw new APIError(403, 'guest_removed', '访客已经离开房间');
   } });
   const guestStaticDir = options.guestStaticDir || (options.staticDir?.endsWith(`${sep}personal`) ? resolve(options.staticDir, '..') : options.staticDir || join(appDir, 'dist'));
-  const playrooms = new Playrooms(store, { execute: options.playExecute || ((context, signal, job) => playExecutor.execute(context, signal, job)), notify, staticDir: guestStaticDir, port: options.playPort });
+  playrooms = new Playrooms(store, { execute: options.playExecute || ((context, signal, job) => playExecutor.execute(context, signal, job)), notify, staticDir: guestStaticDir, port: options.playPort });
   const playNetwork = new PlayNetwork(playrooms, { ...options.playNetwork, notify });
   const scheduler = new AgentScheduler(store, messenger, { clock: options.schedulerNow, validateInput: input => validateInput(store, input),
     refresh: async () => messenger.sync(await localAgents()), kick: () => worker.kick(), notify });
@@ -223,7 +222,7 @@ export async function createPersonalServer(options = {}) {
 
   let switchPrepared = false, activeMutations = 0;
   const blockingRuns = () => store.list('thread').flatMap(thread => thread.runs || []).filter(run =>
-    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers() + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length + store.list('play_job').filter(j => ['queued', 'running', 'unknown'].includes(j.status)).length;
+    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers() + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length + store.list('play_job').filter(j => ['queued', 'running', 'stopping', 'unknown'].includes(j.status)).length;
   const cancelWorkspaceSwitch = () => {
     if (!switchPrepared || shuttingDown) return;
     sharing.suspended = false; playrooms.suspended = false;
@@ -269,6 +268,7 @@ export async function createPersonalServer(options = {}) {
         if (!options.playExecute && !agent?.installed) throw new APIError(409, 'agent_unavailable', '先连接一位本机 Codex 或 Pi，再开启房间');
         let executionSnapshot;
         if (agent?.profile) { try { executionSnapshot = resolveExecution(agent.profile, contact.configuration || {}); } catch (error) { throw new APIError(409, 'configuration_required', error.message); } }
+        if (!options.playExecute && contact.binding?.localAgentId === 'codex' && (executionSnapshot?.provider !== 'openai' || agent?.profile?.guestCompatible === false)) throw new APIError(409, 'guest_configuration_unsupported', '访客模式暂支持 Codex 内置 OpenAI 配置或 Pi；当前自定义提供商没有被切换，请选择兼容的本机 Agent');
         return json(response, 201, playrooms.create(body, { ...contact, executionSnapshot }));
       }
       if ((match = path.match(/^\/api\/playrooms\/(pr_[A-Za-z0-9_-]+)(?:\/(invite|actions))?$/))) {
