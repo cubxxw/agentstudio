@@ -226,15 +226,18 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
           {instances.length > 2 && <summary data-testid={`personal-service-instances-toggle-${provider.id}`}>{instances.length} 个助手 · 查看与管理{needsAttention > 0 && <small>{needsAttention} 个需要检查</small>}</summary>}
           {instances.map(instance => {
             const instanceId = instance.id || instance.instanceId;
-            return <div key={instanceId || instance.name} className="integration-instance" data-testid="personal-service-instance"><div><strong title={instance.name}>{instance.name}</strong><p>{instance.status === "ready" ? (instance.connectionId ? "已连接" : "登录已保存，尚未接入工作间") : instance.status === "needs_login" ? "需要重新登录" : ["starting", "reconnecting"].includes(instance.status || "") ? "正在连接" : "需要检查"}{!instance.canOpen && " · 需要确认时请到原 App 处理"}</p></div><div className="integration-actions">
+            return <div key={instanceId || instance.name} className="integration-instance" data-testid="personal-service-instance"><Avatar contact={{ name: instance.name, kind: "agent", color: "teal", avatarService: instance.service, avatarDataUrl: instance.avatarDataUrl }} size="small" /><div><strong title={instance.name}>{instance.name}</strong><p>{instance.status === "ready" ? (instance.connectionId ? "已连接" : "登录已保存，尚未接入工作间") : instance.hasCredentials === false ? "登录记录未恢复，聊天与原消息已保留" : instance.status === "needs_login" ? "需要重新登录" : ["starting", "reconnecting"].includes(instance.status || "") ? "正在连接" : "需要检查"}{!instance.canOpen && " · 需要确认时请到原 App 处理"}</p></div><div className="integration-actions">
               {instance.status === "ready" && !instance.connectionId && instanceId && <button className="integration-button" data-testid="personal-service-reconnect" disabled={Boolean(busy)} onClick={() => void perform(`reconnect-${instanceId}`, () => nativeAction({ kind: "reconnect", instanceId }))}>继续连接</button>}
               {instance.canOpen && instanceId && <button className="integration-button" disabled={Boolean(busy)} onClick={() => void perform(`open-${instanceId}`, () => nativeAction({ kind: "open", instanceId }), false)}>打开<ArrowUpRight size={13} /></button>}
-              {instanceId && <button className="icon-button" data-testid={`personal-service-remove-${instanceId}`} aria-label={`移除 ${instance.name}`} disabled={Boolean(busy)} onClick={() => void perform(`remove-${instanceId}`, () => nativeAction({ kind: "remove", instanceId }))}><Trash2 size={16} /></button>}
+              {instanceId && instance.hasCredentials !== false && <button className="icon-button" data-testid={`personal-service-remove-${instanceId}`} aria-label={`移除 ${instance.name}`} disabled={Boolean(busy)} onClick={() => void perform(`remove-${instanceId}`, () => nativeAction({ kind: "remove", instanceId }))}><Trash2 size={16} /></button>}
             </div></div>;
           })}
           </InstanceGroup>
         </div>;
       })}
+      {(catalog?.instances || []).filter(instance => !instance.service).map(instance => <div className="integration-instance" data-testid="personal-service-missing" key={instance.id}>
+        <div><strong>{instance.name}</strong><p>原登录记录未恢复。请在上方连接对应服务，聊天与原消息已保留。</p></div>
+      </div>)}
       {flow && current && <div className={`integration-flow flow-${current.state}`} data-testid="personal-integration-flow" aria-label={flow.title}>
         <div className="integration-flow-heading"><strong>{flow.title}</strong>{terminal(current.state) && <button className="icon-button" aria-label="关闭连接进度" onClick={() => { rememberFlow(null); flowRef.current = null; setFlow(null); setInputValue(""); }}><X size={16} /></button>}</div>
         <p role="status" aria-live="polite">{current.message || (current.state === "ready" ? "连接已就绪。" : current.state === "cancelled" ? "已取消连接。" : current.state === "failed" ? "暂时没有完成连接，可以重新开始。" : "请在打开的登录页面完成操作；这里会继续核对进度。")}</p>

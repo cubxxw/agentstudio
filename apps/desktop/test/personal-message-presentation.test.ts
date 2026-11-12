@@ -63,3 +63,11 @@ describe("personal message presentation", () => {
     expect(html).not.toContain("<img");
   });
 });
+
+ it("names the failed group Bot and offers connection recovery when there is no receipt", () => {
+  const value = { ...thread, messages: thread.messages.slice(0, 1), runs: [{ ...thread.runs[0]!, status: "unknown" as const, deliveryState: "unknown" as const, error: "尚未确认" }] };
+  const html = render(value);
+  expect(html).toContain("研究伙伴 · 结果待核查");
+  expect(html).toContain("检查连接");
+  expect(html).not.toContain("核查原任务");
+ });

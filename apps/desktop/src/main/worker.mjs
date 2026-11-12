@@ -23,6 +23,11 @@ process.parentPort.on('message', async ({ data }) => {
     catch { send({ type: 'native-source-ready', requestId: data.requestId, error: true }); }
     return;
   }
+  if (data?.type === 'sync-native-services' && application && data.ownerId === ownerId && !closing) {
+    try { const instances = application.syncNativeServices(data.snapshot); send({ type: 'native-services-ready', requestId: data.requestId, instances }); }
+    catch { send({ type: 'native-services-ready', requestId: data.requestId, error: true }); }
+    return;
+  }
   if (data?.type === 'cancel-switch') { application?.cancelWorkspaceSwitch(); return; }
   if (data?.type === 'prepare-switch' && application && !closing) {
     try { send({ type: 'switch-ready', requestId: data.requestId, ...await application.prepareWorkspaceSwitch() }); }

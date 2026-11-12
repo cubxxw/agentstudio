@@ -70,7 +70,7 @@ function Messenger() {
   const contacts = useMemo(() => contactRecords.map(contact => {
     const connectionId = contact.binding?.type === "connection" ? contact.binding.connectionId : undefined;
     const service = connectionId ? serviceAvatars[connectionId] : undefined;
-    return service && connectionId ? { ...contact, avatarService: service, avatarDataUrl: serviceImages[connectionId] } : contact;
+    return service && connectionId ? { ...contact, avatarService: service, avatarDataUrl: serviceImages[connectionId] || contact.avatarDataUrl } : contact;
   }), [contactRecords, serviceAvatars, serviceImages]);
   const [library, setLibrary] = useState<WorkspaceArtifact[]>([]);
   const [artifactRevision, setArtifactRevision] = useState<string | null>(() => new URL(location.href).searchParams.get("revision"));
@@ -274,6 +274,8 @@ function Messenger() {
     catch (error) { setError(errorText(error)); } finally { setBusy(""); }
   };
   const mutateRun = async (run: Run, action: string) => {
+    if (action === "connection") { setPreferences(true); return; }
+    if (action === "details") { setDetails(true); return; }
     if (!thread) return;
     const id = thread.id; setBusy(run.id); setError("");
     const signature = `${id}:${run.id}:${action}:${run.status}`;
