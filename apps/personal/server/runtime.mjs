@@ -583,7 +583,7 @@ export class PersonalWorker {
     this.change(threadId, runId, (_item, selected) => { selected.chosenExecutor = selected.mode === 'local' ? 'local' : (selected.localAgentId || 'codex'); selected.routingReason = selected.mode === 'local' ? '用户明确选择本地确定性整理' : `使用已选择的本机 ${selected.localAgentId === 'claude' ? 'Claude Code' : 'Codex'}`; });
     let body, session;
     const creation = this.options.creationService;
-    const useTools = creation && run.contactSnapshot && !run.agentSchedule && run.mode === 'codex' && ['codex', 'pi'].includes(run.localAgentId) && !this.options.codexArgs;
+    const useTools = thread.purpose !== 'device_request' && creation && run.contactSnapshot && !run.agentSchedule && run.mode === 'codex' && ['codex', 'pi'].includes(run.localAgentId) && !this.options.codexArgs;
     const progress = event => this.progress(threadId, runId, thread.kind === 'group' || (hasIMPolicy(run) && event.text?.trimStart().startsWith('{')) || run.agentSchedule?.mode === 'autonomous' ? { ...event, text: '' } : event);
     try {
       if (useTools) session = await creation.runtime.session(threadId, runId, signal);

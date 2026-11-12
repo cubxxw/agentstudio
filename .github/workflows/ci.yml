@@ -79,6 +79,7 @@ jobs:
           node dev/conversation-acceptance.mjs
           node dev/live-conversation-acceptance.mjs
           node dev/macos-design-acceptance.mjs
+          node dev/peer-devices-acceptance.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -95,4 +96,5 @@ jobs:
             output/playwright/conversations/
             output/playwright/live-conversations/
             output/playwright/macos-design/
+            output/playwright/peer-devices/
           if-no-files-found: ignore

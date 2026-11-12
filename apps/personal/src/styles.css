@@ -1962,3 +1962,26 @@ summary {
   .integration-flow { padding: 13px; }
   .integration-flow-input input, .integration-url-form input { font-size: 16px; }
 }
+
+/* Device provenance and presence remain legible without motion or color alone. */
+.im-avatar { position: relative; overflow: visible; }
+.im-presence-dot { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--im-surface, #fff); background: #92989e; box-sizing: content-box; }
+.im-presence-dot.online, .device-state.online::before { background: #24966a; }
+.im-presence-dot.attention, .im-presence-dot.reconnecting { background: #c48b2d; }
+.im-presence-dot.unknown { background: #92989e; }
+.device-sharing .integration-section-heading h3 { display: flex; align-items: center; gap: 8px; }
+.device-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--im-muted, #68737d); }
+.device-state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #92989e; }
+.device-sharing-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.device-sharing-contacts { border: 0; padding: 0; margin: 12px 0; display: grid; gap: 10px; min-width: 0; }
+.device-sharing-contacts legend { font-size: 13px; margin-bottom: 10px; }
+.device-sharing-contact { display: flex !important; align-items: center; gap: 9px !important; }
+.device-sharing-contact input { width: 15px !important; height: 15px; flex: 0 0 auto; }
+.device-sharing-contact span { display: grid; gap: 3px; }
+.device-sharing-contact small, .device-sharing-invite small, .device-sharing-requests small { display: block; font-size: 12px; color: var(--im-muted, #68737d); line-height: 1.5; }
+.device-sharing-invite { margin-top: 15px; font-size: 13px; line-height: 1.6; }
+.device-sharing-requests { margin-top: 16px; font-size: 13px; }
+.im-contact-status { flex-wrap: wrap; }
+.im-contact-status small { flex-basis: 100%; font-size: 12px; }
+@media (max-width: 560px) { .device-sharing-fields { grid-template-columns: 1fr; } }
+@media (prefers-color-scheme: dark) { .im-presence-dot { border-color: #202830; } }

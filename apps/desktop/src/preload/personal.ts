@@ -12,6 +12,7 @@ const api: AgentStudioPersonal = {
   request: (input) => ipcRenderer.invoke(PERSONAL_IPC.request, input),
   saveArtifact: (id) => ipcRenderer.invoke(PERSONAL_IPC.saveArtifact, id),
   artifactAction: input => ipcRenderer.invoke(PERSONAL_IPC.artifactAction, input),
+  copyDeviceInvitation: () => ipcRenderer.invoke(PERSONAL_IPC.copyDeviceInvitation),
   restart: () => ipcRenderer.invoke(PERSONAL_IPC.restart),
   nativeIntegration: (request) => ipcRenderer.invoke(PERSONAL_IPC.integration, request),
   onChanged: (callback) => {
