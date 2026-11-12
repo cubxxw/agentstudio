@@ -246,7 +246,20 @@ export class Messenger {
   approvals() {
     return this.store.list('thread').flatMap(thread => thread.decisions.map(decision => {
       const run = thread.runs.find(r => r.id === decision.runId);
-      return { ...decision, threadId: thread.id, threadTitle: thread.title, contact: run?.contactSnapshot || (decision.providerConnectionId ? this.publicContact(this.store.get('contact', `connection_${decision.providerConnectionId}`)) : null) };
+      const connectionId = decision.providerConnectionId || run?.connectionId;
+      const connection = connectionId ? this.store.get('connection', connectionId) : null;
+      const native = connectionId ? this.store.get('native_approval_source', connectionId) : null;
+      const linkedContact = decision.providerConnectionId ? this.store.get('contact', `connection_${decision.providerConnectionId}`) : null;
+      const localName = run?.localAgentId ? ({ codex: 'Codex', claude: 'Claude Code', pi: 'Pi', gemini: 'Gemini CLI', opencode: 'OpenCode' }[run.localAgentId] || run.localAgentId) : null;
+      const source = {
+        label: native ? 'Grok Bot' : connection ? connection.type === 'mcp' ? 'MCP 工具' : '远端 Agent' : run?.mode === 'connection' || decision.providerConnectionId ? '来源待核对' : localName || '来源待核对',
+        name: connection?.name || decision.identity?.label || null,
+        connectionId: connectionId || null,
+        botId: native?.instanceId || null,
+        requestText: thread.messages.find(message => message.id === run?.messageId && message.role === 'user')?.text || null,
+        threadKind: thread.kind || 'task',
+      };
+      return { ...decision, threadId: thread.id, threadTitle: thread.title, contact: run?.contactSnapshot || (linkedContact ? this.publicContact(linkedContact) : null), source };
     })).sort((a, b) => (a.state === 'pending' ? 0 : 1) - (b.state === 'pending' ? 0 : 1) || String(b.createdAt).localeCompare(String(a.createdAt)));
   }
 }

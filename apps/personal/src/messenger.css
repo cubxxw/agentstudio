@@ -244,6 +244,27 @@
 .im-approval-content { flex: 1; overflow: auto; padding: 28px clamp(20px, 5vw, 70px); }
 .im-approval-content h2 { font-size: 22px; font-weight: 550; margin: 16px 0 12px; }
 .im-approval-content > p { color: var(--im-muted); font-size: 12px; line-height: 1.9; margin-bottom: 28px; max-width: 460px; }
+.im-approval-row { align-items: flex-start; }
+.im-approval-by { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 550; color: var(--im-muted); }
+.im-approval-by > span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.im-approval-by > small { flex-shrink: 0; font-size: 10px; font-weight: 400; }
+.im-approval-source { max-width: 660px; margin-bottom: 26px; }
+.im-approval-sender { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
+.im-approval-sender > div { min-width: 0; }
+.im-approval-sender > div > span { font-size: 12px; }
+.im-approval-sender h2 { font-size: 23px; margin: 5px 0; overflow-wrap: anywhere; }
+.im-approval-sender h2 button { display: inline-flex; align-items: baseline; gap: 6px; text-align: left; padding: 0; color: inherit; font: inherit; }
+.im-approval-sender h2 svg { flex-shrink: 0; align-self: center; }
+.im-approval-sender p { margin: 3px 0 0; font-size: 12px; color: var(--im-muted); overflow-wrap: anywhere; }
+.im-approval-source dl { margin: 0; padding-top: 20px; border-top: 1px solid var(--im-line); display: grid; gap: 16px; font-size: 13px; line-height: 1.7; }
+.im-approval-source dl > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; }
+.im-approval-source dt { color: var(--im-muted); }
+.im-approval-source dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.im-approval-source dd small { display: block; font-size: 11px; color: var(--im-muted); }
+.im-approval-source dd .im-text-button { padding: 0; text-align: left; white-space: normal; }
+.im-approval-source dd .im-text-button svg { flex-shrink: 0; }
+.im-approval-request { margin: 0; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.im-approval-content > .im-approval-note { margin: 18px 0 0; max-width: 660px; }
 .im-app .im-approval-content .decision { background: var(--im-paper); border: 1px solid var(--im-line); box-shadow: var(--im-row-shadow); border-radius: 16px; padding: 23px; max-width: 660px; }
 .im-app .decision h3 { font-family: inherit; font-size: 17px; }
 .im-app .decision-preview { max-height: 300px; }
