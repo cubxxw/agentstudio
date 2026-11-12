@@ -529,9 +529,9 @@ function installMenu() {
   ] : [];
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: "AgentRoom", submenu: [
-      { role: "about" },
+      { role: "about", label: "关于 AgentRoom" },
       ...(personalMode ? [{ label: "设置…", accelerator: "CmdOrCtrl+,", click: () => sendPersonalCommand("settings") }, { type: "separator" as const }] : []),
-      { role: "services" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" },
+      { role: "services" }, { type: "separator" }, { role: "hide", label: "隐藏 AgentRoom" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit", label: "退出 AgentRoom" },
     ] },
     { label: "文件", submenu: [...personalItems, ...(personalItems.length ? [{ type: "separator" as const }] : []), { role: "close" }] },
     { label: "编辑", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },

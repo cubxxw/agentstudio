@@ -36,6 +36,8 @@ pass improves scanning and reduces the scrolling needed to find configuration.
    conversation's participant.
    Long work titles keep the header compact, with the full title on hover. At
    narrow widths the version selector gets its own row above Finder and export.
+8. The native About, Hide and Quit commands explicitly display AgentRoom. They
+   retain Electron's native roles and the existing Safe Storage identity.
 
 ## Validation
 
