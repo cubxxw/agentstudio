@@ -84,6 +84,7 @@ pnpm start:personal
 - [Mac 决策记录](macos-decision.md)
 - [macOS 原生验收](macos-acceptance.md)
 - [Raft 源码观察](research/raft-observation.md)
+- [Wabi 实测：邀请、群上下文与轻量分享](research/wabi-sharing-audit-2026-11-12.md)（研究与建议，未实现访客链接）
 - [官方视觉研究](research/visual-research.md)
 - [会话候选](research/candidate-a.html)、[文档候选](research/candidate-b.html)、[队列候选](research/candidate-c.html)
 - [首轮 Web 验收历史](acceptance.md)
