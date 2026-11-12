@@ -17,6 +17,7 @@ import { AgentScheduler } from './agent-scheduler.mjs';
 import { RemoteNodes } from './remote-nodes.mjs';
 import { DesktopSharing } from './desktop-sharing.mjs';
 import { GroupSharing } from './group-sharing.mjs';
+import { GroupTools } from './group-tools.mjs';
 import { createPlayExecutor } from './play-executor.mjs';
 import { PlayNetwork } from './play-network.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
@@ -109,7 +110,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'play-executor.mjs', 'play-network.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'play-executor.mjs', 'play-network.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -156,6 +157,7 @@ export async function createPersonalServer(options = {}) {
   const guestStaticDir = options.guestStaticDir || (options.staticDir?.endsWith(`${sep}personal`) ? resolve(options.staticDir, '..') : options.staticDir || join(appDir, 'dist'));
   playrooms = new GroupSharing(store, { messenger, creation, worker, validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, staticDir: guestStaticDir, port: options.playPort });
   creation.options.groupSharing = playrooms;
+  creation.options.groupTools = new GroupTools(playrooms);
   const playNetwork = new PlayNetwork(playrooms, { ...options.playNetwork, notify });
   const scheduler = new AgentScheduler(store, messenger, { clock: options.schedulerNow, validateInput: input => validateInput(store, input),
     refresh: async () => messenger.sync(await localAgents()), kick: () => worker.kick(), notify });
@@ -259,6 +261,10 @@ export async function createPersonalServer(options = {}) {
           else void playNetwork.start().catch(() => {});
           return json(response, 202, playNetwork.status());
         }
+      }
+      if (path === '/api/group-rules') {
+        if (method === 'GET') return json(response, 200, creation.options.groupTools.rules());
+        if (method === 'POST') { const result = creation.options.groupTools.saveRules(await readJSON(request)); notify(); return json(response, 200, result); }
       }
       if ((match = path.match(/^\/api\/chats\/([A-Za-z0-9_-]+)\/sharing$/))) {
         if (method === 'GET') return json(response, 200, playrooms.info(match[1]));
@@ -501,6 +507,7 @@ export async function createPersonalServer(options = {}) {
             ? thread.runs.find((item) => ['running', 'verifying'].includes(item.status)) || thread.runs.find((item) => item.status === 'needs_input') || thread.runs.find((item) => item.status === 'queued') || thread.runs.find((item) => store.unresolved(item)) || thread.runs.at(-1)
             : thread.runs.find((item) => store.unresolved(item)) || thread.runs.at(-1);
           if (!run) invalid('没有可以处理的运行记录');
+          if (action === 'retry' && (run.sharedGroup || playrooms.current(threadId)?.state === 'published')) throw new APIError(409, 'shared_retry_message', '公开群聊请重新发一条消息，按当前公开范围和次数执行');
           if (run.collaboration) throw new APIError(409, 'collaboration_control_required', '共创步骤请从作品卡片处理，不能作为普通聊天重复派工');
           if (action === 'cancel') {
             if (run.mode === 'codex' && (run.status === 'unknown' || run.stopUnconfirmed)) {
