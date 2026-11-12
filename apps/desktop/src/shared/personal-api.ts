@@ -60,7 +60,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/nodes/${opaqueId}/check$`),
     /^\/api\/integrations\/local\/(codex|claude|pi)$/,
     /^\/api\/integrations\/local\/pi\/identity$/,
-    new RegExp(`^/api/threads/${opaqueId}/(messages|retry|reconcile|cancel)$`),
+    new RegExp(`^/api/threads/${opaqueId}/(messages|read|retry|reconcile|cancel)$`),
     new RegExp(`^/api/decisions/${opaqueId}$`),
   ],
   DELETE: [new RegExp(`^/api/(connections|memories)/${opaqueId}$`)],

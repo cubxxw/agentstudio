@@ -136,6 +136,7 @@ export type ThreadSummary = {
   version?: number;
   lastMessage?: { text: string; contactId?: string } | null;
   pendingApprovals?: number;
+  unreadCount?: number;
 };
 export type Thread = ThreadSummary & {
   creation?: CreationState;

@@ -33,7 +33,7 @@ describe("personal IPC capabilities", () => {
 
   it("allows only fixed IM preferences and message reaction routes", () => {
     expect(readPersonalRequest({ path: "/api/im/settings", method: "GET" }).path).toBe("/api/im/settings");
-    for (const path of ["/api/im/settings", "/api/threads/thr_owned/reactions"]) expect(readPersonalRequest({ path, method: "POST", body: { clientId: "owned-reaction" } }).path).toBe(path);
+    for (const path of ["/api/im/settings", "/api/threads/thr_owned/reactions", "/api/threads/thr_owned/read"]) expect(readPersonalRequest({ path, method: "POST", body: { clientId: "owned-reaction" } }).path).toBe(path);
     for (const path of ["/api/im/settings/execute", "/api/im/settings?url=https://example.com", "/api/threads/thr_owned/reactions/another", "/api/threads/../reactions"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
   });
 

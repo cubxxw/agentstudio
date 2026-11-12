@@ -1,3 +1,4 @@
+import { useConversationRead } from "./use-conversation-read";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, ShieldCheck, Square, UserRound, Users, WifiOff, X } from "lucide-react";
 import { api, key, RequestError } from "./api";
@@ -135,10 +136,14 @@ function Messenger() {
     const result = await api<Thread>(`/threads/${id}`);
     if (mounted.current && currentId.current === id && sequence === threadFetch.current) {
       setThread(result); write(`thread.${id}`, result); setConnected(true);
-      setData(current => current ? { ...current, threads: current.threads.map(item => item.id === id ? { ...item, status: result.status, updatedAt: result.updatedAt, lastMessage: result.messages.at(-1) ? { text: result.messages.at(-1)!.text, contactId: result.messages.at(-1)!.contactId } : null } : item) } : current);
+      setData(current => current ? { ...current, threads: current.threads.map(item => item.id === id ? { ...item, status: result.status, updatedAt: result.updatedAt, unreadCount: result.unreadCount ?? item.unreadCount, lastMessage: result.messages.at(-1) ? { text: result.messages.at(-1)!.text, contactId: result.messages.at(-1)!.contactId } : null } : item) } : current);
     }
     return result;
   }, []);
+  const didRead = useCallback((id: string, unreadCount: number) => {
+    setData(current => current ? { ...current, threads: current.threads.map(item => item.id === id ? { ...item, unreadCount } : item) } : current);
+  }, []);
+  useConversationRead(thread, screen === "chats" && selected === thread?.id && !preferences && !newChat && !details && !reading && !source && !onboardingOpen && !discoveryOpen && !contactEditor && !profileId && !groupEditor, timeline, didRead, messageLimit);
   const refresh = useCallback(async () => {
     lastFullRefresh.current = Date.now();
     const sequence = ++syncing.current;
@@ -212,9 +217,11 @@ function Messenger() {
     window.addEventListener("keydown", shortcut); return () => { unsubscribe?.(); window.removeEventListener("keydown", shortcut); };
   }, [desktop, toggleList]);
   useEffect(() => {
-    if (nearBottom.current) { const node = timeline.current; if (node) node.scrollTop = node.scrollHeight; }
+    const node = timeline.current;
+    if (!node) return;
+    if (nearBottom.current) node.scrollTop = node.scrollHeight;
     else setNewMessages(true);
-  }, [thread?.messages.length, thread?.runs.map(r => `${r.status}:${r.progress?.updatedAt || ""}`).join(",")]);
+  }, [thread?.id, thread?.messages.length, thread?.runs.map(r => `${r.status}:${r.progress?.updatedAt || ""}`).join(","), screen, mobileDetail]);
   useEffect(() => { const node = input.current; if (node) { node.style.height = "auto"; node.style.height = `${Math.min(node.scrollHeight, 160)}px`; } }, [draft.text, selected]);
 
   const startChat = async (person: Contact, propagateError = false) => {
@@ -337,7 +344,7 @@ function Messenger() {
     <span className="workspace-mode-indicator" data-testid="workspace-mode" data-test-mode={desktop?.testMode || false} hidden={!desktop?.testMode} role="status">测试模式 · 独立资料</span>
     <a className="skip-link" data-testid="im-skip" href="#im-main">跳到聊天内容</a>
 
-    <NavigationRail screen={screen} owner={data?.workspace?.displayName || contacts.find(c => c.id === "self")?.name || "我"} pending={pending.length} onScreen={switchScreen} onSettings={() => setPreferences(true)} onRefresh={() => void refreshContacts()} />
+    <NavigationRail screen={screen} owner={data?.workspace?.displayName || contacts.find(c => c.id === "self")?.name || "我"} pending={pending.length} unread={(data?.threads || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0)} onScreen={switchScreen} onSettings={() => setPreferences(true)} onRefresh={() => void refreshContacts()} />
     <aside className="im-list-panel" id="im-list" data-testid="im-list-panel" aria-label={screen === "chats" ? "会话列表" : screen === "contacts" ? "联系人列表" : screen === "library" ? "作品列表" : "审批列表"}>
       <ListToolbar screen={screen} search={search} filter={filter} pending={pending.length} inputRef={searchInput} onSearch={setSearch} onFilter={setFilter} onNew={() => screen === "contacts" ? setContactEditor("new") : setNewChat(true)} />
       <div className="im-list-scroll" key={screen} data-testid="im-list-scroll">

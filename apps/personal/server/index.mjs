@@ -1,3 +1,4 @@
+import { UnreadMessages } from './unread.mjs';
 import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -105,7 +106,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'remote-nodes.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -115,6 +116,7 @@ export async function createPersonalServer(options = {}) {
   if (!['127.0.0.1', '::1', 'localhost'].includes(host)) throw new Error('Personal workspace must bind to a loopback address');
   const port = options.port ?? Number(process.env.PERSONAL_PORT || 18740);
   const store = new PersonalStore(dataDir);
+  const unread = new UnreadMessages(store);
   store.recover();
   // Adopt existing populated workspaces without interrupting their normal entry.
   if (!store.get('setting', 'workspace-onboarding') && (store.list('thread').length || store.list('connection').length || store.list('memory').length || store.list('contact').some(contact => contact.id !== 'self' && !contact.discovered))) {
@@ -379,7 +381,7 @@ export async function createPersonalServer(options = {}) {
           workspace: { onboardingCompleted: Boolean(store.get('setting', 'workspace-onboarding')?.completed), displayName: store.get('contact', 'self')?.name || '你' },
           threads: store.list('thread').filter(t => t.purpose !== 'agent_onboarding').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, groupAvatar, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
             ...(kind ? { kind, memberIds, version } : {}), ...(kind === 'group' ? { groupAvatar: groupAvatar ?? null } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
-            pendingApprovals: decisions.filter(d => d.state === 'pending').length })),
+            pendingApprovals: decisions.filter(d => d.state === 'pending').length, ...unread.state({ id: threadId, messages }) })),
           connections: store.list('connection').map(publicConnection), memories: store.list('memory'),
           settings: { im: messenger.settings(), defaultMode: 'codex', codexAvailable: codex.available, codexVersion: codex.version,
             localAgentId: store.get('setting', 'local-agent')?.agentId || 'codex' },
@@ -408,7 +410,13 @@ export async function createPersonalServer(options = {}) {
         notify({ threadId: thread.id }); worker.kick();
         return json(response, 201, thread);
       }
-      if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, { ...store.require('thread', match[1]), creation: creation.forThread(match[1]) });
+      if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, { ...store.require('thread', match[1]), ...unread.state(store.require('thread', match[1])), creation: creation.forThread(match[1]) });
+      if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/read$/))) {
+        const body = await readJSON(request);
+        const { changed, ...state } = unread.markRead(match[1], body.messageId);
+        if (changed) notify({ threadId: match[1] });
+        return json(response, 200, state);
+      }
       if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/messages$/))) {
         const threadId = match[1], body = await readJSON(request);
         if (store.require('thread', threadId).purpose === 'agent_onboarding') throw new APIError(409, 'onboarding_thread', '角色准备请使用专用进度和取消入口');

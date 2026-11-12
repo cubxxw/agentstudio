@@ -371,3 +371,10 @@ The `artifact-workspace` contains `artifact-revision-select`, tabs `artifact-tab
 | Node / check / remove agent / error | `personal-node-row`, `personal-node-check`, `personal-node-agent-remove`, `personal-node-error` |
 
 Added agents use the existing contact, direct-message and group test IDs. Connectivity labels are last-check observations rather than continuous presence.
+
+
+### Unread chat indicators
+
+Incoming completed replies show red count badges on conversation portraits (`im-unread-<id>`), pinned shortcuts (`im-pinned-unread-<id>`) and the chats rail icon (`im-unread-total`). Zero hides the badge; counts above 99 show `99+` while accessible labels retain the exact count. Approval indicators retain their separate appearance. Earlier replies can be expanded with `im-load-more`. The filter `im-filter-unread` combines unread state with the current search and uses “没有未读消息” when empty.
+
+Opening a visible focused chat clears unread only after its latest incoming reply is displayed in the timeline viewport. A late reply inserted beside an earlier question remains unread until that reply is visible. A background/unfocused window, another screen, narrow list view, a covering modal or scrolling through history preserves unread. Reading does not reorder chats. Read state belongs to the SQLite workspace and survives restart; existing transcripts start read on the first upgrade.
