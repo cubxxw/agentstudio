@@ -120,6 +120,9 @@ export class ConnectorManager {
   private readonly host: ConnectorHost;
   private readonly store: ConnectorStore;
   private readonly running = new Map<string, Running>();
+  private stopping = false;
+  private stopped = false;
+  private stopPromise: Promise<void> | null = null;
   private readonly logins = new Map<string, Login>();
   private readonly loginWindows = new Map<BrowserWindow, AbortSignal | undefined>();
   /** Stored records that aren't running (yet, or because they failed to start). */
@@ -168,6 +171,7 @@ export class ConnectorManager {
   }
 
   async start() {
+    if (this.stopping) throw new Error("Connector manager is stopping");
     if (!this.options.eventSink) await this.host.listen();
     const records = this.store.load();
     repairGrokNames(records);
@@ -175,6 +179,7 @@ export class ConnectorManager {
     // (or after one fails to start) must not drop it.
     for (const record of records) this.dormant.set(record.id, record);
     for (const record of records) {
+      if (this.stopping) break;
       try {
         await this.run(record);
         this.dormant.delete(record.id);
@@ -184,11 +189,21 @@ export class ConnectorManager {
     }
   }
 
-  async stop() {
+  stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+    this.stopping = true;
+    return this.stopPromise = this.stopOwned();
+  }
+
+  private async stopOwned() {
     for (const id of this.logins.keys()) this.cancel(id);
     for (const window of this.loginWindows.keys()) if (!window.isDestroyed()) window.close();
     this.loginWindows.clear();
     for (const r of this.running.values()) await r.connector.stop().catch(() => {});
+    // A refresh rotates server-side credentials. Keep the complete instance
+    // set until bounded refreshes persist their new tokens, then seal writes.
+    await Promise.all([...this.grokClients.values()].map(client => client.close()));
+    this.stopped = true;
     this.running.clear();
     await this.host.close();
   }
@@ -202,7 +217,10 @@ export class ConnectorManager {
     return [...this.running.values()].map(({ record }) => ({ instanceId: record.id, name: record.name, token: record.token, service: record.service }));
   }
 
-  sendDirect(id: string, message: InboundMessage) { return this.host.sendDirect(id, message); }
+  sendDirect(id: string, message: InboundMessage) {
+    if (this.stopping) return Promise.reject(new Error("Connector manager is stopping"));
+    return this.host.sendDirect(id, message);
+  }
   /** Raster bytes only: no provider URL or credential reaches personal IPC. */
   async avatarDirect(id: string): Promise<AvatarImage | null> {
     const avatar = await this.running.get(id)?.connector.avatar?.();
@@ -257,6 +275,7 @@ export class ConnectorManager {
 
   /** Starts a connect flow; poll progress(loginId) for its state. */
   begin(service: ServiceId): string {
+    if (this.stopping) throw new Error("Connector manager is stopping");
     if (service === "grokbot") for (const [id, active] of this.logins) {
       if (active.service === service && active.progress.state === "waiting" && !active.abort.signal.aborted) return id;
     }
@@ -487,6 +506,7 @@ export class ConnectorManager {
   }
 
   private persist() {
+    if (this.stopped) return;
     this.store.save([
       ...[...this.dormant.values()].filter((r) => !this.running.has(r.id)),
       ...[...this.running.values()].map(({ record, connector }) => ({ ...record, data: connector.serialize() })),

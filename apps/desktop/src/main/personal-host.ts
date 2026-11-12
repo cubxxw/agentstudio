@@ -4,6 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { UtilityProcess } from "electron";
 import { isArtifactId, readPersonalRequest, type PersonalChange, type PersonalRequest, type PersonalResponse, type PersonalSaveResult } from "../shared/personal-api";
 
+import type { NativeIntegrationReply } from "@agentstudio/personal/desktop-contract";
+
 type OwnedChild = Pick<UtilityProcess, "on" | "once" | "removeListener" | "postMessage" | "kill" | "pid">;
 type Fork = (path: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "ignore"; serviceName: string }) => OwnedChild;
 type RuntimeInfo = { electron?: string; node: string; sqlite: string };
@@ -157,6 +159,26 @@ export class PersonalHost {
       // The original POST may already be accepted. Never repeat it here.
       return unavailable("本次响应未能确认。已接受的任务会保留；请使用原请求标识核查或重试");
     }
+  }
+
+  /** Private owner-bound utility message, deliberately absent from preload/HTTP. */
+  async syncNativeServices(snapshot: unknown): Promise<NativeIntegrationReply["instances"]> {
+    await this.start();
+    const child = this.child, ownerId = this.ownerId, requestId = randomUUID();
+    if (!child || !ownerId) throw new Error("Native service runtime unavailable");
+    return new Promise<NativeIntegrationReply["instances"]>((resolveReady, reject) => {
+      const cleanup = () => { clearTimeout(timer); child.removeListener("message", received); child.removeListener("exit", exited); };
+      const exited = () => { cleanup(); reject(new Error("Native service runtime stopped")); };
+      const received = (value: unknown) => {
+        const data = value as { type?: string; ownerId?: string; requestId?: string; error?: boolean; instances?: NativeIntegrationReply["instances"] };
+        if (data?.type !== "native-services-ready" || data.ownerId !== ownerId || data.requestId !== requestId) return;
+        cleanup(); if (data.error) reject(new Error("Native service sync failed")); else resolveReady(data.instances);
+      };
+      const timer = setTimeout(() => { cleanup(); reject(new Error("Native service sync timed out")); }, 10_000);
+      child.on("message", received); child.once("exit", exited);
+      try { child.postMessage({ type: "sync-native-services", ownerId, requestId, snapshot }); }
+      catch { cleanup(); reject(new Error("Native service sync failed")); }
+    });
   }
 
   /** Private owner-bound utility message, deliberately absent from preload/HTTP. */

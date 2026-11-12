@@ -63,8 +63,7 @@ const setNative = (field, value) => {
 // The persona's avatar: an <img> labelled with its name (outside the message log),
 // or a frame of an animated avatar <video>. Returns its src or a PNG data URL.
 const avatarOf = (name, videoSel) => {
-  if (!name) return null;
-  const labels = new Set([name, name + "'s avatar", name + ' avatar', 'Avatar of ' + name].map((x) => x.toLowerCase()));
+  const labels = new Set(name ? [name, name + "'s avatar", name + ' avatar', 'Avatar of ' + name].map((x) => x.toLowerCase()) : []);
   const outside = (el) => visible(el) && !el.closest('[role="log"],[data-message-item],nav,[role="navigation"]');
   const img = [...document.querySelectorAll('img[alt]')].find((i) => outside(i) && labels.has(i.alt.trim().toLowerCase()) && i.naturalWidth >= 24);
   if (img) return { src: img.currentSrc || img.src };

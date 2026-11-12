@@ -65,6 +65,7 @@ export type Message = {
   skippedContacts?: { id: string; name: string; reason: string }[];
 };
 export type Run = {
+  deliveryState?: "not_sent" | "sending" | "delivered" | "unknown";
   collaboration?: { workId: string; stepId: string };
   id: string;
   status: Status;

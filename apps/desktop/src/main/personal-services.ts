@@ -57,6 +57,7 @@ export class PersonalServices {
   private manifest: Manifest = { version: 1, chosenPort: 0, tasks: [] };
   private initializing: Promise<void> | null = null;
   private stopping = false;
+  private startedAt: string | null = null;
   private stopPromise: Promise<void> | null = null;
   private storageFault = false;
   private readonly secrets = new Set<string>();
@@ -91,6 +92,12 @@ export class PersonalServices {
       const avatarDataUrl = this.avatarImages.get(id);
       return { id, service, name: this.clean(name), status, ...(message ? { message: this.clean(message) } : {}), canOpen, ...(avatarDataUrl ? { avatarDataUrl } : {}) };
     });
+  }
+  /** Owner-only ledger metadata; no prompts, provider URLs or credentials. */
+  async snapshot(instances?: PersonalServiceSummary[]) {
+    await this.initialize();
+    return { port: this.manifest.chosenPort, startedAt: this.startedAt, instances: instances ?? await this.list(),
+      tasks: this.manifest.tasks.map(({ id, instanceId, messageId, state }) => ({ id, instanceId, messageId, state })) };
   }
   private refreshAvatar(id: string) {
     const manager = this.manager;
@@ -221,6 +228,7 @@ export class PersonalServices {
     try { await pending; } finally { if (this.initializing === pending) this.initializing = null; }
   }
   private async initializeOwned() {
+    this.startedAt = now();
     mkdirSync(this.directory, { recursive: true, mode: 0o700 }); chmodSync(this.directory, 0o700);
     if (existsSync(this.manifestPath)) {
       const input = JSON.parse(readFileSync(this.manifestPath, "utf8")) as Manifest;
