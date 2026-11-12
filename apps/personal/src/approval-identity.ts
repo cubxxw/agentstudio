@@ -1,0 +1,17 @@
+import type { Approval, Contact } from "./types";
+
+export function approvalContact(approval: Approval, contacts: Contact[]) {
+  if (!approval.contact) return undefined;
+  const original = approval.contact;
+  const current = contacts.find(contact => contact.id === approval.contact?.id);
+  const connectionId = approval.source?.connectionId;
+  const sameBackend = current && (connectionId ? current.binding?.type === "connection" && current.binding.connectionId === connectionId
+    : current.binding?.type === "local" && current.binding.localAgentId === original.avatarAgent);
+  // Names follow the address book. Backend identity and portraits follow this request.
+  return { ...original,
+    ...(current ? { name: current.name, handle: current.handle, color: current.color, icon: current.icon } : {}),
+    ...(sameBackend ? { avatarDataUrl: current.avatarDataUrl, avatarService: current.avatarService } : {}),
+    ...(connectionId ? { binding: { type: "connection" as const, connectionId }, avatarAgent: undefined } : {}),
+    ...(approval.source?.label === "Grok Bot" ? { avatarService: "grokbot" as const } : {}),
+  };
+}

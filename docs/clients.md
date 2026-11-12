@@ -61,11 +61,14 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Avatar / group sender profile | `im-avatar` (`data-avatar-source`), `im-message-avatar` |
 | Composer / text / send / file / mentions | `im-composer`, `im-message-input`, `im-send`, `im-attach`, `im-mention-<contactId>` |
 | Approvals / return | `im-pending-bar`, `im-approval-open-chat` |
+| Approval source / contact / original chat | `im-approval-source`, `im-approval-contact`, `im-approval-source-chat` |
 | History / scratch / mode / recovery | `im-new-notes`, `im-send-options-toggle`, `im-task-mode`, `im-task-connection`, `im-send-recovery` |
 | Results / records / artifacts | `im-results`, `im-conversation-details`, `im-artifact`, `im-execution-record` |
 | Rail / list / skip | `im-rail`, `im-list-panel`, `im-skip` |
 | List scroll surface | `im-list-scroll` (a fresh surface when switching sections) |
 | Focus reading / reveal list | `im-focus-toggle` (`aria-expanded`, `aria-controls`) |
+
+Approval rows show the contact's current name, request title, provider and unique Bot ID (or contact handle). Details put the contact portrait, address-book link, accepted name when renamed, provider/Bot identity, original direct/group/task conversation and the bound user request before the choices. Standalone provider cards explicitly say when no local message is linked. Search includes both names, handle, provider, Bot ID, conversation and request text. Missing sources remain explicit; displayed names do not change the approval's decision/run/connection binding.
 
 Every personal conversation uses this Messenger shell, including old `?workspace=tasks&thread=…` links and scratch drafts (`?thread=new`). The old workspace parameter is removed without replacing the shell. Historical threads retain their IDs, mode/connection and draft recovery keys; no message is sent during migration. The conversation title opens its contact/group information; the single `im-results` information button opens result versions and execution records. `im-new-notes` continues the old unsent scratch draft or starts local organization. Native New Chat opens the conversation picker.
 

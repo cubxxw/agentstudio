@@ -176,7 +176,10 @@ export type Contact = {
   availability: "self" | "ready" | "unsupported" | "not_installed" | "login_required" | "disconnected" | "local_only" | "configuration_required";
   availabilityReason?: string;
 };
-export type Approval = Decision & { threadId: string; threadTitle: string; contact: Contact | null };
+export type Approval = Decision & {
+  threadId: string; threadTitle: string; contact: Contact | null;
+  source?: { label: string; name: string | null; connectionId: string | null; botId: string | null; requestText: string | null; threadKind: "direct" | "group" | "task" };
+};
 export type Bootstrap = {
   workspace?: { onboardingCompleted: boolean; displayName: string };
   threads: ThreadSummary[];

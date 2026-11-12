@@ -16,6 +16,9 @@ test('existing cards have no fake run; exact rejection is queued once, external 
  const sync=new ProviderApprovals(store,messenger,()=>{},()=>{}, {call:async (_c,method,params)=>{calls.push({method,params});return method.endsWith('/list')?{approvals:cards}:{state:'accepted'};}});
  sync.register({connectionId:connection.id,instanceId:'qa',service:'grokbot'});await sync.tick();
  let thread=store.list('thread')[0],decision=thread.decisions[0];assert.equal(thread.runs.length,0);assert.equal(thread.messages.length,0);
+ const approval=messenger.approvals()[0];
+ assert.equal(approval.contact.id,'connection_con_qa');
+ assert.deepEqual(approval.source,{label:'Grok Bot',name:'QA',connectionId:'con_qa',botId:'qa',requestText:null,threadKind:'direct'});
  sync.choose(thread,decision,{choice:'opaque-reject',clientId:'request1'});store.put('thread',thread);
  await sync.tick();await sync.tick();assert.equal(calls.filter(c=>c.method.endsWith('/respond')).length,1);
  assert.equal(calls.find(c=>c.method.endsWith('/respond')).params.choice,'opaque-reject');
@@ -27,6 +30,37 @@ test('existing cards have no fake run; exact rejection is queued once, external 
  cards=[{...cards[0],state:'resolved',replyTo:undefined}];await sync.tick();
  assert.equal(store.get('thread',thread.id).runs[0].phase,'reconcile');assert.equal(store.get('thread',thread.id).runs[0].status,'queued');
  assert.equal(calls.filter(c=>c.method.endsWith('/respond')).length,1);
+});
+
+test('approval sources distinguish same-name Bots, preserve accepted contacts, and tolerate removed records', async t => {
+ const directory=await mkdtemp(join(tmpdir(),'agentroom-approval-source-'));
+ const store=new PersonalStore(directory);t.after(async()=>{store.close();await rm(directory,{recursive:true,force:true});});
+ const messenger=new Messenger(store);
+ const sync=new ProviderApprovals(store,messenger,()=>{},()=>{});
+ for(const suffix of ['a','b']) {
+  const connection={id:`con_${suffix}`,type:'a2a',name:'New Bot',url:`http://127.0.0.1:1234/a2a/bot_${suffix}`};
+  store.put('connection',connection);sync.register({connectionId:connection.id,instanceId:`bot_${suffix}`,service:'grokbot'});
+  sync.project(store.get('native_approval_source',connection.id),connection,{id:'same-card',revision:'1',title:'同名请求',choices:[{key:'later',label:'稍后'}],state:'pending'});
+ }
+ const standalone=messenger.approvals();
+ assert.deepEqual(standalone.map(a=>a.source.botId).sort(),['bot_a','bot_b']);
+ assert.equal(new Set(standalone.map(a=>a.contact.id)).size,2);
+ const thread=store.list('thread').find(item=>item.decisions[0].providerConnectionId==='con_a'),contact=store.get('contact','connection_con_a');
+ thread.kind='group';thread.title='产品讨论';
+ thread.messages.push({id:'request_a',role:'user',text:'整理项目计划',createdAt:new Date().toISOString()});
+ thread.runs.push({id:'run_a',messageId:'request_a',connectionId:'con_a',contactId:contact.id,contactSnapshot:{...contact,name:'发起时的名称'}});
+ thread.decisions[0].runId='run_a';store.put('thread',thread);
+ store.put('contact',{...contact,name:'现在的名称'});
+ const accepted=messenger.approvals().find(a=>a.threadId===thread.id);
+ assert.equal(accepted.contact.name,'发起时的名称');
+ assert.deepEqual(accepted.source,{label:'Grok Bot',name:'New Bot',connectionId:'con_a',botId:'bot_a',requestText:'整理项目计划',threadKind:'group'});
+ store.db.prepare('DELETE FROM documents WHERE kind=? AND id=?').run('contact','connection_con_b');
+ store.db.prepare('DELETE FROM documents WHERE kind=? AND id=?').run('connection','con_b');
+ const missing=messenger.approvals().find(a=>a.source.botId==='bot_b');
+ assert.equal(missing.contact,null);assert.equal(missing.source.name,null);
+ // Public display metadata never projects the native source's private URL or credential binding.
+ assert.ok(!JSON.stringify(missing.source).includes('http:'));
+ assert.ok(!JSON.stringify(missing.source).includes('credential'));
 });
 
 test('restart never replays a response that may have reached the service; identity changes stop sync',async t=>{
