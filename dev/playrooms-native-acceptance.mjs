@@ -41,6 +41,7 @@ try {
   const room = (await request('/playrooms')).rooms[0]; invitation = await request(`/playrooms/${room.id}/invite`, {});
   priorClipboard = await app.evaluate(({ clipboard }) => clipboard.readText());
   await page.getByTestId('play-copy-local').click();
+  await expect(page.getByTestId('play-copy-local')).toHaveText('本机预览已复制');
   const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
   assert.ok(copied === invitation.localUrl, 'Native copy did not write the scoped local invitation');
   await check('native invitation copy writes the exact scoped URL');
