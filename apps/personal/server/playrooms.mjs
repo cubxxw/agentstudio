@@ -42,7 +42,7 @@ export class Playrooms {
       const credential = { id: roomId, type: 'play-invite', url: `https://agentroom.invalid/${roomId}`, credentialVersion: 1 };
       credential.credentialRef = this.store.vault.create(token, credential);
       return this.store.put('play_room', { id: roomId, template: body.template, title, brief, persona, hostName, agentName: contact.name,
-        backend: contact.binding.localAgentId, configuration: contact.configuration || {}, inviteHash: digest(token), credential,
+        backend: contact.binding.localAgentId, configuration: contact.configuration || {}, executionSnapshot: contact.executionSnapshot, inviteHash: digest(token), credential,
         maxGuests, maxTurns, turns: 0, createdAt: this.stamp(), expiresAt: new Date(this.clock() + ttlHours * 3600_000).toISOString(), version: 1,
         participants: [{ id: 'self', name: hostName, isOwner: true, joinedAt: this.stamp() }], messages: [],
         board: { choices: body.template === 'travel' ? choices.map((label, i) => ({ id: `choice_${i}`, label, votes: [] })) : [], tasks: tasks[body.template].map((label, i) => ({ id: `task_${i}`, label, done: false })), notes: '', notesVersion: 1 } });
@@ -112,7 +112,7 @@ export class Playrooms {
         if (current.turns >= current.maxTurns || current.messages.length >= 120) fail(429, 'turn_limit', '这次房间的讨论轮数已用完，可以继续整理计划或请主人新开一间');
         if (jobs.filter(j => ['queued', 'running'].includes(j.status)).length >= 20) fail(429, 'queue_full', '主人正在处理其他问题，请稍后再试');
         current.messages.push({ id: id('pm'), actorId, name: actor.name, role: 'user', text: message, createdAt: this.stamp() }); current.turns++;
-        this.store.put('play_job', { id: id('pj'), roomId, actorId, backend: current.backend, configuration: current.configuration, status: 'queued', createdAt: this.stamp(),
+        this.store.put('play_job', { id: id('pj'), roomId, actorId, backend: current.backend, configuration: current.configuration, executionSnapshot: current.executionSnapshot, status: 'queued', createdAt: this.stamp(),
           context: { title: current.title, brief: current.brief, persona: current.persona, agentName: current.agentName, messages: structuredClone(current.messages.slice(-24)), board: structuredClone(current.board) } });
       } else if (body.type === 'vote') {
         if (!current.board.choices.some(c => c.id === body.choiceId)) fail(400, 'invalid_choice', '请选择一个已有的旅行方向');
@@ -131,6 +131,11 @@ export class Playrooms {
         const participant = current.participants.find(p => p.id === body.participantId && !p.isOwner && !p.removedAt);
         if (!participant) fail(400, 'invalid_guest', '请选择仍在房间里的访客');
         participant.removedAt = this.stamp(); this.cancel(roomId, participant.id);
+        // Anonymous display names are not durable identities. Retire the old
+        // invitation as well so it cannot immediately mint a replacement actor.
+        const token = randomBytes(32).toString('base64url');
+        current.credential = { ...current.credential, credentialVersion: current.credential.credentialVersion + 1 };
+        current.credential.credentialRef = this.store.vault.create(token, current.credential); current.inviteHash = digest(token);
       } else if (body.type === 'acknowledge') {
         const job = this.store.require('play_job', body.jobId);
         if (job.roomId !== roomId || job.status !== 'unknown' || body.confirmedStopped !== true) fail(409, 'review_required', '请先核查原执行确实已经结束');
@@ -177,7 +182,7 @@ export class Playrooms {
   async body(request) {
     if (request.headers['content-type'] !== 'application/json') fail(415, 'json_required', '需要 JSON 请求');
     const chunks = []; let size = 0;
-    for await (const chunk of request) { size += chunk.length; if (size > 24000) fail(413, 'input_limit', '内容太长，请分成几条'); chunks.push(chunk); }
+    for await (const chunk of request) { size += chunk.length; if (size > 80000) fail(413, 'input_limit', '内容太长，请分成几条'); chunks.push(chunk); }
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail(400, 'invalid_input', '没有读懂这次操作，请重试'); }
   }
   async handle(request, response) {

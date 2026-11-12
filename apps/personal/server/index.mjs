@@ -16,6 +16,9 @@ import { ArtifactAPI } from './artifact-api.mjs';
 import { AgentScheduler } from './agent-scheduler.mjs';
 import { RemoteNodes } from './remote-nodes.mjs';
 import { DesktopSharing } from './desktop-sharing.mjs';
+import { Playrooms } from './playrooms.mjs';
+import { createPlayExecutor } from './play-executor.mjs';
+import { PlayNetwork } from './play-network.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
 import { ProviderApprovals } from './provider-approvals.mjs';
 import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
@@ -108,7 +111,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'play-executor.mjs', 'play-network.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -147,6 +150,13 @@ export async function createPersonalServer(options = {}) {
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
   const sharing = new DesktopSharing(store, messenger, { refresh: async () => messenger.sync(await localAgents()), validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, addresses: options.sharingAddresses, port: options.sharingPort });
+  const playExecutor = createPlayExecutor(store, { deps: localAgentDeps, authorize: job => {
+    const room = store.require('play_room', job.roomId); playrooms.active(room);
+    if (!room.participants.some(p => p.id === job.actorId && !p.removedAt)) throw new APIError(403, 'guest_removed', '访客已经离开房间');
+  } });
+  const guestStaticDir = options.guestStaticDir || (options.staticDir?.endsWith(`${sep}personal`) ? resolve(options.staticDir, '..') : options.staticDir || join(appDir, 'dist'));
+  const playrooms = new Playrooms(store, { execute: options.playExecute || ((context, signal, job) => playExecutor.execute(context, signal, job)), notify, staticDir: guestStaticDir, port: options.playPort });
+  const playNetwork = new PlayNetwork(playrooms, { ...options.playNetwork, notify });
   const scheduler = new AgentScheduler(store, messenger, { clock: options.schedulerNow, validateInput: input => validateInput(store, input),
     refresh: async () => messenger.sync(await localAgents()), kick: () => worker.kick(), notify });
   worker.options.agentScheduler = scheduler;
@@ -216,7 +226,7 @@ export async function createPersonalServer(options = {}) {
     ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers() + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length;
   const cancelWorkspaceSwitch = () => {
     if (!switchPrepared || shuttingDown) return;
-    sharing.suspended = false;
+    sharing.suspended = false; playrooms.suspended = false;
     switchPrepared = false; scheduler.closed = false; scheduler.start(options.schedulerTickMs ?? 30_000);
   };
   const server = http.createServer(async (request, response) => {
@@ -240,6 +250,36 @@ export async function createPersonalServer(options = {}) {
       const path = url.pathname;
       const method = request.method;
       let match;
+      if (path === '/api/play-network') {
+        if (method === 'GET') return json(response, 200, playNetwork.status());
+        if (method === 'POST') {
+          const body = await readJSON(request);
+          if (Object.keys(body).some(k => k !== 'action') || !['start', 'stop'].includes(body.action)) invalid('请选择开启或停止网页邀请');
+          if (body.action === 'stop') await playNetwork.stop();
+          else void playNetwork.start().catch(() => {});
+          return json(response, 202, playNetwork.status());
+        }
+      }
+      if (method === 'GET' && path === '/api/playrooms') return json(response, 200, { rooms: playrooms.list() });
+      if (method === 'POST' && path === '/api/playrooms') {
+        const body = await readJSON(request), replay = store.replay('play:create', body.clientId, body);
+        if (replay.found) return json(response, 201, playrooms.owner(replay.value.id));
+        const detected = await localAgents(); messenger.sync(detected);
+        const contact = store.require('contact', body.contactId), agent = detected.agents.find(a => a.id === contact.binding?.localAgentId);
+        if (!options.playExecute && !agent?.installed) throw new APIError(409, 'agent_unavailable', '先连接一位本机 Codex 或 Pi，再开启房间');
+        let executionSnapshot;
+        if (agent?.profile) { try { executionSnapshot = resolveExecution(agent.profile, contact.configuration || {}); } catch (error) { throw new APIError(409, 'configuration_required', error.message); } }
+        return json(response, 201, playrooms.create(body, { ...contact, executionSnapshot }));
+      }
+      if ((match = path.match(/^\/api\/playrooms\/(pr_[A-Za-z0-9_-]+)(?:\/(invite|actions))?$/))) {
+        if (method === 'GET' && !match[2]) return json(response, 200, playrooms.owner(match[1]));
+        if (method === 'POST' && match[2] === 'actions') return json(response, 200, playrooms.action(match[1], 'self', await readJSON(request)));
+        if (method === 'POST' && match[2] === 'invite') {
+          const body = await readJSON(request); if (Object.keys(body).length) invalid('邀请不接受其他参数');
+          await playrooms.listen();
+          response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); response.end(JSON.stringify(playrooms.invitation(match[1]))); return;
+        }
+      }
       const artifactResult = await artifactAPI.route(method, path, () => readJSON(request));
       if (artifactResult !== undefined) return json(response, 200, artifactResult);
       if (method === 'GET' && path === '/api/workspace/status') {
@@ -583,13 +623,13 @@ export async function createPersonalServer(options = {}) {
   providerApprovals.start();
   scheduler.start(options.schedulerTickMs ?? 30_000);
   return {
-    server, store, worker, scheduler, creation, providerApprovals, sharing,
+    server, store, worker, scheduler, creation, providerApprovals, sharing, playrooms, playNetwork,
     registerNativeSource: (source) => providerApprovals.register(source),
     syncNativeServices: (snapshot) => { const catalog = syncNativeServices(store, snapshot, notify); worker.kick(); return catalog; },
     cancelWorkspaceSwitch,
     async prepareWorkspaceSwitch() {
       if (switchPrepared || shuttingDown) throw new Error('Workspace is already switching');
-      switchPrepared = true; sharing.suspended = true;
+      switchPrepared = true; sharing.suspended = true; playrooms.suspended = true;
       try {
         await scheduler.close();
         const deadline = Date.now() + 5000;
@@ -597,7 +637,7 @@ export async function createPersonalServer(options = {}) {
           if (Date.now() > deadline) throw new Error('Workspace still has pending requests');
           await new Promise(resolveWait => setTimeout(resolveWait, 10));
         }
-        const count = blockingRuns();
+        const count = blockingRuns() + store.list('play_job').filter(j => ['queued', 'running', 'unknown'].includes(j.status)).length;
         if (count) cancelWorkspaceSwitch();
         return { blockingRuns: count };
       } catch (error) { cancelWorkspaceSwitch(); throw error; }
@@ -613,6 +653,7 @@ export async function createPersonalServer(options = {}) {
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
+      await playNetwork.stop(); await playrooms.close(); await playExecutor.close();
       await sharing.close(); await remoteNodes.close();
       stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await creation.close(); artifactAPI.close(); await stopped; store.close();
     },

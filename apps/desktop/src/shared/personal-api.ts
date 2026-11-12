@@ -23,6 +23,8 @@ export const PERSONAL_IPC = {
 const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
+    /^\/api\/play-network$/,
+    new RegExp(`^/api/playrooms(?:/${opaqueId})?$`),
     /^\/api\/sharing$/,
     /^\/api\/im\/settings$/,
     /^\/api\/library\/artifacts$/,
@@ -43,6 +45,9 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
+    /^\/api\/play-network$/,
+    /^\/api\/playrooms$/,
+    new RegExp(`^/api/playrooms/${opaqueId}/(invite|actions)$`),
     /^\/api\/sharing(?:\/invite)?$/,
     /^\/api\/im\/settings$/,
     new RegExp(`^/api/threads/${opaqueId}/reactions$`),

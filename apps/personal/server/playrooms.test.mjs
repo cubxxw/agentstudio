@@ -99,3 +99,14 @@ test('guest listener refuses private routes, untrusted origins, invalid fields, 
   assert.equal((await f.request(`/g-api/${room.id}/actions`, { type: 'message', text: 'hello', actorId: 'self', clientId: crypto.randomUUID() }, a.cookie)).status, 400);
   assert.equal((await f.request(`/g-api/${room.id}/actions`, { type: 'message', text: 'x'.repeat(4001), clientId: crypto.randomUUID() }, a.cookie)).status, 400);
 });
+test('removing an anonymous participant rotates the invitation so the old link cannot issue a new identity', async t => {
+  const f = await fixture(t), room = f.create(), token = f.rooms.invitation(room.id).token, a = await f.enter(room);
+  f.rooms.action(room.id, 'self', { type: 'remove', participantId: a.body.me.id, clientId: crypto.randomUUID() });
+  assert.equal((await f.request('/g-api/preview', { invite: token })).status, 404);
+  assert.notEqual(f.rooms.invitation(room.id).token, token);
+});
+test('a full length Chinese shared note fits the byte limit and persists', async t => {
+  const f = await fixture(t), room = f.create(), a = await f.enter(room), value = '共'.repeat(12000);
+  const saved = await f.request(`/g-api/${room.id}/actions`, { type: 'notes', version: 1, text: value, clientId: crypto.randomUUID() }, a.cookie);
+  assert.equal(saved.status, 200); assert.equal(saved.body.board.notes, value);
+});
