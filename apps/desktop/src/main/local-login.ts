@@ -18,6 +18,7 @@ export class LocalLoginHost {
   constructor(private options: { env?: NodeJS.ProcessEnv; onChanged(): void; timeoutMs?: number }) {}
 
   begin(agentId: "codex" | "claude"): NativeIntegrationReply {
+    if (process.env.AGENTROOM_AUTOMATION_MODE === "background") return { state: "failed", message: "后台验收不打开登录浏览器，请使用明确协调的可见验收。" };
     if (this.stopped) return { state: "failed", message: "应用正在退出，没有开始新的登录。" };
     for (const flow of this.flows.values()) if (flow.agentId === agentId && flow.progress.state === "waiting") return flow.progress;
     const env = localExecutionEnv(this.options.env);

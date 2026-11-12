@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Isolated history/messenger convergence. Only local synthetic data is sent.
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -40,7 +40,7 @@ try {
     cleanDesktopTestEnv(env);
     for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
     const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
-    application = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+    application = await launchDesktopTest(_electron, { executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
     page = await application.firstWindow();
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1200, height: 780 }));
   } else {

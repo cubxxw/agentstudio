@@ -1,5 +1,5 @@
 import { seedLegacyAgentContacts } from "./legacy-agent-fixture.mjs";
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Isolated synthetic IM journey. No real model or third-party account is called.
 // Build personal first. For native also build desktop, then add --native.
 import { createRequire } from 'node:module';
@@ -61,7 +61,7 @@ try {
     cleanDesktopTestEnv(env);
     for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
     const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
-    application = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+    application = await launchDesktopTest(_electron, { executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
     page = await application.firstWindow(); context = page.context();
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1200, height: 780 }));
   } else {

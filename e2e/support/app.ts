@@ -1,3 +1,4 @@
+import { launchDesktopTest } from "../../dev/desktop-test-env.mjs";
 // The `app` fixture: one fresh client per test, either the built Electron app
 // (project "desktop") or the mobile web build in an emulated iPhone
 // (project "mobile-web"). Specs drive both through the same helpers and select
@@ -46,7 +47,7 @@ async function launchDesktop(profile: string, extraEnv: Record<string, string> =
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   delete env.ELECTRON_RUN_AS_NODE;
-  const electronApp = await electron.launch({
+  const electronApp = await launchDesktopTest(electron, {
     args: [DESKTOP_APP_DIR],
     env: {
       ...env,

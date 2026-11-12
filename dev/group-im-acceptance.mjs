@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createPersonalServer } from '../apps/personal/server/index.mjs';
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 
 const desktop = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { chromium, _electron } = createRequire(desktop.resolve('@playwright/test'))('playwright');
@@ -44,7 +44,7 @@ try {
     cleanDesktopTestEnv(env);
     for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
     const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
-    app = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : desktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
+    app = await launchDesktopTest(_electron, { executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : desktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 30000 });
     page = await app.firstWindow(); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1200, height: 820 }));
   } else {
     server = await createPersonalServer({ dataDir: join(output, 'data'), port: 0, staticDir: resolve('apps/personal/dist'), codexCommand: cli, localAgentDeps: { env: { ...process.env, CODEX_HOME: home }, commands: { pi: '/synthetic-missing-pi', claude: '/synthetic-missing-claude' } } });

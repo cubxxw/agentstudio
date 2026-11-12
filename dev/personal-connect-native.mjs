@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Explicit real acceptance: existing local CLI accounts and public MCP only.
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -27,8 +27,8 @@ const api = (path, body) => page.evaluate(async ({ path, body }) => {
 const capture = async name => {
   await page.screenshot({ path: join(evidence, `${name}-renderer.png`) });
   const id = await application.evaluate(async ({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; await window.webContents.capturePage(); return window.getMediaSourceId(); });
-  execFileSync('/usr/sbin/screencapture', ['-x', '-l', id.split(':')[1], join(evidence, `${name}.png`)]);
-  captures.push({ name, method: 'native-window' });
+  if (process.env.AGENTROOM_AUTOMATION_VISIBLE === '1') execFileSync('/usr/sbin/screencapture', ['-x', '-l', id.split(':')[1], join(evidence, `${name}.png`)]);
+  captures.push({ name, method: process.env.AGENTROOM_AUTOMATION_VISIBLE === '1' ? 'native-window' : 'renderer-only' });
 };
 const openConnections = async () => {
   await page.getByTestId('im-settings').click();
@@ -46,7 +46,7 @@ const complete = async id => {
   verify(thread.status === 'completed', `real task completes (${thread.status})`); return thread;
 };
 try {
-  application = await _electron.launch({ executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [join(root, 'apps/desktop')], env });
+  application = await launchDesktopTest(_electron, { executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [join(root, 'apps/desktop')], env });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
    page.on('pageerror', error => errors.push(error.message));
@@ -94,7 +94,7 @@ try {
   const mcp = await complete(mcpId);
   verify(mcp.artifacts[0].source === 'mcp' && mcp.runs[0].localAgentId === 'codex', 'selected Codex coordinates the actual public MCP execution');
   await application.close(); application = undefined;
-  application = await _electron.launch({ executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [join(root, 'apps/desktop')], env });
+  application = await launchDesktopTest(_electron, { executablePath: process.env.AGENTSTUDIO_ELECTRON_BINARY || requireDesktop('electron'), args: [join(root, 'apps/desktop')], env });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
    await page.getByTestId('im-rail').waitFor();

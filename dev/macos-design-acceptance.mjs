@@ -1,5 +1,5 @@
 import { seedLegacyAgentContacts } from "./legacy-agent-fixture.mjs";
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Synthetic design acceptance. No real model, account or existing profile is used.
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
@@ -20,7 +20,7 @@ let server, browser, application, page;
 const check = label => { checks.push(label); console.log(`PASS ${label}`); };
 const shot = async name => {
   await page.screenshot({ path: join(output, `${name}.png`), animations: 'disabled' });
-  if (native && process.platform === 'darwin' && ['conversation-light', 'conversation-dark'].includes(name)) {
+  if (native && process.env.AGENTROOM_AUTOMATION_VISIBLE === '1' && process.platform === 'darwin' && ['conversation-light', 'conversation-dark'].includes(name)) {
     const source = await application.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.show(); win.focus(); return win.getMediaSourceId(); });
     const path = join(output, `${name}-macos.png`);
     try {
@@ -48,7 +48,7 @@ try {
     const env = { ...process.env, CODEX_HOME: output, AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: missing, AGENTSTUDIO_CLAUDE_BIN: missing, AGENTSTUDIO_PI_BIN: missing, AGENTSTUDIO_MOCK_KEYCHAIN: '1' };
     cleanDesktopTestEnv(env);
     for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'AGENTSTUDIO_PERSONAL_DATA_DIR', 'PERSONAL_DATA_DIR']) delete env[key];
-    application = await _electron.launch({ executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
+    application = await launchDesktopTest(_electron, { executablePath: requireDesktop('electron'), args: [resolve('apps/desktop')], env });
     page = await application.firstWindow();
     await application.evaluate(({ BrowserWindow, nativeTheme }) => { nativeTheme.themeSource = 'light'; BrowserWindow.getAllWindows()[0].setBounds({ width: 1200, height: 780 }); });
   } else {

@@ -7,6 +7,7 @@ import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { BrowserWindow, clipboard, nativeImage, shell } from "electron";
+import { automationWindowOptions, backgroundAutomation } from "../automation";
 import { ConnectorHost, newToken } from "./host";
 import { ConnectorStore, type InstanceRecord } from "./store";
 import { GROK_DEFAULTS, GrokBotConnector, GrokClient, grokLogin, type GrokConfig, type GrokData, type GrokLoginResult } from "./grokbot";
@@ -297,11 +298,11 @@ export class ConnectorManager {
   // ---- internals -------------------------------------------------------------------
 
   private openSignInWindow = async (url: string, signal?: AbortSignal) => {
-    if (signal) for (const [window, owner] of this.loginWindows) if (owner === signal && !window.isDestroyed()) { window.show(); window.focus(); return; }
+    if (signal) for (const [window, owner] of this.loginWindows) if (owner === signal && !window.isDestroyed()) { if (!backgroundAutomation()) { window.show(); window.focus(); } return; }
     const target = new URL(url);
     if (target.protocol !== "https:" && !(target.protocol === "http:" && target.hostname === "127.0.0.1")) throw new Error("Invalid sign-in URL");
     if (signal?.aborted) throw new Error("cancelled");
-    const w = new BrowserWindow({ width: 900, height: 760, title: "Sign in", webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    const w = new BrowserWindow({ width: 900, height: 760, title: "Sign in", ...automationWindowOptions(), webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
     this.loginWindows.set(w, signal);
     const close = () => { if (!w.isDestroyed()) w.close(); };
     signal?.addEventListener("abort", close, { once: true });
@@ -317,6 +318,7 @@ export class ConnectorManager {
   };
 
   private openExternal = async (url: string, signal?: AbortSignal) => {
+    if (backgroundAutomation()) return this.openSignInWindow(url, signal);
     if (this.env.openExternalInWindow) return this.openSignInWindow(url, signal);
     await openSystemBrowser(url, { signal, inApp: target => this.openSignInWindow(target, signal) });
   };

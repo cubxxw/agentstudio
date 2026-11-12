@@ -49,6 +49,7 @@ Legacy stack state, logs and generated secrets live in `.local/`, which is git-i
   - `@agentstudio/core` must not import DOM, Node or React Native APIs
   - React 19 function components
 - **Tests:** select elements only by `data-testid` / `testID` from `docs/clients.md`. Use no sleeps when a condition can be awaited.
+- **Native acceptance:** prefer browser checks first. Use `launchDesktopTest` from `dev/desktop-test-env.mjs` for native automation; build first and retain its version check and host-wide lock. Default to hidden windows. `AGENTROOM_AUTOMATION_VISIBLE=1` is only for explicitly coordinated OS-window/focus acceptance, not routine screenshots. Launch packages by absolute executable path; preserve recovery copies as `.bundle`/archives rather than discoverable `.app` files. See `docs/personal/testing.md`.
 - **No Docker.** The local stack runs native processes: Homebrew Postgres 18 in a private cluster under `.local/pg`, and Synapse in a uv venv.
 - **Keep diffs focused.** Do not reformat files you did not change.
 - **Connectors for third-party services** reach the user's own agents with the user's own account, on the user's Mac. Don't add anything that works at scale, for other people's accounts, or around a service's limits. Never commit real transcripts, tokens or cookies; scrub fixtures to their structure.
