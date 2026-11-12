@@ -1,3 +1,4 @@
+import { defaultAgentAvatar, normalizeAgentAvatar, agentAvatarActivity } from './agent-avatar.mjs';
 import { nodePresence } from './remote-nodes.mjs';
 import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
 import { APIError, id, now } from './store.mjs';
@@ -15,8 +16,8 @@ const text = (value, max, fallback = '') => {
   if (typeof value !== 'string' || value.length > max) fail(`请输入 ${max} 字以内的文本`);
   return value.trim();
 };
-const identity = contact => ({ id: contact.id, kind: contact.kind, name: contact.name, handle: contact.handle,
-  description: contact.description, instructions: contact.instructions, color: contact.color, icon: contact.icon || 'auto', avatarAgent: contact.binding?.type === 'local' ? contact.binding.localAgentId : null, version: contact.version });
+const identity = contact => ({ id: contact.id, kind: contact.kind, name: contact.name, handle: contact.handle, discovered: Boolean(contact.discovered),
+  description: contact.description, instructions: contact.instructions, color: contact.color, icon: contact.icon || 'auto', ...(contact.kind === 'agent' ? { avatar: contact.avatar === undefined ? (!contact.discovered && !contact.avatarDataUrl && !contact.avatarService && (!contact.icon || contact.icon === 'auto') ? defaultAgentAvatar(contact) : null) : contact.avatar } : {}), avatarAgent: contact.binding?.type === 'local' ? contact.binding.localAgentId : null, version: contact.version });
 
 /** Personal, single-owner address book. Discovery updates capability facts, never a user's identity. */
 export class Messenger {
@@ -60,7 +61,8 @@ export class Messenger {
     if (contact.kind === 'agent' && chatBinding?.type === 'local' && profile) { try { execution = resolveExecution(profile, contact.configuration || {}); } catch (error) { configurationError = error.message; } }
     const node = connection?.node ? this.store.get('remote_node', connection.node.id) : null;
     const observed = node?.agents.find(agent => agent.id === connection.node.agentId);
-    const runs = this.store.list('thread').flatMap(thread => thread.runs).filter(run => run.contactId === contact.id);
+    const threads = this.store.list('thread');
+    const runs = threads.flatMap(thread => thread.runs).filter(run => run.contactId === contact.id);
     let presence = contact.kind !== 'agent' ? null : node ? { ...nodePresence(node), ...(observed?.activity || {}) }
       : chatBinding?.type === 'local' ? { state: (base?.availability || contact.availability) === 'ready' ? 'online' : 'attention', deviceName: '这台 Mac',
         running: runs.filter(run => ['running', 'verifying'].includes(run.status)).length, waiting: runs.filter(run => run.status === 'needs_input').length, lastSeenAt: null }
@@ -75,7 +77,10 @@ export class Messenger {
       else if (observed.availability !== 'configured') remoteAvailability = 'unsupported';
       if (remoteAvailability && presence.state === 'online') presence = { ...presence, state: 'attention', reason: !observed ? '来源设备已停止共享这位联系人' : observed.availability === 'unsupported' ? '这位伙伴暂时只能在来源设备中聊天' : '需要在来源设备检查登录或配置' };
     }
-    return { ...contact, presence, ...(native?.service ? { avatarService: native.service } : {}), ...(native?.avatarDataUrl ? { avatarDataUrl: native.avatarDataUrl } : {}), connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
+    const avatarActivity = contact.kind === 'agent' ? agentAvatarActivity(runs,
+      threads.flatMap(t => t.decisions.filter(d => d.runId ? runs.some(r => r.id === d.runId) : binding?.type === 'connection' && d.providerConnectionId === binding.connectionId && t.memberIds?.includes(contact.id))),
+      node && presence.state === 'online' ? observed?.activity : undefined) : undefined;
+    return { ...contact, avatarActivity, presence, ...(native?.service ? { avatarService: native.service } : {}), ...(native?.avatarDataUrl ? { avatarDataUrl: native.avatarDataUrl } : {}), connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
       : configurationError ? { availability: 'configuration_required', providerName: connection?.name || base?.providerName || '' }
       : chatBinding?.type === 'local' ? { availability: base?.availability || 'not_installed', providerName: connection?.name || base?.providerName || chatBinding.localAgentId }
         : { availability: remoteAvailability || (native && native.status !== 'ready' ? native.status === 'needs_login' ? 'login_required' : 'disconnected' : connection ? 'ready' : 'disconnected'), providerName: connection?.name || '连接已移除' }) };
@@ -132,9 +137,15 @@ export class Messenger {
     if (kind === 'agent' && binding?.type === 'connection' && !chatBackend && (configuration.modelMode !== 'follow' || configuration.thinking !== 'follow')) fail('这个连接由服务管理模型，不能使用本机 CLI 模型选项');
     const icon = body.icon ?? previous?.icon ?? 'auto';
     if (!icons.includes(icon)) fail('请选择支持的联系人图标');
-    const contact = this.store.put('contact', { ...previous, id: contactId || id('contact'), kind, name, handle,
+    const savedId = contactId || id('contact');
+    let avatar = previous?.avatar || null;
+    if (body.avatar !== undefined) {
+      if (kind !== 'agent' && body.avatar !== null) fail('机器人头像仅用于 Agent');
+      try { avatar = body.avatar === null ? null : normalizeAgentAvatar(body.avatar); } catch (error) { fail(error.message); }
+    } else if (!previous && kind === 'agent') avatar = defaultAgentAvatar({ id: savedId, name, color });
+    const contact = this.store.put('contact', { ...previous, id: savedId, kind, name, handle,
       description: text(body.description ?? previous?.description, 300), instructions: kind === 'agent' ? text(body.instructions ?? previous?.instructions, 3000) : '',
-      binding, color, icon, ...(kind === 'agent' ? { configuration, chatBackend: toolConnection ? chatBackend : null } : {}), version: (previous?.version || 0) + 1, createdAt: previous?.createdAt || now(), updatedAt: now() });
+      binding, color, icon, avatar, ...(kind === 'agent' ? { configuration, chatBackend: toolConnection ? chatBackend : null } : {}), version: (previous?.version || 0) + 1, createdAt: previous?.createdAt || now(), updatedAt: now() });
     if (previous && JSON.stringify(previous.binding) !== JSON.stringify(contact.binding)) for (const thread of this.store.list('thread').filter(item => item.memberIds?.includes(contact.id))) this.options.onGroupChanged?.(thread.id);
     return this.publicContact(contact);
   }

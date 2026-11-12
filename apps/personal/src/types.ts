@@ -1,3 +1,5 @@
+import type { AgentAvatar, AvatarActivity } from "../server/agent-avatar.mjs";
+export type { AgentAvatar, AvatarActivity } from "../server/agent-avatar.mjs";
 export type Status =
   | "queued"
   | "running"
@@ -170,6 +172,8 @@ export type Connection = {
 export type Memory = { id: string; text: string; createdAt: string };
 export type ResponsePolicy = "auto" | "mention" | "always" | "manual";
 export type Contact = {
+  avatar?: AgentAvatar | null;
+  avatarActivity?: AvatarActivity;
   presence?: Presence | null;
   chatBackend?: { type: "local"; localAgentId: LocalAgentId } | null;
   connectionType?: "a2a" | "mcp" | null;
@@ -196,7 +200,7 @@ export type Bootstrap = {
 
 export type OnboardingSource = { id: string; kind: "role" | "group" | "message" | "memory"; targetId: string; label: string; text?: string; description?: string; instructions?: string; handle?: string };
 export type OnboardingContext = { sources: OnboardingSource[]; counts: { roles: number; groups: number; memories: number }; scope: { includeRecentMessages: boolean; includeMemories: boolean; privateMessages: boolean }; truncation: { omitted: number; clipped: number; characterBudget: number } };
-export type RoleSuggestion = { id: string; name: string; handle: string; description: string; instructions: string; rationale: string; sourceIds: string[]; groupIds: string[]; color: string; contactId?: string };
+export type RoleSuggestion = { id: string; name: string; handle: string; description: string; instructions: string; rationale: string; sourceIds: string[]; groupIds: string[]; color: string; avatar?: AgentAvatar; contactId?: string };
 export type OnboardingJob = OnboardingContext & { id: string; threadId: string; agentId: LocalAgentId; status: "queued" | "probing" | "analyzing" | "completed" | "failed" | "interrupted" | "cancelled"; goal: string; cancelPending?: boolean; stopUnconfirmed?: boolean; createdAt: string; updatedAt: string; executionSnapshot: ExecutionSnapshot; probe: { status: "pending" | "passed"; testedAt?: string }; suggestions: RoleSuggestion[]; habits: { text: string; sourceIds: string[]; inferred: true }[]; error?: string };
 
 export type WorkspaceArtifact = { id: string; title: string; kind: 'document' | 'website'; status: string; headRevisionId: string | null; currentRevisionId: string | null; deliveredRevisionId?: string | null; acceptedRevisionId: string | null; materializationState: string; version: number; createdAt: string; updatedAt: string };

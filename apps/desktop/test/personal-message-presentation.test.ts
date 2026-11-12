@@ -71,3 +71,19 @@ describe("personal message presentation", () => {
   expect(html).toContain("检查连接");
   expect(html).not.toContain("核查原任务");
  });
+
+it("keeps vendor picker previews branded while role fallbacks are robots", () => {
+  const vendor = renderToStaticMarkup(createElement(Avatar, { contact: { kind: "agent", name: "Codex", color: "blue", avatarAgent: "codex" } }));
+  expect(vendor).toContain('data-avatar-source="codex"');
+  const role = renderToStaticMarkup(createElement(Avatar, { contact: { ...sender, binding: { type: "local", localAgentId: "codex" } } }));
+  expect(role).toContain('data-avatar-source="bottts"');
+});
+
+it("retains the provider mark on pre-avatar historical snapshots after upgrade", () => {
+  const legacy = { ...sender, id: "agent_codex", avatarAgent: "codex" as const };
+  const value: Thread = { ...thread, messages: thread.messages.map(m => m.role === "assistant" ? { ...m, contactId: legacy.id, contactSnapshot: legacy } : m), runs: [{ ...thread.runs[0]!, connectionId: undefined, localAgentId: "codex", mode: "codex", contactId: legacy.id, contactSnapshot: legacy }] };
+  const html = renderToStaticMarkup(createElement(ConversationTimeline, { thread: value, contacts: [], serviceAvatars: {}, limit: 80,
+    onMore() {}, onReply() {}, onContact() {}, onSource() {}, onRun() {}, onReaction() {}, onError() {}, busy: "" }));
+  expect(html).toContain('data-avatar-source="codex"');
+  expect(html).not.toContain('data-avatar-source="bottts"');
+});

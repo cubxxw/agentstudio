@@ -462,3 +462,33 @@ test('first unread upgrade baselines old transcripts once and counts subsequent 
   ));
   assert.equal((await f.api(`/threads/${chat.id}`)).body.unreadCount, 2);
 });
+
+test('selected avatar survives rename, discovery and restart; accepted replies keep their original identity', async t => {
+  const f = await fixture(t);
+  const avatar = { version: 1, style: 'bottts', seed: 'my-agent', palette: 'orange', eyes: 'happy', mouth: 'smile02', top: 'radar', motion: false };
+  const created = await f.api('/contacts', { clientId: key(), kind: 'agent', name: '研究员', handle: 'avatar-researcher', binding: { type: 'local', localAgentId: 'codex' }, avatar });
+  assert.equal(created.status, 201); assert.deepEqual(created.body.avatar, avatar);
+  const chat = (await f.api('/chats', { clientId: key(), kind: 'direct', memberIds: [created.body.id] })).body;
+  await f.api(`/threads/${chat.id}/messages`, { clientId: key(), text: '保存这个身份' });
+  await f.wait(chat.id, thread => thread.runs[0]?.status === 'completed');
+  const updated = await f.api(`/contacts/${created.body.id}`, { clientId: key(), version: created.body.version, name: '新名字', avatar: { ...avatar, seed: 'next-avatar' } });
+  assert.equal(updated.status, 200);
+  assert.equal((await f.api(`/threads/${chat.id}`)).body.runs[0].contactSnapshot.avatar.seed, 'my-agent');
+  await f.restart();
+  const restored = (await f.api(`/contacts/${created.body.id}`)).body;
+  assert.equal(restored.avatar.seed, 'next-avatar'); assert.equal(restored.name, '新名字');
+  assert.equal(restored.avatarActivity.state, 'completed');
+  assert.equal((await f.api(`/contacts/${created.body.id}`, { clientId: key(), version: restored.version, avatar: { ...avatar, seed: '' } })).status, 400);
+  assert.equal((await f.api(`/contacts/${created.body.id}`)).body.avatar.seed, 'next-avatar');
+});
+
+test('explicit provider avatar remains null in accepted history and after ordinary edits', async t => {
+  const f = await fixture(t);
+  const contact = (await f.api('/contacts', { clientId: key(), kind: 'agent', name: '原助手', handle: 'provider-portrait', binding: { type: 'local', localAgentId: 'codex' }, avatar: null })).body;
+  const chat = (await f.api('/chats', { clientId: key(), kind: 'direct', memberIds: [contact.id] })).body;
+  await f.api(`/threads/${chat.id}/messages`, { clientId: key(), text: '保持原头像' });
+  const result = await f.wait(chat.id, thread => thread.runs[0]?.status === 'completed');
+  assert.equal(result.runs[0].contactSnapshot.avatar, null);
+  const edited = (await f.api(`/contacts/${contact.id}`, { clientId: key(), version: contact.version, name: '只改名字' })).body;
+  assert.equal(edited.avatar, null);
+});

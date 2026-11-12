@@ -56,6 +56,11 @@ function IconButton({ label, children, onClick, testId, disabled }: { label: str
 }
 
 export function App() {
+  useEffect(() => {
+    const pause = () => { document.documentElement.dataset.avatarPaused = String(document.hidden); };
+    pause(); document.addEventListener("visibilitychange", pause);
+    return () => { document.removeEventListener("visibilitychange", pause); delete document.documentElement.dataset.avatarPaused; };
+  }, []);
   return <Messenger />;
 }
 
@@ -68,11 +73,13 @@ function Messenger() {
   const [contactRecords, setContacts] = useState<Contact[]>(read("contacts", []));
   const [serviceAvatars, setServiceAvatars] = useState<Record<string, PersonalServiceId>>({});
   const [serviceImages, setServiceImages] = useState<Record<string, string>>({});
-  const contacts = useMemo(() => contactRecords.map(contact => {
+  const [connected, setConnected] = useState(false), [loading, setLoading] = useState(true);
+  const contacts = useMemo(() => contactRecords.map(record => {
+    const contact = !connected && record.kind === "agent" ? { ...record, avatarActivity: { state: "attention" as const } } : record;
     const connectionId = contact.binding?.type === "connection" ? contact.binding.connectionId : undefined;
     const service = connectionId ? serviceAvatars[connectionId] : undefined;
     return service && connectionId ? { ...contact, avatarService: service, avatarDataUrl: serviceImages[connectionId] || contact.avatarDataUrl } : contact;
-  }), [contactRecords, serviceAvatars, serviceImages]);
+  }), [contactRecords, serviceAvatars, serviceImages, connected]);
   const [library, setLibrary] = useState<WorkspaceArtifact[]>([]);
   const [artifactRevision, setArtifactRevision] = useState<string | null>(() => new URL(location.href).searchParams.get("revision"));
   const [artifactId, setArtifactId] = useState<string | null>(() => new URL(location.href).searchParams.get("artifact"));
@@ -82,7 +89,6 @@ function Messenger() {
   const [thread, setThread] = useState<Thread | null>(null);
   const [draft, setDraftState] = useState<Draft>(() => selected ? savedDraft(selected) : emptyDraft());
   const draftRef = useRef(draft); draftRef.current = draft;
-  const [connected, setConnected] = useState(false), [loading, setLoading] = useState(true);
   const [error, setError] = useState(""), [draftWarning, setDraftWarning] = useState(false);
   const [search, setSearch] = useState(""), [filter, setFilter] = useState("all");
   const [mentionIndex, setMentionIndex] = useState(0), [dismissedMention, setDismissedMention] = useState("");
