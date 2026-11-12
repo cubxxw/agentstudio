@@ -81,7 +81,7 @@ export class PersonalStore {
     return this.db.prepare('SELECT body FROM documents WHERE kind=? AND thread_id=? ORDER BY rowid DESC LIMIT ?').all(kind, threadId, Math.min(Math.max(limit, 1), 200)).map(row => JSON.parse(row.body));
   }
   assertExecutorReady(agentId) {
-    if (this.list('thread').some(thread => thread.runs.some(run => run.stopUnconfirmed && (run.localAgentId || 'codex') === agentId))) throw new APIError(409, 'local_agent_stop_unconfirmed', '这个本机助手的停止状态尚未确认，请先核查原任务；没有再次启动执行');
+    if (this.list('thread').some(thread => thread.runs.some(run => run.stopUnconfirmed && (run.localAgentId || 'codex') === agentId)) || this.list('play_job').some(job => job.backend === agentId && ['unknown', 'stopping'].includes(job.status))) throw new APIError(409, 'local_agent_stop_unconfirmed', '这个本机助手的停止状态尚未确认，请先核查原任务或邀请房间；没有再次启动执行');
   }
 
   put(kind, value) {

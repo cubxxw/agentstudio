@@ -19,11 +19,12 @@ const write = (value) => process.stdout.write(typeof value === 'string' ? value 
 const later = (fn) => setTimeout(fn, fixture.probeDelayMs || 0);
 if (args[0] === '--version') later(() => {
   if (mode === 'probe-overflow') return write('x'.repeat(90000));
-  write('Synthetic ' + id + ' 2.1.123\n' + secret); process.exitCode = 0;
+  write('Synthetic ' + id + ' ' + (fixture.version || '2.1.123') + '\n' + secret); process.exitCode = 0;
 });
 else if (args.includes('rpc')) { process.stdin.setEncoding('utf8'); process.stdin.on('data', line => { const c = JSON.parse(line); write(JSON.stringify({ id:c.id, success:true, data:{models:[{provider:'synthetic',id:'model-a',reasoning:true}]} }) + '\n'); }); }
 else if (args[0] === 'mcp' && args[1] === 'list') write([{name:'unrelated-service',enabled:true},...(args.includes('--disable') && args.includes('apps') ? [] : [{name:'codex_app',enabled:true}])]);
-else if (args[0] === 'features' && args[1] === 'list') write(mode === 'missing-tool-control' ? 'shell_tool stable true' : 'apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin code_mode_host in_app_browser');
+else if (args[0] === 'features' && args[1] === 'list') write(mode === 'missing-tool-control' ? 'shell_tool stable true' : 'apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin code_mode_host in_app_browser memories hooks skill_search skip_host_skill_discovery');
+else if (args[0] === 'exec' && args.includes('--help')) write('--ignore-user-config --ignore-rules');
 else if ((args[0] === 'login' || args[0] === 'auth') && args[1] === 'status') later(() => {
   if (mode === 'auth-timeout') { setInterval(() => {}, 1000); return; }
   if (id === 'codex') {
@@ -77,7 +78,7 @@ async function fixture(t, value = {}) {
       // Execute synthetic scripts with the trusted interpreter. Fresh executable
       // shebang files can spend >3s in macOS launch checks before Node even starts;
       // that is unrelated to the adapter's bounded protocol probe being tested.
-      const child = spawn(process.execPath, [command, ...args], options);
+      const child = spawn(process.execPath, [command, ...args], { ...options, env: { ...options.env, LOCAL_AGENT_TRACE: trace, LOCAL_AGENT_FIXTURE: deps.env.LOCAL_AGENT_FIXTURE } });
       child.once('close', () => { active--; if (child.pid) closed.add(child.pid); }); return child;
     },
   };
@@ -109,6 +110,17 @@ test('unsupported native tool control fails before execution instead of falling 
   const f = await fixture(t, { mode: 'missing-tool-control' });
   await assert.rejects(f.execute('codex', { toolSession: { endpoint: 'http://127.0.0.1:12345/s/abcdef', token: 'synthetic' } }), safeError('unsupported_cli_version'));
   assert.ok(!f.calls.some(item => item.args[0] === 'exec'));
+});
+test('guest mode discards user customization and private environment while retaining exact model and auth home', async t => {
+  const f = await fixture(t, { version: '0.163.0' }); f.deps.env.PRIVATE_OWNER_CONTEXT = SECRET;
+  await f.execute('codex', { isolateUserContext: true, executionSnapshot: { model: 'model-a', provider: 'openai', thinking: 'medium' }, toolSession: { endpoint: 'http://127.0.0.1:12345/s/abcdef', token: 'synthetic' } });
+  const call = f.calls.find(item => item.args[0] === 'exec' && !item.args.includes('--help'));
+  assert.ok(call.args.includes('--ignore-user-config')); assert.ok(call.args.includes('--ignore-rules'));
+  for (const name of ['memories', 'hooks', 'skill_search']) assert.ok(call.args.some((x, i) => x === '--disable' && call.args[i + 1] === name));
+  assert.ok(call.args.some((x, i) => x === '--enable' && call.args[i + 1] === 'skip_host_skill_discovery'));
+  assert.ok(call.args.includes('skills.include_instructions=false')); assert.ok(call.args.includes('--strict-config'));
+  assert.equal(call.options.env.PRIVATE_OWNER_CONTEXT, undefined);
+  assert.ok(call.args.includes('model-a'));
 });
 async function until(predicate, timeout = 3000) {
   const deadline = Date.now() + timeout;

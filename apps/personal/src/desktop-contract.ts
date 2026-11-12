@@ -32,6 +32,7 @@ export interface PersonalDesktopBridge {
   readonly version: string;
   readonly testMode?: boolean;
   copyDeviceInvitation?(): Promise<void>;
+  copyPlayInvitation?(input: { roomId: string; local: boolean }): Promise<void>;
   testWorkspace?(action: "enter" | "reset" | "leave"): Promise<{ restarting: boolean }>;
   request(input: {
     path: string;

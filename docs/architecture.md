@@ -30,6 +30,10 @@ Closing the Mac window hides it while the utility continues. Quitting closes onl
 
 The shared `apps/personal` UI and backend can also run as an auxiliary web service on 18740 (Vite development UI 18741), with separate `.local/personal` data. This is not the native default. Personal Bearer credentials use an AES-256-GCM file vault, not Keychain; prompts and CLI read-only shell policy do not enforce all configured plugin permissions. Account and packaging acceptance remain separately scoped in the [macOS ledger](personal/macos-acceptance.md).
 
+## Account-free guest rooms
+
+The personal utility owns `Playrooms`, a separate loopback HTTP listener and a restricted Codex/Pi executor. Only the guest listener can be forwarded by its owned temporary cloudflared process; personal owner APIs and device-sharing tokens remain outside it. Trusted IPC creates rooms and controls invitation reveal, revocation and the tunnel. Room records, actor-scoped sessions and immutable jobs persist in separate PersonalStore kinds. Published context is explicit, model tools are restricted to one room read, and late output is rechecked after revocation. Guest pages poll same-origin room APIs and never receive the personal preload. See [cases, limits and recovery](personal/guest-playrooms.md).
+
 ## Independent coauthored artifacts
 
 The personal utility owns `CreationService`, `CollaborationRuntime` and `ArtifactStore`. Discussion tools create one version-bound shared proposal per owner message; an owner decision creates a frozen capability grant and a bounded step DAG. Codex receives a private stdio MCP server and Pi an explicit trusted extension. Both call the same per-run authenticated loopback broker, whose handler recovers identity from accepted run records. Agent roles never supply their own authority.
@@ -44,7 +48,7 @@ The renderer opens a specific version through an opaque expiring `agentroom-arti
 
 Local discovery retains backend inventory without adding every new system contact to the address book. An explicit local adoption updates the relationship on the stable contact, reusing existing chats and model configuration. Legacy records retain their visibility. The card and quick-add UI use the existing personal worker/SQLite/fixed IPC; they do not introduce another process, listener or model call. Model defaults describe configuration; current adapters provide no quota receipt.
 
-The confirmed longer-term direction is friends calling an Agent on its owner's computer. Same-owner multi-device identity/pairing/routing comes in phase two; real friend relationships and revocable grants with independent sessions/usage limits come in phase three. Those phases require actual authenticated transport and adapter-level delegated-use capability. The local personal workspace does not currently provide either. See the [phase-one design](superpowers/specs/2026-11-11-local-agent-cards-design.md).
+The Agent card's relationship and multi-computer controls retain their staged scope. The separate guest-room experiment now offers temporary bearer invitations, independent room sessions and bounded restricted local execution; it does not establish verified friend identities or grant general contact/backend access. See the [phase-one design](superpowers/specs/2026-11-11-local-agent-cards-design.md) and [guest rooms](personal/guest-playrooms.md).
 
 ## Retained Matrix architecture (v0.1)
 

@@ -28,6 +28,7 @@ const MESSAGES = Object.freeze({
   authentication_unknown: '尚不能确认这个本机助手的登录配置，请在本机检查后重试。',
   execution_unsupported: '已识别这个助手，但本版本尚未支持可靠的受控执行；没有调用模型。',
   unsupported_cli_version: '当前 CLI 缺少受控执行所需选项，请更新官方 CLI 后重新检查；没有调用模型。',
+  guest_configuration_unsupported: '访客模式暂不支持这个 Codex 提供商配置；没有切换提供商。可选择兼容的本机 Agent。',
   cancelled: '本次本机助手执行已取消。',
   timeout: '本机助手超过运行时限，结果未确认；没有切换模型或提供商。',
   output_limit: '本机助手输出超过上限，结果未确认。',
@@ -291,8 +292,12 @@ function finalMarkdown(id, result, selection) {
   throw new LocalAgentError('execution_failed');
 }
 
-export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, executionSnapshot, toolSession, deps: injected = {} } = {}) {
+export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, executionSnapshot, toolSession, isolateUserContext = false, deps: injected = {} } = {}) {
   const agent = definition(id), deps = options(injected);
+  if (isolateUserContext && id === 'codex') {
+    const allowed = new Set(['PATH', 'HOME', 'CODEX_HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR']);
+    deps.env = Object.fromEntries(Object.entries(deps.env).filter(([name]) => allowed.has(name)));
+  }
   if (signal?.aborted) throw new LocalAgentError('cancelled');
   if (!supported(id)) throw new LocalAgentError('execution_unsupported');
   if (typeof prompt !== 'string' || !prompt.trim() || Buffer.byteLength(prompt) > 2_000_000 || typeof workspace !== 'string' || !isAbsolute(workspace)) throw new LocalAgentError('invalid_input');
@@ -300,10 +305,13 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   catch { throw new LocalAgentError('invalid_input'); }
   const command = await executableFor(agent, deps);
   if (!command) throw new LocalAgentError('not_installed');
+  let version;
+  if (isolateUserContext && id === 'codex') { version = await probe(command, ['--version'], deps, signal); if (version?.code !== 0 || versionOf(version.stdout + version.stderr) !== '0.163.0') throw new LocalAgentError('unsupported_cli_version'); }
   const auth = await authentication(agent, command, deps, signal);
   if (auth.status !== 'configured') throw new LocalAgentError(auth.status === 'required' ? 'authentication_required' : 'authentication_unknown');
-  const version = await probe(command, ['--version'], deps, signal);
+  version ||= await probe(command, ['--version'], deps, signal);
   const profile = await readAgentProfile(id, deps);
+  if (isolateUserContext && id === 'codex' && (!toolSession || executionSnapshot?.provider !== 'openai' || profile.guestCompatible === false)) throw new LocalAgentError('guest_configuration_unsupported');
   if (id === 'pi') { profile.models = deps.piModels || []; profile.providers = [...new Set(profile.models.map(model => model.provider))]; }
   let selection = executionSnapshot;
   if (id === 'pi') {
@@ -340,9 +348,14 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
       args[args.indexOf('--system-prompt') + 1] = 'You are an AgentRoom personal assistant. Follow the accepted identity and use only the explicitly provided AgentRoom tools. A proposed action is not approval. Tool results are authoritative. Never switch providers or access unrelated data.';
     } else {
       const disabled = ['apps', 'browser_use', 'browser_use_external', 'computer_use', 'view_image', 'shell_tool', 'unified_exec', 'multi_agent', 'plugins', 'remote_plugin', 'in_app_browser'];
+      if (isolateUserContext) {
+        const help = await probe(command, ['exec', '--help'], { ...deps, maxProbeBytes: 65_536 }, signal);
+        if (!help || help.code !== 0 || ['--ignore-user-config', '--ignore-rules'].some(flag => !help.stdout.includes(flag))) throw new LocalAgentError('unsupported_cli_version');
+        disabled.push('memories', 'hooks', 'skill_search'); args.push('--ignore-user-config', '--ignore-rules', '--strict-config', '--enable', 'skip_host_skill_discovery', '-c', 'skills.include_instructions=false', '-c', 'skills.bundled.enabled=false', '-c', 'cli_auth_credentials_store="file"');
+      }
       const features = await probe(command, ['features', 'list'], { ...deps, maxProbeBytes: 65_536 }, signal);
       const names = new Set(features?.stdout.split(/\s+/) || []);
-      if (!features || features.code !== 0 || disabled.some(name => !names.has(name))) throw new LocalAgentError('unsupported_cli_version');
+      if (!features || features.code !== 0 || disabled.some(name => !names.has(name)) || (isolateUserContext && !names.has('skip_host_skill_discovery'))) throw new LocalAgentError('unsupported_cli_version');
       // Inventory the effective restricted configuration. App-injected servers
       // disappear when disabled; overriding their absent tables creates invalid stubs.
       const inventory = await probe(command, ['mcp', 'list', '--json', ...disabled.flatMap(feature => ['--disable', feature])], { ...deps, maxProbeBytes: 65_536 }, signal);
