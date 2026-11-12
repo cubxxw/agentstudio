@@ -1,5 +1,4 @@
 import { APIError, id, now } from './store.mjs';
-import { integrationURL } from './integrations.mjs';
 import { validateBearerToken } from './vault.mjs';
 
 import { deviceOrigin } from './device-network.mjs';
@@ -20,7 +19,7 @@ async function inspect(origin, headers) {
   if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) { await response.body?.cancel(); throw new APIError(502, 'invalid_node_manifest', '这个地址没有返回 AgentRoom 节点信息'); }
   let size = 0; const chunks = [];
   try {
-    for await (const chunk of response.body) { size += chunk.length; if (size > 128_000) throw new Error(); chunks.push(chunk); }
+    for await (const chunk of response.body) { size += chunk.length; if (size > 262_144) throw new Error(); chunks.push(chunk); }
   } catch { throw new APIError(502, 'invalid_node_manifest', '节点信息不完整或超过大小限制'); }
   let manifest;
   try { manifest = JSON.parse(Buffer.concat(chunks)); } catch { throw new APIError(502, 'invalid_node_manifest', '节点信息不是有效 JSON'); }

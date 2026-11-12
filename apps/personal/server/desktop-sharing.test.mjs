@@ -104,6 +104,18 @@ test('a device with no shared contacts cannot claim a successful enrollment', as
   assert.ok(invite.token);
 });
 
+test('a full directory of Chinese contact names and descriptions fits the bounded manifest', async t => {
+  const f = await fixture(t), ids = [];
+  for (let index = 0; index < 100; index++) {
+    const contact = { ...f.contact, id: `contact_chinese_${index}`, handle: `chinese${index}`, name: '研'.repeat(80), description: '资料'.repeat(150) };
+    f.host.store.put('contact', contact); ids.push(contact.id);
+  }
+  await f.api(f.host, '/sharing', { enabled: true, host: '127.0.0.1', name: 'Mac mini', contactIds: ids });
+  const invitation = (await f.api(f.host, '/sharing/invite', {})).body;
+  const added = await f.api(f.peer, '/nodes/connect', { ...invitation, clientId: 'connect-large-chinese-catalog' });
+  assert.equal(added.status, 201, JSON.stringify(added.body)); assert.equal(added.body.connections.length, 100);
+});
+
 test('workspace switching freezes remote acceptance until the switch is cancelled', async t => {
   const f = await fixture(t), invite = await enable(f);
   assert.equal((await f.host.prepareWorkspaceSwitch()).blockingRuns, 0);
