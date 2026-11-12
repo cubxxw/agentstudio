@@ -1,0 +1,83 @@
+// Two isolated AgentRoom installations, real HTTP and browser interactions.
+import { createRequire } from 'node:module';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+import { createPersonalServer } from '../apps/personal/server/index.mjs';
+const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
+const { chromium } = createRequire(require.resolve('@playwright/test'))('playwright');
+const { expect } = require('@playwright/test');
+const output = process.env.AGENTROOM_EVIDENCE_DIR || resolve('output/playwright/peer-devices');
+await mkdir(output, { recursive: true });
+const state = await mkdtemp(join(output, 'isolated-data-')), checks = [], errors = [];
+const discovered = async () => ({ agents: [{ id: 'pi', name: 'Pi', installed: true, auth: { status: 'configured' }, execution: { supported: true } }] });
+const host = await createPersonalServer({ dataDir: join(state, 'host'), port: 0, staticDir: resolve('apps/personal/dist'),
+  codexCommand: '/missing-peer-device-codex', discoverLocalAgents: discovered, sharingAddresses: () => ['127.0.0.1'], sharingPort: 0, nodePollMs: 0,
+  executeLocalAgent: async () => ({ markdown: '我在工作室 Mac mini 上，已收到你的消息。' }) });
+const peer = await createPersonalServer({ dataDir: join(state, 'peer'), port: 0, staticDir: resolve('apps/personal/dist'),
+  codexCommand: '/missing-peer-device-codex', discoverLocalAgents: async () => ({ agents: [] }), nodePollMs: 0, remotePollMs: 10 });
+let browser;
+const api = async (app, path, body) => {
+  const response = await fetch(`http://127.0.0.1:${app.address().port}/api${path}`, { method: body ? 'POST' : 'GET', ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+  const value = await response.json(); if (!response.ok) throw new Error(value.error?.message); return value;
+};
+const settings = async page => { await page.getByTestId('im-settings').click(); await page.getByTestId('personal-tab-connections').click(); };
+try {
+  await host.listen(); await peer.listen();
+  await api(host, '/contacts');
+  const contact = await api(host, '/contacts', { kind: 'agent', name: '研究伙伴', handle: 'researcher', binding: { type: 'local', localAgentId: 'pi' }, clientId: 'acceptance-role-first' });
+  for (const app of [host, peer]) await api(app, '/workspace/onboarding', { action: 'complete', name: '设备测试', clientId: 'acceptance-onboarding-first' });
+  browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { channel: 'chrome' } : {}) });
+  const source = await browser.newPage({ viewport: { width: 1280, height: 900 } }), target = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  for (const page of [source, target]) page.on('pageerror', error => errors.push(error.message));
+  await source.goto(`http://127.0.0.1:${host.address().port}`); await settings(source);
+  await expect(source.getByTestId('device-sharing-state')).toHaveText('未开启');
+  await source.getByTestId('device-sharing-name').fill('工作室 Mac mini');
+  await source.getByTestId('device-share-agent_pi').uncheck();
+  await source.getByTestId(`device-share-${contact.id}`).check();
+  await source.getByTestId('device-sharing-save').click();
+  await expect(source.getByTestId('device-sharing-state')).toHaveText('共享中');
+  await source.getByTestId('device-sharing-reveal').click();
+  const invitation = { url: await source.getByTestId('device-sharing-url').inputValue(), token: await source.getByTestId('device-sharing-token').inputValue() };
+  await source.getByTestId('device-sharing-reveal').click();
+  await source.getByTestId('device-sharing').screenshot({ path: join(output, 'sharing-desktop.png') });
+  checks.push('sharing is opt-in and selected contacts have an explicit private invitation');
+  await target.goto(`http://127.0.0.1:${peer.address().port}`); await settings(target);
+  await target.getByTestId('personal-node-add').click(); await target.getByTestId('personal-node-paste').click();
+  await target.getByTestId('personal-node-invitation').fill(JSON.stringify(invitation));
+  await expect(target.getByTestId('personal-node-url')).toHaveValue(invitation.url);
+  await target.getByTestId('personal-node-save').click(); await expect(target.getByTestId('personal-node-row')).toHaveCount(1);
+  await target.getByTestId('personal-modal-close').click(); await target.getByTestId('im-nav-contacts').click();
+  const imported = (await api(peer, '/contacts')).contacts.find(person => person.binding?.type === 'connection');
+  const row = target.getByTestId(`im-contact-${imported.id}`);
+  await expect(row).toContainText('研究伙伴'); await expect(row).toContainText('工作室 Mac mini');
+  await expect(row.getByTestId('im-presence-dot')).toHaveAttribute('data-state', 'online');
+  await row.click(); await target.getByTestId('im-start-chat').click();
+  await target.getByTestId('im-message-input').fill('你好，介绍一下你所在的设备。'); await target.getByTestId('im-send').click();
+  await expect(target.getByTestId('im-message-content').last()).toContainText('已收到你的消息', { timeout: 15_000 });
+  checks.push('pasted invitation imports the selected contact and preserves device provenance and chat replies');
+  await target.screenshot({ path: join(output, 'peer-chat-desktop.png') });
+  const node = (await api(peer, '/integrations')).nodes[0];
+  await api(host, '/sharing', { enabled: false });
+  await api(peer, `/nodes/${node.id}/check`, {}).catch(() => {}); await target.getByTestId('im-refresh').click();
+  await expect(target.getByTestId('im-header-status')).toContainText('正在重连');
+  const saved = peer.store.require('remote_node', node.id);
+  peer.store.put('remote_node', { ...saved, lastSeenAt: new Date(Date.now() - 65_000).toISOString() });
+  await target.getByTestId('im-refresh').click(); await expect(target.getByTestId('im-header-status')).toContainText('离线');
+  await target.setViewportSize({ width: 390, height: 844 }); await target.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  expect(await target.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await target.screenshot({ path: join(output, 'peer-offline-narrow-dark.png') });
+  await source.getByTestId('personal-modal-close').click(); await settings(source);
+  await expect(source.getByTestId('device-share-agent_pi')).not.toBeChecked();
+  await expect(source.getByTestId(`device-share-${contact.id}`)).toBeChecked();
+  await source.getByTestId('device-sharing-save').click(); await expect(source.getByTestId('device-sharing-state')).toHaveText('共享中');
+  await target.setViewportSize({ width: 1280, height: 900 });
+  await api(peer, `/nodes/${node.id}/check`, {}); await target.getByTestId('im-refresh').click();
+  await expect(target.getByTestId('im-header-status')).toContainText('在线');
+  checks.push('disconnect transitions through reconnecting to offline and the same enrollment recovers after re-enable');
+  expect(errors).toEqual([]);
+} finally {
+  await browser?.close(); await peer.close(); await host.close();
+  await writeFile(join(output, 'receipt.json'), JSON.stringify({ checks, errors, synthetic: true, browserFallback: 'Browser plugin not available; existing Playwright used' }, null, 2));
+  await rm(state, { recursive: true, force: true });
+  console.log(JSON.stringify({ checks, errors, output }));
+}

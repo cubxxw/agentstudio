@@ -1,5 +1,7 @@
 # Clients: screens, behaviour and test ids
 
+Personal device sharing lives under Settings → Connections. `device-sharing`, `device-sharing-form`, `device-sharing-name`, `device-sharing-address`, `device-share-{contactId}`, `device-sharing-save`, `device-sharing-disable`, `device-sharing-state`, `device-sharing-reveal`, `device-sharing-url`, `device-sharing-token`, `device-sharing-copy`, and `device-sharing-open-request` cover the opt-in host flow. The existing `personal-node-*` enrollment IDs remain compatible; `personal-node-paste` and `personal-node-invitation` accept an explicitly pasted invitation without clipboard-read permission. Avatar `im-presence-dot` has `data-state=online|reconnecting|offline|attention|unknown`; list, detail and `im-header-status` include text and device provenance. Last online time appears in contact details when disconnected. Full setup and readiness limits: [devices](personal/peer-devices.md).
+
 Personal automatic Bot avatars use `im-avatar` with `data-avatar-source="bot"`; the image uses `im-avatar-image`. An explicit persona icon takes precedence. Native service images arrive as bounded PNG data URLs, with the service brand as fallback.
 
 ## AgentRoom first-use and test mode
