@@ -65,6 +65,8 @@
 .im-row-title time { font-size: 10px; color: var(--im-muted); }
 .im-row-copy small, .im-row-preview { font-size: 11px; color: var(--im-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .im-row-preview { display: block; position: relative; }
+.im-row-preview strong { display: inline; font-size: inherit; overflow: visible; }
+.im-row-preview code { font-size: .95em; }
 .im-attention { color: #ad762a; }
 .im-count { float: right; background: var(--attention-soft); color: var(--attention); border-radius: 15px; padding: 0 6px; font-size: 10px; margin-left: 8px; }
 .im-list-empty { padding: 38px 15px; text-align: center; color: var(--im-muted); font-size: 12px; }
