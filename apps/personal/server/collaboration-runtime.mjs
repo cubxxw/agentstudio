@@ -193,8 +193,8 @@ export class CollaborationRuntime {
   }
   async session(threadId, runId, signal) {
     await this.broker.listen();
-    const context = this.service.context(threadId, runId), session = this.broker.open({ threadId, runId }, artifactTools(context.mode), (trusted, name, args, callId) => this.service.call({ ...trusted, signal: trusted.signal }, name, args, callId), {
-      retainResult: name => name !== 'artifact_read',
+    const context = this.service.context(threadId, runId), session = this.broker.open({ threadId, runId }, this.service.tools(context), (trusted, name, args, callId) => this.service.call({ ...trusted, signal: trusted.signal }, name, args, callId), {
+      retainResult: name => name !== 'artifact_read' && !name.startsWith('group_'),
       validate: (_trusted, name, args, callId) => this.service.validateSessionCall(threadId, runId, name, args, callId),
     });
     this.activeSessions.set(runId, session);

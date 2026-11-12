@@ -21,11 +21,12 @@ export class CreationService {
   context(threadId, runId, { allowYielded = false } = {}) {
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
     if (!run?.contactId || !['running', 'verifying'].includes(run.status) || !thread.memberIds?.includes(run.contactId)) fail(403, 'grant_revoked', '本次 Agent 执行已经停止或不再属于这个群聊');
+    if (this.options.groupSharing && !this.options.groupSharing.canUseTools(thread, run)) fail(403, 'group_changed', '公开范围或群成员已变化');
     const contact = this.store.require('contact', run.contactId);
     if (contact.binding?.type !== 'local' || contact.binding.localAgentId !== run.localAgentId || !['codex', 'pi'].includes(run.localAgentId)) fail(403, 'binding_changed', '这次执行的助手绑定已经改变');
     const message = thread.messages.find(item => item.id === run.messageId);
     const context = { threadId, runId, messageId: run.messageId, contactId: run.contactId, localAgentId: run.localAgentId,
-      mode: run.collaboration ? 'work' : 'conversation', audienceIds: [...(message?.recipientIds || run.participantSnapshot?.map(peer => peer.id) || thread.memberIds)].filter(contactId => thread.memberIds.includes(contactId)) };
+      ...(run.sharedGroup ? { sharedGroup: run.sharedGroup } : {}), mode: run.collaboration ? 'work' : 'conversation', audienceIds: [...(message?.recipientIds || run.participantSnapshot?.map(peer => peer.id) || thread.memberIds)].filter(contactId => thread.memberIds.includes(contactId)) };
     if (run.collaboration) {
       const work = this.store.require('collaboration', run.collaboration.workId), step = work.steps.find(item => item.id === run.collaboration.stepId);
       if (!step || step.contactId !== run.contactId || !(['running', 'verifying'].includes(step.status) || (allowYielded && step.status === 'waiting_dependency' && step.activeRunId === runId)) || ['cancelled', 'unknown'].includes(work.status)) fail(403, 'grant_revoked', '这次创作步骤已停止、等待依赖或需要核查');
@@ -94,7 +95,7 @@ export class CreationService {
   }
   authorize(context, capability, artifactId, path, revisionId) {
     if (typeof path === 'string') path = path.normalize('NFC');
-    if (context?.owner && capability !== 'create') return;
+    if (context?.owner && (capability !== 'create' || context.groupArtifact === true)) return;
     if (!context) fail(403, 'permission_required', '缺少作品授权');
     if (capability === 'read') { if (!this.canRead(context, artifactId, revisionId, path)) fail(403, 'permission_required', '这个版本或文件尚未向全部接收者共享'); return; }
     const grant = this.grant(context);
@@ -119,9 +120,16 @@ export class CreationService {
       return artifact && this.canRead(context, artifact.id, revisionId) ? [{ id: artifact.id, title: artifact.title, kind: artifact.kind, revisionId }] : [];
     });
   }
+  tools(context) {
+    const groups = this.options.groupTools?.tools(context) || [];
+    const sharedArtifacts = this.options.groupSharing?.artifacts?.tools(context) || [];
+    return context.sharedGroup ? [...groups, ...sharedArtifacts] : [...artifactTools(context.mode), ...groups, ...sharedArtifacts];
+  }
   call(original, name, args, callId) {
     if (original.signal?.aborted) fail(403, 'grant_revoked', '本次工具会话已撤销');
-    const context = this.context(original.threadId, original.runId), tool = artifactTools(context.mode).find(item => item.name === name);
+    const context = this.context(original.threadId, original.runId), tool = this.tools(context).find(item => item.name === name);
+    if (name.startsWith('group_artifact_')) return this.options.groupSharing.artifacts.call(context, name, args, callId);
+    if (name.startsWith('group_')) return this.options.groupTools.call(context, name, args, callId);
     if (!tool) fail(403, 'tool_unavailable', '本次会话没有这个工具；需要先提出计划并由用户批准');
     validateArtifactInput(tool.inputSchema, args);
     if (context.mode === 'conversation' && ['creation_propose', 'creation_update', 'permission_request'].includes(name) && !this.canPublishConversation(context.threadId, context.runId)) fail(403, 'permission_required', '已读取资料的共享范围发生改变，不能发布到这张群卡');
@@ -163,6 +171,11 @@ export class CreationService {
   validateSessionCall(threadId, runId, name, args, callId) {
     const operation = this.store.get('artifact_tool_operation', `tool_${digest(`${runId}:${callId}`).slice(0, 40)}`);
     const context = this.context(threadId, runId, { allowYielded: name === 'task_yield' && operation?.ok === true });
+    if (name.startsWith('group_')) {
+      if (name.startsWith('group_artifact_')) this.options.groupSharing.artifacts.validate(context, name, args);
+      else this.options.groupTools.validate(context, name, args, callId);
+      return context;
+    }
     if (context.mode === 'conversation' && ['creation_propose', 'creation_update', 'permission_request'].includes(name) && !this.canPublishConversation(threadId, runId)) fail(403, 'permission_required', '已读取资料不再向全部接收者开放');
     if (name === 'artifact_list' && operation?.ok) for (const artifact of operation.result.artifacts) this.authorize(context, 'read', artifact.id, undefined, artifact.revisionId);
     if (name === 'artifact_read' && operation?.ok) for (const file of operation.result.files || []) this.authorize(context, 'read', operation.artifactId, file.path, operation.revisionId);
@@ -344,6 +357,7 @@ export class CreationService {
   }
   canPublishConversation(threadId, runId) {
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
+    if (run && this.options.groupSharing && !this.options.groupSharing.canUseTools(thread, run)) return false;
     if (!run?.artifactReads?.length) return true;
     const source = thread.messages.find(message => message.id === run.messageId);
     const audience = (source?.recipientIds || run.participantSnapshot?.map(peer => peer.id) || thread.memberIds || []).filter(contactId => !thread.memberIds || thread.memberIds.includes(contactId));

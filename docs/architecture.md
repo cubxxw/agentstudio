@@ -30,9 +30,13 @@ Closing the Mac window hides it while the utility continues. Quitting closes onl
 
 The shared `apps/personal` UI and backend can also run as an auxiliary web service on 18740 (Vite development UI 18741), with separate `.local/personal` data. This is not the native default. Personal Bearer credentials use an AES-256-GCM file vault, not Keychain; prompts and CLI read-only shell policy do not enforce all configured plugin permissions. Account and packaging acceptance remain separately scoped in the [macOS ledger](personal/macos-acceptance.md).
 
-## Account-free guest rooms
+## Sharing inside ordinary groups
 
-The personal utility owns `Playrooms`, a separate loopback HTTP listener and a restricted Codex/Pi executor. Only the guest listener can be forwarded by its owned temporary cloudflared process; personal owner APIs and device-sharing tokens remain outside it. Trusted IPC creates rooms and controls invitation reveal, revocation and the tunnel. Room records, actor-scoped sessions and immutable jobs persist in separate PersonalStore kinds. Published context is explicit, model tools are restricted to one room read, and late output is rechecked after revocation. Guest pages poll same-origin room APIs and never receive the personal preload. See [cases, limits and recovery](personal/guest-playrooms.md).
+`GroupSharing` extends the guest listener's narrow HTTP/Host/Origin/cookie boundary, but invitations now point to canonical Messenger `thread` records. Visitors become scoped human contacts and real members. Their posts and the owner's ordinary posts use the same `appendMessage` hook and PersonalWorker ledger; no new `play_job` records are created. Existing invitation URLs and old room history migrate idempotently into groups without replaying interrupted executions.
+
+`GroupTools` adds current member/status cards, contact selection, group creation and invitation preparation to native tool sessions. Mutations require current membership/rules versions. Owner rules permit one review by default, or automatic publication for an empty group newly created by the same owner-request run. Models never receive an invitation bearer. Public runs, including owner posts, use explicitly approved personas/background, a publication boundary and empty memories, strict Codex/Pi tools and isolated CLI configuration; unsupported execution never falls back to ordinary chat permissions. Final output and subsequent tools recheck current membership and sharing policy.
+
+`GroupArtifacts` grants fixed-path note/activity capabilities over the existing ArtifactStore. Notes are immutable `note.md` revisions with hash/revision CAS, and polls/consensus games are fixed `activity.json` revisions with actor-scoped state. Private or later Library versions do not become public automatically. Owner and guest use the same ConversationTimeline; the guest listener never mounts owner APIs or receives the desktop preload. See [workflow](personal/guest-playrooms.md).
 
 ## Independent coauthored artifacts
 
@@ -48,7 +52,7 @@ The renderer opens a specific version through an opaque expiring `agentroom-arti
 
 Local discovery retains backend inventory without adding every new system contact to the address book. An explicit local adoption updates the relationship on the stable contact, reusing existing chats and model configuration. Legacy records retain their visibility. The card and quick-add UI use the existing personal worker/SQLite/fixed IPC; they do not introduce another process, listener or model call. Model defaults describe configuration; current adapters provide no quota receipt.
 
-The Agent card's relationship and multi-computer controls retain their staged scope. The separate guest-room experiment now offers temporary bearer invitations, independent room sessions and bounded restricted local execution; it does not establish verified friend identities or grant general contact/backend access. See the [phase-one design](superpowers/specs/2026-11-11-local-agent-cards-design.md) and [guest rooms](personal/guest-playrooms.md).
+The Agent card's relationship and multi-computer controls retain their staged scope. Ordinary groups offer temporary bearer invitations, independent guest sessions and bounded restricted local execution; it does not establish verified friend identities or grant general contact/backend access. See the [phase-one design](superpowers/specs/2026-11-11-local-agent-cards-design.md) and [guest rooms](personal/guest-playrooms.md).
 
 ## Retained Matrix architecture (v0.1)
 

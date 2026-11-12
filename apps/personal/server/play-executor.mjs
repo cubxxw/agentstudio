@@ -25,9 +25,9 @@ export async function guestCodexSession(workspace, deps = {}) {
   const env = Object.fromEntries(Object.entries(sourceEnv).filter(([name]) => allowed.has(name)));
   return { deps: { ...deps, home, env: { ...env, HOME: home, CODEX_HOME: home } }, close: () => rm(home, { recursive: true, force: true }) };
 }
-async function sweepGuestHomes(root) {
+export async function sweepGuestHomes(root, directoryPattern = /^pr_[A-Za-z0-9_-]+$/) {
   for (const room of await readdir(root, { withFileTypes: true }).catch(error => { if (error.code === 'ENOENT') return []; throw error; })) {
-    if (!room.isDirectory() || !/^pr_[A-Za-z0-9_-]+$/.test(room.name)) continue;
+    if (!room.isDirectory() || !directoryPattern.test(room.name)) continue;
     for (const name of await readdir(join(root, room.name))) if (/^guest-home-[A-Za-z0-9]+$/.test(name) && (await lstat(join(root, room.name, name))).isDirectory()) await rm(join(root, room.name, name), { recursive: true, force: true });
   }
 }
