@@ -39,6 +39,20 @@ pass improves scanning and reduces the scrolling needed to find configuration.
 8. The native About, Hide and Quit commands explicitly display AgentRoom. They
    retain Electron's native roles and the existing Safe Storage identity.
 
+9. Approval requests stay compact at four lines, with an inline disclosure only
+   when text overflows. The keyboard-operable control stays above the request so
+   it remains easy to collapse after expansion. Its state resets per approval.
+10. Draft attachments show a bounded filename and file size, with separate preview
+    and removal actions. Long names cannot push removal outside a narrow composer.
+    Long attachment lists scroll within a bounded composer area, keeping Send visible.
+    Preview opens the existing reader, restores focus on close and leaves the draft
+    intact. Numbered accessible labels distinguish duplicate filenames.
+11. Group mention suggestions follow the caret at the end of the text. Arrow keys
+    select, Enter adopts the selected handle, and a later Enter sends. Escape hides
+    the current suggestions; Shift+Enter inserts a newline. Composition Enter
+    keeps its existing input behavior. The textarea exposes the active list option
+    without moving keyboard focus out of the composer.
+
 ## Validation
 
 `node dev/ui-craft-acceptance.mjs` builds on the existing Electron acceptance
@@ -75,3 +89,20 @@ instrumentation can change timing; the added draft checkpoints can also change
 scheduling even when tracing is off. A passing run does not repair or explain an
 intermittent failure by itself. Batched Chromium storage writes do not establish
 UI event order, and trusted input events can come from test automation.
+
+
+`node dev/composer-details-acceptance.mjs` covers the follow-up composer and
+approval details. Set `AGENTROOM_DETAILS_EVIDENCE_DIR` to an absolute registered
+artifact directory, build the desktop first, and optionally use
+`AGENTROOM_DETAILS_APP_DIR` for a staged build. The shared launcher checks its
+revision and source fingerprint. `AGENTSTUDIO_PACKAGED_APP` supports a built Mac
+bundle. `--baseline` requires an explicit clean `AGENTROOM_EXPECTED_BUILD_REF`.
+
+The check uses an isolated synthetic profile and disabled local CLI execution.
+It verifies mention selection/send order, Escape, wrapping, caret movement,
+Shift+Enter and Chinese composition; long/duplicate attachment preview, removal,
+focus and reload persistence; and expanded approval requests at desktop and
+320 CSS px. A localhost sentinel verifies that the pending approval never sends
+a provider request. Screenshots record light/dark and increased-contrast states.
+These are renderer checks, not physical keyboard or VoiceOver acceptance. Failure
+screenshots are eligible only after the runner verifies its isolated profile.

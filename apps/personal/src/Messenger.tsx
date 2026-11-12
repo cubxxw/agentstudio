@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, ShieldCheck, Square, UserRound, Users, WifiOff, X } from "lucide-react";
 import { api, key, RequestError } from "./api";
 import { desktopBridge } from "./native";
@@ -16,6 +16,7 @@ import "./artifacts.css";
 import { ConversationTimeline } from "./ConversationTimeline";
 import { ConversationDetails } from "./ConversationDetails";
 import { ApprovalRow, ApprovalSource } from "./ApprovalSource";
+import { DraftAttachments } from "./DraftAttachments";
 import { approvalContact } from "./approval-identity";
 import { ConversationList, ListToolbar, NavigationRail } from "./MessengerNavigation";
 import { emptyDraft, restoreDraft, settleCreatedDraft, type ConversationDraft as Draft } from "./conversation-state";
@@ -82,6 +83,9 @@ function Messenger() {
   const [connected, setConnected] = useState(false), [loading, setLoading] = useState(true);
   const [error, setError] = useState(""), [draftWarning, setDraftWarning] = useState(false);
   const [search, setSearch] = useState(""), [filter, setFilter] = useState("all");
+  const [mentionIndex, setMentionIndex] = useState(0), [dismissedMention, setDismissedMention] = useState("");
+  const [mentionCaretAtEnd, setMentionCaretAtEnd] = useState(true);
+  const mentionList = useRef<HTMLDivElement>(null);
   const [contactId, setContactId] = useState<string | null>(null), [approvalId, setApprovalId] = useState<string | null>(null);
   const [mobileDetail, setMobileDetail] = useState(() => Boolean(selectedId() || new URL(location.href).searchParams.get("artifact")));
   const [listHidden, setListHidden] = useState(() => read<unknown>("listHidden", false) === true);
@@ -306,7 +310,27 @@ function Messenger() {
   });
   const replyMessage = thread?.messages.find(m => m.id === draft.replyTo);
   const mentionMatch = draft.text.match(/(?:^|\s)@([a-z0-9_-]*)$/i);
-  const mentionCandidates = thread?.kind === "group" && mentionMatch ? contacts.filter(c => c.kind === "agent" && thread.memberIds?.includes(c.id) && c.handle.startsWith((mentionMatch[1] || "").toLowerCase())) : [];
+  const mentionKey = `${selected}:${draft.text}`;
+  const mentionCandidates = thread?.kind === "group" && mentionMatch && mentionMatch.index !== undefined && mentionMatch.index + mentionMatch[0].length === draft.text.length && mentionCaretAtEnd && dismissedMention !== mentionKey ? contacts.filter(c => c.kind === "agent" && thread.memberIds?.includes(c.id) && c.handle.startsWith((mentionMatch[1] || "").toLowerCase())) : [];
+  const activeMention = Math.min(mentionIndex, mentionCandidates.length - 1);
+  const activeMentionContact = mentionCandidates[activeMention];
+  useEffect(() => { setMentionIndex(0); }, [selected, mentionMatch?.[1], mentionCandidates.length]);
+  useEffect(() => {
+    const list = mentionList.current, option = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!list || !option) return;
+    if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop;
+    else if (option.offsetTop + option.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight;
+  }, [activeMention, mentionCandidates.length]);
+  const selectMention = (person: Contact) => { editDraft({ text: draftRef.current.text.replace(/@[a-z0-9_-]*$/i, `@${person.handle} `) }); input.current?.focus(); };
+  const composerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (mentionCandidates.length && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setMentionIndex((activeMention + (event.key === "ArrowDown" ? 1 : -1) + mentionCandidates.length) % mentionCandidates.length); return; }
+      if (event.key === "Enter") { event.preventDefault(); if (activeMentionContact) selectMention(activeMentionContact); return; }
+      if (event.key === "Escape") { event.preventDefault(); setDismissedMention(mentionKey); return; }
+    }
+    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); }
+  };
 
   return <div className={`im-app ${desktop ? "im-native" : ""} ${mobileDetail ? "im-show-detail" : ""} ${listHidden ? "im-focused" : ""}`} data-testid="im-app">
     {desktop && <div className="im-window-drag" data-testid="im-window-drag" aria-hidden="true" />}
@@ -355,10 +379,10 @@ function Messenger() {
         <div className="im-composer-area">
           <>
           {replyMessage && <div className="im-composer-reply"><Reply size={17} /><span><strong>回复 {replyMessage.role === "user" ? "你" : replyMessage.contactSnapshot?.name || "助手"}</strong><small>{replyMessage.text.slice(0, 90)}</small></span><IconButton label="取消回复" onClick={() => editDraft({ replyTo: undefined })}><X size={16} /></IconButton></div>}
-          {draft.attachments.length > 0 && <div className="im-draft-files">{draft.attachments.map((a, i) => <span key={i}><FileText size={15} />{a.name}<IconButton label={`移除${a.name}`} onClick={() => editDraft({ attachments: draft.attachments.filter((_, n) => n !== i) })}><X size={13} /></IconButton></span>)}</div>}
+          {draft.attachments.length > 0 && <DraftAttachments attachments={draft.attachments} onPreview={setSource} onRemove={index => { input.current?.focus(); editDraft({ attachments: draft.attachments.filter((_, item) => item !== index) }); }} />}
           {draft.pending && !sending && <div className="im-send-recovery" data-testid="im-send-recovery" role="status">上次发送尚未确认，点发送会重试原消息；新写的内容会保留。</div>}
-          {mentionCandidates.length > 0 && <div className="im-mentions" aria-label="选择要提及的 Agent">{mentionCandidates.map(c => <button key={c.id} data-testid={`im-mention-${c.id}`} onClick={() => { editDraft({ text: draft.text.replace(/@[a-z0-9_-]*$/i, `@${c.handle} `) }); input.current?.focus(); }}><Avatar contact={c} size="small" /><span>{c.name}<small>@{c.handle}</small></span></button>)}</div>}
-          <form className="im-composer" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(e.dataTransfer.files); }} onSubmit={e => { e.preventDefault(); void send(); }} data-testid="im-composer"><label className="im-icon im-file-button" title="添加文本资料"><Paperclip size={22} /><input type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.log,.yaml,.yml,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml" aria-label="添加文本资料" data-testid="im-attach" onChange={e => { void addFiles(e.target.files); e.target.value = ""; }} /></label><textarea ref={input} rows={1} maxLength={30000} value={draft.text} onChange={e => editDraft({ text: e.target.value })} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { e.preventDefault(); void send(); } }} aria-label="消息" placeholder={thread?.kind === "group" ? "发送消息，@ 提及 Agent" : directContact?.kind === "human" ? "仅保存在本机…" : "发送消息…"} data-testid="im-message-input" /><button className="im-send" type="submit" aria-label={draft.pending ? "重试发送原消息" : "发送消息"} data-testid="im-send" disabled={sending || !connected || Boolean(draft.recoveryError) || (selected !== "new" && !thread) || (!draft.pending && !draft.text.trim() && !draft.attachments.length)}>{sending ? <Loader2 size={21} className="working" /> : <ArrowUp size={23} />}</button></form>
+          {mentionCandidates.length > 0 && <div ref={mentionList} className="im-mentions" id="im-mention-list" data-testid="im-mention-list" role="listbox" aria-label="选择要提及的 Agent">{mentionCandidates.map((c, index) => <button type="button" role="option" tabIndex={-1} aria-selected={index === activeMention} id={`im-mention-option-${c.id}`} key={c.id} data-testid={`im-mention-${c.id}`} onMouseEnter={() => setMentionIndex(index)} onClick={() => selectMention(c)}><Avatar contact={c} size="small" /><span>{c.name}<small>@{c.handle}</small></span></button>)}<p className="im-mention-hint" aria-hidden="true">↑↓ 选择 · Enter 采用 · Esc 收起</p></div>}
+          <form className="im-composer" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(e.dataTransfer.files); }} onSubmit={e => { e.preventDefault(); void send(); }} data-testid="im-composer"><label className="im-icon im-file-button" title="添加文本资料"><Paperclip size={22} /><input type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.log,.yaml,.yml,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml" aria-label="添加文本资料" data-testid="im-attach" onChange={e => { void addFiles(e.target.files); e.target.value = ""; }} /></label><textarea ref={input} rows={1} maxLength={30000} value={draft.text} onChange={e => { setMentionCaretAtEnd(e.target.selectionStart === e.target.value.length && e.target.selectionEnd === e.target.value.length); editDraft({ text: e.target.value }); }} onSelect={e => setMentionCaretAtEnd(e.currentTarget.selectionStart === e.currentTarget.value.length && e.currentTarget.selectionEnd === e.currentTarget.value.length)} onKeyDown={composerKeyDown} aria-autocomplete={thread?.kind === "group" ? "list" : undefined} aria-controls={mentionCandidates.length ? "im-mention-list" : undefined} aria-activedescendant={activeMentionContact ? `im-mention-option-${activeMentionContact.id}` : undefined} aria-label="消息" placeholder={thread?.kind === "group" ? "发送消息，@ 提及 Agent" : directContact?.kind === "human" ? "仅保存在本机…" : "发送消息…"} data-testid="im-message-input" /><button className="im-send" type="submit" aria-label={draft.pending ? "重试发送原消息" : "发送消息"} data-testid="im-send" disabled={sending || !connected || Boolean(draft.recoveryError) || (selected !== "new" && !thread) || (!draft.pending && !draft.text.trim() && !draft.attachments.length)}>{sending ? <Loader2 size={21} className="working" /> : <ArrowUp size={23} />}</button></form>
           {(selected === "new" || (thread && !thread.kind)) && <details className="im-send-options"><summary data-testid="im-send-options-toggle">{(draft.mode || (thread?.runs.at(-1)?.requestedMode || thread?.runs.at(-1)?.mode) || "local") === "local" ? "本地整理" : (draft.mode || (thread?.runs.at(-1)?.requestedMode || thread?.runs.at(-1)?.mode)) === "connection" ? data?.connections.find(c => c.id === (draft.connectionId ?? thread?.runs.at(-1)?.connectionId))?.name || "原连接已移除" : "本机助手"}<ChevronRight size={13} /></summary><div><label>发送方式<select data-testid="im-task-mode" value={draft.mode || (thread?.runs.at(-1)?.requestedMode || thread?.runs.at(-1)?.mode) || "local"} onChange={e => editDraft({ mode: e.target.value as Draft["mode"], connectionId: e.target.value === "connection" ? draft.connectionId ?? thread?.runs.at(-1)?.connectionId ?? "" : "" })}><option value="local">本地整理资料</option><option value="codex">本机助手</option><option value="connection">已连接服务</option></select></label>{(draft.mode || (thread?.runs.at(-1)?.requestedMode || thread?.runs.at(-1)?.mode)) === "connection" && <label>选择连接<select data-testid="im-task-connection" value={draft.connectionId ?? thread?.runs.at(-1)?.connectionId ?? ""} onChange={e => editDraft({ connectionId: e.target.value })}><option value="">请选择原连接</option>{data?.connections.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}{Boolean(draft.connectionId) && !data?.connections.some(c => c.id === draft.connectionId) && <option value={draft.connectionId}>原连接已移除</option>}</select></label>}</div></details>}
           {draft.recoveryError && <p className="im-error" role="alert">{draft.recoveryError}</p>}
           {draftWarning && <p className="im-error" role="alert">本机草稿存储已满，当前内容仅保留在此窗口，请先复制保存。</p>}
