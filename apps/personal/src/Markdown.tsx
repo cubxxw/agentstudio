@@ -130,6 +130,40 @@ const markdownComponents = {
   img: ImageLink,
 };
 
+const remarkPlugins = [remarkGfm, remarkCjkFriendly, remarkCjkStrike];
+
+function PreviewBlock({ children }: { children?: React.ReactNode }) {
+  return <>{children}{" "}</>;
+}
+
+const previewComponents = {
+  p: PreviewBlock,
+  h1: PreviewBlock,
+  h2: PreviewBlock,
+  h3: PreviewBlock,
+  h4: PreviewBlock,
+  h5: PreviewBlock,
+  h6: PreviewBlock,
+  li: PreviewBlock,
+  th: PreviewBlock,
+  td: PreviewBlock,
+  img: ({ alt }: ComponentProps<"img">) => <>{alt || "图片"}</>,
+  br: () => <> </>,
+  hr: () => <> </>,
+};
+
+// A preview lives inside the chat button: keep inline emphasis, but no links,
+// fetched images, controls or block layout. Block boundaries become spaces.
+export function MarkdownPreview({ text }: { text: string }) {
+  return <span data-testid="im-chat-preview"><Markdown
+    remarkPlugins={remarkPlugins}
+    components={previewComponents}
+    allowedElements={["strong", "em", "del", "code", ...Object.keys(previewComponents)]}
+    unwrapDisallowed
+    skipHtml
+  >{text}</Markdown></span>;
+}
+
 // Raw HTML stays disabled. URLs use react-markdown's safe default transform.
 // https://github.com/remarkjs/react-markdown#security
 export function RichText({
@@ -145,7 +179,7 @@ export function RichText({
     <SourceContext.Provider value={onSource}>
       <div className={`prose${reading ? " prose-reading" : ""}`}>
         <Markdown
-          remarkPlugins={[remarkGfm, remarkCjkFriendly, remarkCjkStrike]}
+          remarkPlugins={remarkPlugins}
           components={markdownComponents}
         >
           {text}
