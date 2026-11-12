@@ -27,7 +27,7 @@ export function ApprovalRow({ approval, contact, selected, onSelect }: { approva
   const state = states[approval.state] || "已记录选择";
   const sender = approvalSender(approval, contact);
   const kind = approval.source?.threadKind === "group" ? "群聊" : approval.source?.threadKind === "direct" ? "私聊" : "任务对话";
-  return <button className={`im-chat-row im-approval-row ${selected ? "selected" : ""}`} data-testid={`im-approval-${approval.id}`} aria-label={`${sender.name}发起：${approval.title} · ${state}`} onClick={onSelect}>
+  return <button className={`im-chat-row im-approval-row ${selected ? "selected" : ""}`} data-testid={`im-approval-${approval.id}`} onClick={onSelect}>
     <Avatar contact={contact ? { ...contact, name: sender.name } : undefined} activity={{ state: ["pending", "sending", "unknown"].includes(approval.state) ? "waiting" : "idle" }} />
     <span className="im-row-copy">
       <span className="im-approval-by"><span data-testid="im-approval-sender-name">{`由 ${sender.name} 发起`}</span><small>{state}</small></span>
