@@ -180,6 +180,7 @@ export class WebChatConnector implements Connector {
     const p = await this.session
       .eval<{ name: string | null; avatar: { src?: string; frame?: string } | null }>("globalThis.__agentstudio.profile ? globalThis.__agentstudio.profile() : null")
       .catch(() => null);
+    if (!this.running) return;
     if (!p?.avatar) return;
     let img: AvatarImage | null = null;
     if (p.avatar.frame?.startsWith("data:image/png;base64,")) {
@@ -187,7 +188,7 @@ export class WebChatConnector implements Connector {
     } else if (p.avatar.src && /^https:\/\//.test(p.avatar.src)) {
       img = await this.session.fetchImage(p.avatar.src);
     }
-    if (!img || img.data.length > 2 << 20) return;
+    if (!this.running || !img || img.data.length > 2 << 20) return;
     const same = this.avatarImg && createHash("sha256").update(this.avatarImg.data).digest("hex") === createHash("sha256").update(img.data).digest("hex");
     if (same) return;
     this.avatarImg = img;
@@ -216,6 +217,7 @@ export class WebChatConnector implements Connector {
       this.tickErrors++;
       this.cfg.trace?.("webchat.tick_error", { agent: this.cfg.name, message: String((err as Error).message) });
     }
+    if (!this.running) return;
     if (snap?.problem) this.problemSince ??= Date.now();
     else if (snap) this.problemSince = null;
     if (await this.recoverIfNeeded()) {

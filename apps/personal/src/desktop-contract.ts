@@ -18,7 +18,7 @@ export type NativeIntegrationReply = {
   expiresAt?: string;
   message?: string;
   providers?: { id: PersonalServiceId; name: string; description: string }[];
-  instances?: { id?: string; instanceId?: string; service?: PersonalServiceId; name: string; status?: string; canOpen?: boolean; connectionId?: string; avatarDataUrl?: string }[];
+  instances?: { id?: string; instanceId?: string; service?: PersonalServiceId; name: string; status?: string; canOpen?: boolean; hasCredentials?: boolean; connectionId?: string; avatarDataUrl?: string }[];
   connectionIds?: string[];
   actions?: { id: string; label: string }[];
   choices?: { id: string; label: string }[];

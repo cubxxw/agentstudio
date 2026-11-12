@@ -414,10 +414,12 @@ function registerPersonalIpc() {
       if (action.kind === "local-login-cancel") return localLogin.cancel(action.flowId);
       if (action.kind === "services") {
         const instances = await personalServices.list();
-        return { state: "catalog", providers: personalServices.services(), instances: instances.map(instance => ({
-          id: instance.id, service: instance.service, name: instance.name, status: instance.status,
-          canOpen: instance.canOpen, connectionId: nativeConnections.get(instance.id), avatarDataUrl: instance.avatarDataUrl,
-        })) };
+        const saved = await personalHost.syncNativeServices(await personalServices.snapshot(instances));
+        const live = instances.map(instance => ({ id: instance.id, service: instance.service, name: instance.name, status: instance.status,
+          canOpen: instance.canOpen, avatarDataUrl: instance.avatarDataUrl, hasCredentials: true, connectionId: nativeConnections.get(instance.id) }));
+        return { state: "catalog", providers: personalServices.services(), instances: [
+          ...live, ...(saved || []).filter(instance => !live.some(item => item.id === instance.id)),
+        ] };
       }
       if (action.kind === "connect") return { state: "waiting", flowId: await personalServices.begin(action.serviceId), message: "请按提示完成你自己的账号登录" };
       if (action.kind === "progress") {
@@ -620,6 +622,7 @@ if (!gotLock) {
       catch { personalStartupFailed = true; return; }
       await personalHost?.start();
       if (restored) for (const instance of await personalServices!.registrations()) await registerNativeInstance(instance);
+      if (restored) await personalHost!.syncNativeServices(await personalServices!.snapshot());
     })().catch(() => { /* request() exposes runtime errors without exposing provider diagnostics */ });
     else void connectors.start().catch(() => console.error("[agentstudio] connectors failed to start"));
     createWindow();

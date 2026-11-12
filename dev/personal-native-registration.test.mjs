@@ -217,3 +217,17 @@ test('Grok native readiness privately registers its source without forwarding cr
  assert.deepEqual(JSON.parse(JSON.stringify(f.nativeSources[0])),{connectionId:'synthetic_connection_1',instanceId:f.instance.instanceId,service:'grokbot'});
  assert.equal(JSON.stringify(reply).includes(f.instance.token),false);
 });
+
+test('native catalog keeps diagnostics private and includes safe disconnected identities', async () => {
+  const f = fixture();
+  f.context.personalServices.list = async () => [{ id: f.instance.instanceId, service: 'grokbot', name: 'Synthetic Bot', status: 'error', canOpen: false, message: 'synthetic-private-provider-diagnostic' }];
+  f.context.personalServices.snapshot = async () => ({ port: 19455, instances: [], tasks: [] });
+  f.context.personalHost.syncNativeServices = async () => [{ id: 'saved_muse', service: 'muse', name: 'Saved Muse', status: 'needs_login', hasCredentials: false, canOpen: false, connectionId: 'saved_connection' }];
+  const result = await f.invoke({ kind: 'services' });
+  assert.equal(result.state, 'catalog'); assert.equal(result.instances.length, 2);
+  assert.equal(result.instances[0].hasCredentials, true);
+  assert.equal(result.instances[1].hasCredentials, false);
+  assert.ok(!JSON.stringify(result).includes('synthetic-private-provider-diagnostic'));
+  assert.ok(!JSON.stringify(result).includes(f.instance.token));
+  assert.ok(!JSON.stringify(result).includes(f.instance.url));
+});

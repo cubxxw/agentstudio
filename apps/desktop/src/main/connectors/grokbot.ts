@@ -167,6 +167,7 @@ export class GrokAuthError extends Error {}
  */
 export class GrokClient {
   private refreshing: Promise<void> | null = null;
+  private readonly closing = new AbortController();
   private tokens: GrokTokens;
 
   constructor(
@@ -180,8 +181,15 @@ export class GrokClient {
     return { accessToken: this.tokens.accessToken, refreshToken: this.tokens.refreshToken };
   }
 
+  /** Keep accepted token rotations durable before releasing the account. */
+  async close(): Promise<void> {
+    this.closing.abort();
+    await this.refreshing?.catch(() => {});
+  }
+
   async rpc(method: string, reqSchema: Schema, req: ProtoMessage, resSchema: Schema): Promise<ProtoMessage> {
     for (let attempt = 0; attempt < 2; attempt++) {
+      this.closing.signal.throwIfAborted();
       const usedToken = this.tokens.accessToken;
       const res = await fetch(`${this.cfg.apiUrl}/aiserver.v1.GrokBotService/${method}`, {
         method: "POST",
@@ -192,11 +200,12 @@ export class GrokClient {
           authorization: `Bearer ${this.tokens.accessToken}`,
         },
         body: encode(reqSchema, req),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.any([this.closing.signal, AbortSignal.timeout(30_000)]),
       });
       const buf = new Uint8Array(await res.arrayBuffer());
       this.cfg.trace?.("grokbot.rpc", { method, status: res.status, bytes: buf.length });
       if (res.status === 401 && attempt === 0) {
+        this.closing.signal.throwIfAborted();
         // Another bot may already have refreshed while this call was in flight.
         if (this.tokens.accessToken === usedToken) await this.refresh();
         continue;
@@ -778,8 +787,10 @@ export class GrokBotConnector implements Connector {
       // pre-terminal transcript snapshot. Failure never falls back to text-idle.
       const turn = this.personalReply;
       const status = turn ? await this.runState().catch(() => null) : null;
+      if (!this.running) return;
       if (!status) this.terminalCandidate = "";
       const entries = await this.list();
+      if (!this.running) return;
       this.readbackVersion = Math.max(0, ...entries.map(entry => Number(entry.updated_seq ?? 0)));
       this.status = { status: "ready" };
       this.process(entries);
@@ -787,7 +798,7 @@ export class GrokBotConnector implements Connector {
         if (turn.echoed && !turn.waiting && this.stateRunning(status)) { turn.runningObserved = true; this.terminalCandidate = ""; this.persistTurn(); }
         if (status && !this.stateRunning(status) && (turn.responseSeq || (status.live as ProtoMessage | undefined)?.last_turn_settlement)) {
           const confirmed = await this.runState().catch(() => null);
-          if (this.personalReply === turn) this.settlePersonalTurn(status, confirmed);
+          if (this.running && this.personalReply === turn) this.settlePersonalTurn(status, confirmed);
         }
       }
     } catch (err) {

@@ -3,6 +3,7 @@ import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
 import { APIError, id, now } from './store.mjs';
 import { imSettings, addReaction, REACTIONS } from './im-participation.mjs';
 import { validateGroupAvatar } from './group-avatar.mjs';
+import { nativeSource } from './native-services.mjs';
 
 const SELF = 'self';
 const policies = ['auto', 'mention', 'always', 'manual'];
@@ -50,6 +51,7 @@ export class Messenger {
   publicContact(contact) {
     const binding = contact.binding;
     const connection = binding?.type === 'connection' ? this.store.get('connection', binding.connectionId) : null;
+    const native = connection && nativeSource(this.store, connection);
     const chatBinding = connection?.type === 'mcp' ? contact.chatBackend : binding;
     const base = chatBinding?.type === 'local' ? this.store.get('contact', `agent_${chatBinding.localAgentId}`) : null;
     let execution = null, configurationError = '';
@@ -62,6 +64,7 @@ export class Messenger {
     let presence = contact.kind !== 'agent' ? null : node ? { ...nodePresence(node), ...(observed?.activity || {}) }
       : chatBinding?.type === 'local' ? { state: (base?.availability || contact.availability) === 'ready' ? 'online' : 'attention', deviceName: '这台 Mac',
         running: runs.filter(run => ['running', 'verifying'].includes(run.status)).length, waiting: runs.filter(run => run.status === 'needs_input').length, lastSeenAt: null }
+      : native ? { state: native.status === 'ready' ? 'online' : 'attention', deviceName: '这台 Mac', reason: native.status === 'ready' ? '' : '原服务连接未恢复', lastSeenAt: null }
       : { state: connection ? 'unknown' : 'offline', deviceName: '', lastSeenAt: null };
     let remoteAvailability = null;
     if (node) {
@@ -72,10 +75,10 @@ export class Messenger {
       else if (observed.availability !== 'configured') remoteAvailability = 'unsupported';
       if (remoteAvailability && presence.state === 'online') presence = { ...presence, state: 'attention', reason: !observed ? '来源设备已停止共享这位联系人' : observed.availability === 'unsupported' ? '这位伙伴暂时只能在来源设备中聊天' : '需要在来源设备检查登录或配置' };
     }
-    return { ...contact, presence, connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
+    return { ...contact, presence, ...(native?.service ? { avatarService: native.service } : {}), ...(native?.avatarDataUrl ? { avatarDataUrl: native.avatarDataUrl } : {}), connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
       : configurationError ? { availability: 'configuration_required', providerName: connection?.name || base?.providerName || '' }
       : chatBinding?.type === 'local' ? { availability: base?.availability || 'not_installed', providerName: connection?.name || base?.providerName || chatBinding.localAgentId }
-        : { availability: remoteAvailability || (connection ? 'ready' : 'disconnected'), providerName: connection?.name || '连接已移除' }) };
+        : { availability: remoteAvailability || (native && native.status !== 'ready' ? native.status === 'needs_login' ? 'login_required' : 'disconnected' : connection ? 'ready' : 'disconnected'), providerName: connection?.name || '连接已移除' }) };
   }
   contacts() { return this.store.list('contact').map(c => this.publicContact(c)).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')); }
 

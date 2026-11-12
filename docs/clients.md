@@ -377,6 +377,9 @@ The `artifact-workspace` contains `artifact-revision-select`, tabs `artifact-tab
 
 Added agents use the existing contact, direct-message and group test IDs. Connectivity labels are last-check observations rather than continuous presence.
 
+Native service recovery keeps the existing `im-run-status` and `im-execution-record` selectors. Group failure labels include the original Bot name, and a known unsent failure reads “未发送”. Unknown runs without a task receipt offer “检查连接”; this opens connection preferences without issuing a task query. `personal-service-instance` includes a safe avatar, while `personal-service-missing` retains an owned legacy connection whose service metadata is unavailable. Missing credential records cannot be removed through a nonexistent native instance.
+
+
 
 ### Unread chat indicators
 

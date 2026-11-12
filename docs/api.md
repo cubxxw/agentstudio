@@ -399,6 +399,11 @@ Explicit local `POST /api/sharing/invite` with `{}` returns `{url,token}` for in
 `Contact.presence` projects `{state,deviceName,lastSeenAt,checkedAt,reason,running,waiting}` independently of configuration availability. `GET /api/integrations` includes node presence and the last directory. Node checks coalesce, run every 15 seconds, retain success timestamps on failure, expire after 60 seconds, and cannot resurrect removed credentials. New contacts can be discovered; deliberately removed contacts remain suppressed. See [device setup and boundaries](personal/peer-devices.md).
 
 
+### Native service recovery state
+
+The desktop owner privately projects native instance readiness and durable receipt metadata to its utility. Contacts may retain `avatarService` and a bounded `avatarDataUrl` while disconnected; readiness is observed independently of a saved connection. Catalog instances include `hasCredentials: false` when the original login record is missing. This adds no HTTP or preload mutation route. Prior-generation dispatch failures can become `failed/not_sent` only with matching owner/frozen identity evidence and an intact ledger without the stable message ID; current-process timeouts remain unknown and are never replayed. See [native service recovery](personal/native-service-recovery.md).
+
+
 ## Personal conversation unread state
 
 `GET /api/bootstrap` thread summaries and `GET /api/threads/:id` include `unreadCount`. It counts persisted assistant messages after the workspace's read cursor; owner messages, system events, stream progress, reactions and approvals do not increment it. Fetching a thread does not mark it read.

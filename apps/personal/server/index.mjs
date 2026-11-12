@@ -1,5 +1,6 @@
 import { UnreadMessages } from './unread.mjs';
 import http from 'node:http';
+import { syncNativeServices } from './native-services.mjs';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, extname, join, resolve, sep } from 'node:path';
@@ -584,6 +585,7 @@ export async function createPersonalServer(options = {}) {
   return {
     server, store, worker, scheduler, creation, providerApprovals, sharing,
     registerNativeSource: (source) => providerApprovals.register(source),
+    syncNativeServices: (snapshot) => { const catalog = syncNativeServices(store, snapshot, notify); worker.kick(); return catalog; },
     cancelWorkspaceSwitch,
     async prepareWorkspaceSwitch() {
       if (switchPrepared || shuttingDown) throw new Error('Workspace is already switching');

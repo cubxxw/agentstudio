@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { APIError, connectionIdentity, id, now } from './store.mjs';
 import { executeLocalAgent } from './local-agents.mjs';
+import { nativeSource } from './native-services.mjs';
 import { parseGoalDecision } from './agent-scheduler.mjs';
 import { hasIMPolicy, strictParticipation, participationDecision, audienceForRun, acknowledgeInput, addReaction, REACTIONS } from './im-participation.mjs';
 
@@ -705,6 +706,8 @@ export class PersonalWorker {
       result = validatedA2ATask(await this.callRPC(connection, 'tasks/get', { id: run.externalTaskId }, signal), run.externalTaskId);
     } else {
       if (run.phase === 'reconcile' || run.deliveryState === 'unknown' || run.deliveryState === 'delivered') throw new APIError(409, 'unknown_execution', '没有远端 taskId，不能安全重复提交');
+      const native = nativeSource(this.store, connection);
+      if (native && native.status !== 'ready') throw new APIError(409, 'native_not_ready', '原服务连接尚未恢复，这条消息没有发送。请在连接设置中恢复登录。');
       this.change(thread.id, run.id, (_item, selected) => {
         selected.deliveryState = 'sending'; selected.actionState = 'running'; selected.phase = 'dispatch';
         // Enrolled nodes durably key tasks by this exact messageId. Save it

@@ -3,7 +3,11 @@ import { DecisionView, Modal } from "./ConversationPanels";
 import type { Artifact, Connection, Decision, Run, Thread } from "./types";
 
 export const runText: Record<string, string> = { queued: "等待回复", running: "正在回复", verifying: "正在保存回复", needs_input: "等待审批", blocked: "需要处理", unknown: "结果待核查", failed: "未完成", cancelled: "已停止", completed: "已回复" };
-export const runLabel = (run: Run) => run.cancelPending ? "正在确认停止" : run.requiresReconciliation || run.stopUnconfirmed ? "结果待核查" : run.status === "completed" && run.participation?.action === "silence" ? "保持安静" : run.status === "completed" && run.participation?.action === "reaction" ? `回应了 ${run.participation.emoji}` : runText[run.status];
+export const runLabel = (run: Run) => run.cancelPending ? "正在确认停止" : run.requiresReconciliation || run.stopUnconfirmed ? "结果待核查" : run.status === "failed" && run.deliveryState === "not_sent" ? "未发送" : run.status === "completed" && run.participation?.action === "silence" ? "保持安静" : run.status === "completed" && run.participation?.action === "reaction" ? `回应了 ${run.participation.emoji}` : runText[run.status];
+
+export const runRecovery = (run: Run) => run.externalTaskId ? { action: "reconcile", label: "核查原任务" }
+  : run.status === "unknown" || run.requiresReconciliation ? { action: run.mode === "connection" ? "connection" : "details", label: run.mode === "connection" ? "检查连接" : "查看执行记录" }
+  : { action: "retry", label: "重试" };
 
 export function ConversationDetails({ thread, connections, busy, onClose, onRead, onRun, onDecide }: {
   thread: Thread; connections: Connection[]; busy: string; onClose: () => void;
@@ -21,7 +25,7 @@ export function ConversationDetails({ thread, connections, busy, onClose, onRead
           <time>{new Date(run.createdAt).toLocaleString("zh-CN")}</time>
           {run.error && <p className="im-error">{run.error}</p>}
           {["queued", "running", "verifying", "needs_input"].includes(run.status) && <button className="im-text-button" disabled={busy === run.id} onClick={() => onRun(run, "cancel")}>停止这次执行</button>}
-          {["blocked", "failed", "unknown"].includes(run.status) && <button className="im-text-button" disabled={busy === run.id} onClick={() => onRun(run, run.status === "unknown" || run.externalTaskId ? "reconcile" : "retry")}>{run.status === "unknown" || run.externalTaskId ? "核查原任务" : "重试这次执行"}</button>}
+          {["blocked", "failed", "unknown"].includes(run.status) && <button className="im-text-button" disabled={busy === run.id} onClick={() => onRun(run, runRecovery(run).action)}>{runRecovery(run).label}</button>}
           {run.status === "cancelled" && run.externalTaskId && <button className="im-text-button" disabled={busy === run.id} onClick={() => onRun(run, "reconcile")}>核查原任务</button>}
           <details><summary>执行详情</summary>{run.inputReceipt && <p>{run.inputReceipt.state === "acknowledged" ? "已回应本次读取的上下文" : "上下文已提交，尚未收到有效回应"} · {run.inputReceipt.messageIds.length} 条消息</p>}{run.participation?.action === "silence" && <p>本次未公开发言：{run.participation.reason}</p>}{run.routingReason && <p>{run.routingReason}</p>}{run.externalTaskId && <p>任务编号：{run.externalTaskId}</p>}{run.remoteReceipt !== undefined && <><h4>原始回执</h4><pre tabIndex={0}>{JSON.stringify(run.remoteReceipt, null, 2)}</pre></>}{run.externalVerification !== undefined && <><h4>核验范围</h4><pre tabIndex={0}>{JSON.stringify(run.externalVerification, null, 2)}</pre></>}</details>
         </div>)}
