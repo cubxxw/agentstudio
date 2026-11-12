@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy, Link, Loader2, Sparkles } from 'lucide-react';
 import { api, key } from './api';
+import { desktopBridge } from './native';
 import { Modal } from './ConversationPanels';
 import { PlayRoomView } from './PlayRoom';
 import { acceptPlaySnapshot, playCases, playError, type PlayRoom, type PlayTemplate, type PlayAction } from './play-types';
@@ -15,7 +16,7 @@ export function Playrooms({ contacts, owner, thread, onClose }: { contacts: Cont
   const [title, setTitle] = useState(''), [brief, setBrief] = useState(''), [persona, setPersona] = useState(''), [hostName, setHostName] = useState(owner);
   const agents = contacts.filter(c => c.kind === 'agent' && c.binding?.type === 'local' && ['codex', 'pi'].includes(c.binding.localAgentId));
   const [agentId, setAgentId] = useState(agents.find(c => thread?.memberIds?.includes(c.id))?.id || agents[0]?.id || ''), [network, setNetwork] = useState<Network>({ state: 'off', url: null, error: null });
-  const [invitation, setInvitation] = useState<Invitation | null>(null), [copied, setCopied] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const [invitation, setInvitation] = useState<Invitation | null>(null), [copied, setCopied] = useState<'public' | 'local' | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const createId = useRef(key()), creating = useRef(false);
   const roomId = room?.id;
   const loadList = () => api<{ rooms: RoomSummary[] }>('/playrooms').then(value => setRooms(value.rooms)).catch(e => setError(playError(e)));
@@ -45,20 +46,27 @@ export function Playrooms({ contacts, owner, thread, onClose }: { contacts: Cont
   const act = async (body: PlayAction) => { const next = await api<PlayRoom>(`/playrooms/${roomId}/actions`, body); setRoom(previous => acceptPlaySnapshot(previous, next)); return next; };
   const remove = async (id: string) => {
     await act({ type: 'remove', participantId: id, clientId: key() });
-    setCopied(false); setInvitation(await api<Invitation>(`/playrooms/${roomId}/invite`, {}));
+    setCopied(null); setInvitation(await api<Invitation>(`/playrooms/${roomId}/invite`, {}));
   };
   const copy = async (local = false) => {
-    setCopied(false); setError('');
-    try { const url = invitation && invitation.roomId === roomId ? local ? invitation.localUrl : invitation.url : null; if (!url) throw new Error('邀请通道还没准备好，再等一下。'); await navigator.clipboard.writeText(url); setCopied(true); }
+    setCopied(null); setError('');
+    try {
+      const url = invitation && invitation.roomId === roomId ? local ? invitation.localUrl : invitation.url : null;
+      if (!url || !roomId) throw new Error('邀请通道还没准备好，再等一下。');
+      const desktop = desktopBridge();
+      if (desktop?.copyPlayInvitation) await desktop.copyPlayInvitation({ roomId, local });
+      else await navigator.clipboard.writeText(url);
+      setCopied(local ? 'local' : 'public');
+    }
     catch (e) { setError(playError(e)); }
   };
   const startNetwork = async () => { setError(''); try { setNetwork(await api<Network>('/play-network', { action: 'start' })); } catch (e) { setError(playError(e)); } };
-  const stopNetwork = async () => { setError(''); try { setNetwork(await api<Network>('/play-network', { action: 'stop' })); setCopied(false); } catch (e) { setError(playError(e)); } };
+  const stopNetwork = async () => { setError(''); try { setNetwork(await api<Network>('/play-network', { action: 'stop' })); setCopied(null); } catch (e) { setError(playError(e)); } };
   return <Modal title="邀请朋友来玩" onClose={onClose} className="play-modal"><div className="play-shell">
     {room ? <>
-      <div className="play-owner-bar"><button className="play-back" data-testid="play-back" onClick={() => { setRoom(null); setTemplate(null); setInvitation(null); setError(''); void loadList(); }}><ArrowLeft size={16} />所有房间</button><div>{!room.closed && <>{network.state === 'online' ? <button className="play-primary" data-testid="play-copy-invite" onClick={() => void copy()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? '邀请已复制' : '复制邀请'}</button> : <button className="play-primary" data-testid="play-network-start" disabled={network.state === 'starting'} onClick={() => void startNetwork()}>{network.state === 'starting' ? <Loader2 className="play-spin" size={16} /> : <Link size={16} />}{network.state === 'starting' ? '正在打开一扇门…' : '开启网页邀请'}</button>}<button className="play-quiet" data-testid="play-copy-local" disabled={!invitation || invitation.roomId !== roomId} onClick={() => void copy(true)}>复制本机预览</button></>}{network.state === 'online' && <button className="play-quiet" data-testid="play-network-stop" onClick={() => void stopNetwork()}>停止网页邀请</button>}</div></div>
+      <div className="play-owner-bar"><button className="play-back" data-testid="play-back" onClick={() => { setRoom(null); setTemplate(null); setInvitation(null); setError(''); void loadList(); }}><ArrowLeft size={16} />所有房间</button><div>{!room.closed && <>{network.state === 'online' ? <button className="play-primary" data-testid="play-copy-invite" onClick={() => void copy()}>{copied === 'public' ? <Check size={16} /> : <Copy size={16} />}{copied === 'public' ? '邀请已复制' : '复制邀请'}</button> : <button className="play-primary" data-testid="play-network-start" disabled={network.state === 'starting'} onClick={() => void startNetwork()}>{network.state === 'starting' ? <Loader2 className="play-spin" size={16} /> : <Link size={16} />}{network.state === 'starting' ? '正在打开一扇门…' : '开启网页邀请'}</button>}<button className="play-quiet" data-testid="play-copy-local" disabled={!invitation || invitation.roomId !== roomId} onClick={() => void copy(true)}>{copied === 'local' ? '本机预览已复制' : '复制本机预览'}</button></>}{network.state === 'online' && <button className="play-quiet" data-testid="play-network-stop" onClick={() => void stopNetwork()}>停止网页邀请</button>}</div></div>
       {network.error && <p className="play-error" role="alert">{network.error}</p>}
-      {!room.closed && <p className="play-owner-hint">{network.state === 'online' ? '朋友拿到链接，填昵称就能参与。临时地址会在通道关闭后失效。' : '先在这里看看房间；开启网页邀请后，朋友才能从其他设备进入。'}</p>}
+      {!room.closed && <p className="play-owner-hint">{network.state === 'online' ? '朋友拿到链接，填昵称就能参与，能看到本房间全部聊天和计划。临时地址会在通道关闭后失效。' : '这里的聊天和计划会对加入的朋友可见。开启网页邀请后，朋友才能从其他设备进入。'}</p>}
       <PlayRoomView key={room.id} room={room} onAction={act} onRemove={remove} />
       {!room.closed && <footer className="play-owner-footer"><span>移除访客会更换旧邀请；结束房间会让所有访客会话失效，内容保留。</span><button data-testid="play-close-room" onClick={() => void act({ type: 'close', clientId: key() }).catch(e => setError(playError(e)))}>结束这间房</button></footer>}
     </> : template ? <div className={`play-create play-${template}`}>

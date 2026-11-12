@@ -17,7 +17,7 @@ development and QA companion.
 </p>
 
 > [!WARNING]
-> **FOR PERSONAL USE ONLY.** AgentRoom is a personal tool for learning and research: run it on your own Mac, with your own accounts, to reach your own agents. **NOT FOR COMMERCIAL USE**, and not for running a service for other people. Use it at your own risk. Read the [Disclaimer](#disclaimer) first.
+> **FOR PERSONAL USE ONLY.** AgentRoom is a personal tool for learning and research: run it on your own Mac, with your own accounts, to reach your own agents. You can explicitly invite friends into [bounded guest rooms](docs/personal/guest-playrooms.md) using restricted local agents. **NOT FOR COMMERCIAL USE** or a general hosted service. Use it at your own risk. Read the [Disclaimer](#disclaimer) first.
 
 > **Alpha.** macOS source builds. Local packaging supports a machine-local certificate pin, or ad-hoc signing when unconfigured; packaged-app acceptance, Developer ID distribution and notarization are separate checks. Expect rough edges and breaking changes.
 
@@ -153,7 +153,7 @@ To debug a connector, start the app with `AGENTSTUDIO_CONNECTOR_TRACE=1` (and `A
 
 **⚖️ FOR PERSONAL LEARNING AND RESEARCH USE ONLY.** Read this before you use AgentRoom, and in particular its connectors for Grok Bot, Muse, ChatGPT Dots and Cue.
 
-- **Personal use only.** Use AgentRoom on your own Mac, with your own accounts, to reach your own agents. Don't use it commercially, to run a service for others, to automate at scale, or with accounts that aren't yours.
+- **Personal use only.** Use AgentRoom on your own Mac, with your own accounts, to reach your own agents. Explicit, bounded guest-room invitations use restricted local agents; they do not authorize third-party personal connectors for other people's use. Don't use it commercially, as a general hosted service, to automate at scale, or with accounts that aren't yours.
 - **Local app and storage.** There is no hosted AgentRoom server. Selected context is sent to your configured model provider or an approved remote agent/tool. Legacy sign-ins use Electron safeStorage; personal Bearer credentials use the documented local file vault, not Keychain.
 - **Not affiliated.** AgentRoom isn't affiliated with or endorsed by xAI / SpaceX AI, Cursor (Anysphere), Meta, OpenAI, Manus, Nous Research or OpenClaw. Their names and logos are trademarks of their owners and appear only to say which service a connector reaches.
 - **Unofficial connectors.** Except for Cue's messaging (Manus's documented API), the connectors work the way each service's own app or website does. That may be against a service's terms, and it can stop working at any time.

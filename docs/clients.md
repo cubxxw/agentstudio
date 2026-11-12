@@ -29,7 +29,23 @@ Welcome's primary action opens the shared local picker; skipping still enters th
 | Add / saved result / open chat / empty | `im-local-add`, `im-local-result`, `im-local-chat`, `im-local-empty` |
 | Shared contact/profile card | `im-agent-card`, `im-agent-card-model`, `im-agent-card-quota`, `im-agent-card-capabilities` |
 
-The card is shared by contact details and the chat-header profile. It describes next-message configuration and adapter capabilities, not a verified execution or cross-model intelligence score. Unknown quota is “暂不可获取”; common accounts may share quota. Multi-computer pairing and friend sharing are future phases, with no active controls in this release. Isolated synthetic acceptance: `node dev/local-agent-cards-acceptance.mjs` (or `--native`), output selected through `AGENTROOM_CARDS_EVIDENCE_DIR`.
+The card is shared by contact details and the chat-header profile. It describes next-message configuration and adapter capabilities, not a verified execution or cross-model intelligence score. Unknown quota is “暂不可获取”; common accounts may share quota. General friend relationships and multi-computer pairing remain staged separately; temporary invitations use the guest-room flow below. Isolated synthetic acceptance: `node dev/local-agent-cards-acceptance.mjs` (or `--native`), output selected through `AGENTROOM_CARDS_EVIDENCE_DIR`.
+
+## Guest playrooms
+
+The star navigation action and chat share action open three editable invitation templates: AI twin, travel and co-creation. Only reviewed background and persona are published. The owner chooses local Codex/Pi and explicitly starts a temporary public tunnel before copying a web invitation. Guests accept with a nickname without an account, then share messages, travel votes, tasks and versioned notes. AI identity remains visible. Narrow screens switch between chat and plan; disconnect pauses actions without clearing drafts. See [workflow](personal/guest-playrooms.md).
+
+| Element | `data-testid` |
+| --- | --- |
+| Entry / gallery / template | `im-playrooms-open`, `im-share-room`, `play-gallery`, `play-case-twin`, `play-case-travel`, `play-case-project` |
+| Reviewed creation | `play-title`, `play-brief`, `play-persona`, `play-host-name`, `play-agent`, `play-create`, `play-back` |
+| Invitation acceptance | `play-invitation`, `play-nickname`, `play-join` |
+| Room / composer / tabs | `play-room`, `play-messages`, `play-message`, `play-send`, `play-tab-chat`, `play-tab-plan` |
+| Plan | `play-vote-<choiceId>`, `play-votes-<choiceId>`, `play-task-<taskId>`, `play-notes`, `play-save-notes`, `play-load-latest`, `play-notes-conflict`, `play-export` |
+| Owner controls | `play-copy-invite`, `play-copy-local`, `play-network-start`, `play-network-stop`, `play-close-room` |
+| Connection | `play-connection-state` |
+
+Browser acceptance: `node dev/playrooms-acceptance.mjs`. Native acceptance: `node dev/playrooms-native-acceptance.mjs [--real] [--public]`; use an isolated managed `AGENTROOM_EVIDENCE_DIR` and freshly built assets. Synthetic and actual-model receipts are separate.
 
 ## Personal conversation workspace
 

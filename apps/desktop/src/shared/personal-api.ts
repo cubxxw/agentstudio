@@ -16,6 +16,7 @@ export const PERSONAL_IPC = {
   artifactAction: "agentstudio:personal:artifact-action",
   restart: "agentstudio:personal:restart",
   copyDeviceInvitation: "agentstudio:personal:copy-device-invitation",
+  copyPlayInvitation: "agentstudio:personal:copy-play-invitation",
   integration: "agentstudio:personal:integration",
   testWorkspace: "agentstudio:personal:test-workspace",
 } as const;

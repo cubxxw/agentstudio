@@ -1,5 +1,23 @@
 # AgentRoom API contracts
 
+## Account-free invitation rooms
+
+Owner routes remain on the trusted personal API and native fixed IPC. They are never mounted on the separate guest listener.
+
+| Method | Path | Contract |
+| --- | --- | --- |
+| GET / POST | `/api/playrooms` | List / create with `{clientId,template:"twin"|"travel"|"project",title,brief,persona,hostName,contactId,maxGuests?,maxTurns?,ttlHours?}` |
+| GET | `/api/playrooms/:id` | Owner room projection, including common state and job statuses |
+| POST | `/api/playrooms/:id/invite` | Exactly `{}`; explicit reveal of `{roomId,token,localUrl,url}`; public URL is null without a live tunnel |
+| POST | `/api/playrooms/:id/actions` | `{type,clientId,…}`; common actions plus owner-only `close`, `remove {participantId}`, `acknowledge {jobId,confirmedStopped:true}` |
+| GET / POST | `/api/play-network` | Status / `{action:"start"|"stop"}`; owned temporary tunnel for the guest listener only |
+
+Native `copyPlayInvitation({roomId,local:boolean})` retrieves the canonical invitation in main and writes that URL to the clipboard. It rejects arbitrary text, URLs and paths. Invitation reveal and device enrollment reveal are intentional local exceptions to ordinary secret redaction.
+
+Guest-only routes: `POST /g-api/preview {invite}` returns reviewed background without history; `POST /g-api/join {invite,nickname,clientId}` accepts and creates an independent identity; `GET /g-api/:roomId` reads common state; `POST /g-api/:roomId/actions` accepts `message {text}`, `vote {choiceId}`, `task {taskId,done}` and `notes {text,version}`, each with `type` and immutable `clientId`. Joined guests see the existing common room history. An HttpOnly SameSite=Strict room cookie is required after acceptance (Secure under public HTTPS); sessions are hashed and checked against room expiry/removal on every request. Mutations require JSON and same-origin checks. Ordinary projections exclude invitation secrets, execution snapshots and private diagnostics.
+
+Defaults: 24 hours, 5 guests, 30 model turns. Maximum: 72 hours, 10 guests, 30 turns; messages 4000 characters, notes/replies 12000. Notes use version conflict detection. Removing a guest rotates the invitation and revokes their identity; closing revokes all guest access. Running work after restart or unconfirmed stop requires explicit owner reconciliation, including in a closed/expired room. No model request is automatically replayed. See [workflow and capability boundaries](personal/guest-playrooms.md).
+
 ## Workspace onboarding and native test profiles
 
 - `GET /api/bootstrap` includes `workspace: {onboardingCompleted, displayName}`. Existing populated workspaces are adopted without forced first-use UI.
@@ -79,6 +97,7 @@ interface PersonalDesktopBridge {
     cancelled: boolean; fileName?: string; path?: string; sha256?: string
   }>
   artifactAction?(input: {kind:"reveal"|"export";artifactId:string;revisionId?:string}): Promise<{cancelled:boolean;path?:string}>
+  copyPlayInvitation?(input: {roomId:string;local:boolean}): Promise<void>
   restart(): Promise<void>
   nativeIntegration?(request: NativeIntegrationRequest): Promise<NativeIntegrationReply>
 }
@@ -394,7 +413,7 @@ Grok `waiting` native progress may include `link:{label,url}` and `expiresAt` fo
 
 `GET /api/sharing` returns `{enabled,name,host,addresses,url,state,error,contacts,requests}` without credentials. `POST /api/sharing` accepts `{enabled:false}` or `{enabled:true,name,host,contactIds}`. Sharing defaults off and binds only an actual local Tailscale IPv4 address. Selected owned Agent contacts appear in an authenticated `agentroom-node/1` manifest with `kind:desktop`, opaque contact IDs and same-origin `/agents/{id}` endpoints. Only local CLI bindings support `message/send`; remote bindings are not re-exported. `tasks/get` is scoped to the original sharing generation and contact; messageId is the durable taskId. Request and independent execution records commit atomically. No remote route exposes threads, credentials or arbitrary desktop APIs. Workspace switching freezes acceptance before checking idleness.
 
-Explicit local `POST /api/sharing/invite` with `{}` returns `{url,token}` for intentional transfer. This is the sole HTTP exception to ordinary credential redaction and remains protected by the loopback Host/Origin boundary and fixed native IPC. Native `copyDeviceInvitation()` obtains the current invitation in main and copies it without arbitrary clipboard reads or writes. Stop/start retains identity and authority so accepted tasks can recover. Initial enrollment rejects an empty directory until the source selects a contact.
+Explicit local `POST /api/sharing/invite` with `{}` returns `{url,token}` for intentional transfer. Like the separate guest-room invitation reveal, this is protected by the loopback Host/Origin boundary and fixed native IPC. Native `copyDeviceInvitation()` obtains the current invitation in main and copies it without arbitrary clipboard reads or writes. Stop/start retains identity and authority so accepted tasks can recover. Initial enrollment rejects an empty directory until the source selects a contact.
 
 `Contact.presence` projects `{state,deviceName,lastSeenAt,checkedAt,reason,running,waiting}` independently of configuration availability. `GET /api/integrations` includes node presence and the last directory. Node checks coalesce, run every 15 seconds, retain success timestamps on failure, expire after 60 seconds, and cannot resurrect removed credentials. New contacts can be discovered; deliberately removed contacts remain suppressed. See [device setup and boundaries](personal/peer-devices.md).
 

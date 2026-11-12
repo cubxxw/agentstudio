@@ -114,3 +114,16 @@ test('digital twin presents the published host identity instead of the underlyin
   const f = await fixture(t), room = f.create({ template: 'twin', hostName: '小熊' });
   assert.equal(room.agentName, '小熊的分身');
 });
+test('an unconfirmed cancellation remains unknown and blocks further use of the same backend', async t => {
+  const f = await fixture(t, (_context, signal) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('private stop details'), { code: 'stop_unconfirmed' })))));
+  const room = f.create(), a = await f.enter(room);
+  await f.request(`/g-api/${room.id}/actions`, { type: 'message', text: '等待停止', clientId: crypto.randomUUID() }, a.cookie);
+  while (!f.rooms.owner(room.id).jobs.some(j => j.status === 'running')) await new Promise(r => setImmediate(r));
+  f.rooms.action(room.id, 'self', { type: 'close', clientId: crypto.randomUUID() });
+  await settled(f, room.id); assert.equal(f.rooms.owner(room.id).jobs[0].status, 'unknown');
+  const next = f.create(), b = await f.enter(next);
+  assert.equal((await f.request(`/g-api/${next.id}/actions`, { type: 'message', text: '不能绕过核查', clientId: crypto.randomUUID() }, b.cookie)).status, 409);
+  const unknown = f.rooms.owner(room.id).jobs[0];
+  f.rooms.action(room.id, 'self', { type: 'acknowledge', jobId: unknown.id, confirmedStopped: true, clientId: crypto.randomUUID() });
+  assert.equal(f.rooms.owner(room.id).jobs[0].status, 'failed');
+});

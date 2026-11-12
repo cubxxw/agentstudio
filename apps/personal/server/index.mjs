@@ -223,7 +223,7 @@ export async function createPersonalServer(options = {}) {
 
   let switchPrepared = false, activeMutations = 0;
   const blockingRuns = () => store.list('thread').flatMap(thread => thread.runs || []).filter(run =>
-    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers() + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length;
+    ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers() + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length + store.list('play_job').filter(j => ['queued', 'running', 'unknown'].includes(j.status)).length;
   const cancelWorkspaceSwitch = () => {
     if (!switchPrepared || shuttingDown) return;
     sharing.suspended = false; playrooms.suspended = false;
@@ -637,7 +637,7 @@ export async function createPersonalServer(options = {}) {
           if (Date.now() > deadline) throw new Error('Workspace still has pending requests');
           await new Promise(resolveWait => setTimeout(resolveWait, 10));
         }
-        const count = blockingRuns() + store.list('play_job').filter(j => ['queued', 'running', 'unknown'].includes(j.status)).length;
+        const count = blockingRuns();
         if (count) cancelWorkspaceSwitch();
         return { blockingRuns: count };
       } catch (error) { cancelWorkspaceSwitch(); throw error; }

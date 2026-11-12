@@ -96,7 +96,9 @@ export class Playrooms {
     return session.actorId;
   }
   action(roomId, actorId, body) {
-    const room = this.store.require('play_room', roomId); this.active(room);
+    const room = this.store.require('play_room', roomId);
+    const acknowledging = actorId === 'self' && body?.type === 'acknowledge';
+    if (!acknowledging) this.active(room);
     const actor = room.participants.find(p => p.id === actorId && !p.removedAt);
     if (!actor) fail(401, 'guest_removed', '你已经离开这个房间');
     const allowed = { message: ['text'], vote: ['choiceId'], task: ['taskId', 'done'], notes: ['text', 'version'], close: [], remove: ['participantId'], acknowledge: ['jobId', 'confirmedStopped'] };
@@ -104,7 +106,7 @@ export class Playrooms {
     if (['close', 'remove', 'acknowledge'].includes(body.type) && actorId !== 'self') fail(403, 'owner_required', '只有主人可以管理邀请和访客');
     fields(body, ['type', 'clientId', ...allowed[body.type]]);
     this.store.idempotent(`play:action:${roomId}:${actorId}`, body.clientId, body, () => {
-      const current = this.store.require('play_room', roomId); this.active(current);
+      const current = this.store.require('play_room', roomId); if (!acknowledging) this.active(current);
       if (body.type === 'message') {
         const message = text(body.text, 4000, '消息');
         const jobs = this.store.list('play_job');
@@ -157,7 +159,8 @@ export class Playrooms {
   }
   async pump() {
     while (!this.closed && !this.suspended) {
-      const job = this.store.list('play_job').reverse().find(j => j.status === 'queued'); if (!job) return;
+      const jobs = this.store.list('play_job'), unknown = new Set(jobs.filter(j => j.status === 'unknown').map(j => j.backend));
+      const job = jobs.reverse().find(j => j.status === 'queued' && !unknown.has(j.backend)); if (!job) return;
       const controller = new AbortController(); this.running.set(job.id, controller);
       try {
         const room = this.store.require('play_room', job.roomId); this.active(room);
@@ -170,7 +173,7 @@ export class Playrooms {
         this.store.put('play_room', current); this.store.put('play_job', { ...job, status: 'completed', finishedAt: this.stamp() });
       } catch (error) {
         const status = this.store.require('play_job', job.id).status;
-        if (status === 'running' || status === 'queued') this.store.put('play_job', { ...job, status: error.code === 'stop_unconfirmed' ? 'unknown' : controller.signal.aborted ? 'cancelled' : 'failed', error: '这次没有收到可用回复。内容已保存，稍后可以再问。', finishedAt: this.stamp() });
+        if (error.code === 'stop_unconfirmed' || status === 'running' || status === 'queued') this.store.put('play_job', { ...job, status: error.code === 'stop_unconfirmed' ? 'unknown' : controller.signal.aborted ? 'cancelled' : 'failed', error: error.code === 'stop_unconfirmed' ? '原执行的停止还未确认，请主人核查后继续。' : '这次没有收到可用回复。内容已保存，稍后可以再问。', finishedAt: this.stamp() });
       } finally { this.running.delete(job.id); this.changed(); }
     }
   }
@@ -206,8 +209,8 @@ export class Playrooms {
       }
       if (request.method === 'POST' && path === '/g-api/join') {
         const result = this.join(await this.body(request));
-        const secure = this.publicOrigin && request.headers.host === new URL(this.publicOrigin).host;
-        response.setHeader('Set-Cookie', `${cookieName(result.room.id)}=${result.secret}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.max(1, Math.floor((Date.parse(result.room.expiresAt) - this.clock()) / 1000))}${secure ? '; Secure' : ''}`);
+        const secure = this.publicOrigin && (request.headers.host === new URL(this.publicOrigin).host || request.headers.origin === this.publicOrigin);
+        response.setHeader('Set-Cookie', `${cookieName(result.room.id)}=${result.secret}; Path=/g-api; HttpOnly; SameSite=Strict; Max-Age=${Math.max(1, Math.floor((Date.parse(result.room.expiresAt) - this.clock()) / 1000))}${secure ? '; Secure' : ''}`);
         return json(201, result.room);
       }
       if ((match = path.match(/^\/g-api\/(pr_[A-Za-z0-9_-]+)(\/actions)?$/))) {
