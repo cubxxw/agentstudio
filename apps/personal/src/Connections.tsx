@@ -189,8 +189,18 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
   const current = flow?.progress;
 
   return <div className="connections" data-testid="personal-connections">
+    <nav className="integration-jumps" aria-label="连接分区">{([["mac", "这台 Mac"], ["agents", "个人 Agent"], ["servers", "其他服务器"], ["tools", "常用能力"]] as const).map(([id, label]) => <button key={id} data-testid={`personal-jump-${id}`} onClick={event => {
+      const heading = document.getElementById(id === "servers" ? "connections-nodes-title" : `connections-${id}-title`);
+      if (heading) {
+        heading.tabIndex = -1;
+        const panel = event.currentTarget.closest(".preferences-content");
+        const offset = (event.currentTarget.closest("nav")?.getBoundingClientRect().height || 58) + (panel ? parseFloat(getComputedStyle(panel).paddingTop) || 0 : 0) + 12;
+        if (panel) panel.scrollTop += heading.getBoundingClientRect().top - panel.getBoundingClientRect().top - offset;
+        heading.focus({ preventScroll: true });
+      }
+    }}>{label}</button>)}</nav>
     <section className="integration-section" aria-labelledby="connections-mac-title">
-      <div className="integration-section-heading"><h3 id="connections-mac-title">这台 Mac</h3><button className="text-button" data-testid="personal-integrations-refresh" disabled={Boolean(busy)} onClick={() => void perform("refresh", () => reload(true), false)}><RefreshCw size={14} className={busy === "refresh" ? "working" : ""} />重新检查</button></div>
+      <div className="integration-section-heading"><h3 id="connections-mac-title" tabIndex={-1}>这台 Mac</h3><button className="text-button" data-testid="personal-integrations-refresh" disabled={Boolean(busy)} onClick={() => void perform("refresh", () => reload(true), false)}><RefreshCw size={14} className={busy === "refresh" ? "working" : ""} />重新检查</button></div>
       <p className="integration-intro">选择之后开始的执行所用助手，正在进行的事情保持原来的安排。</p>
       {loading && <p className="integration-loading" role="status"><Loader2 size={15} className="working" />正在检查本机助手…</p>}
       {integrations?.agents.filter(agent => ["codex", "claude", "pi"].includes(agent.id)).map(localRow)}
@@ -200,23 +210,28 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
     </section>
 
     <section className="integration-section" aria-labelledby="connections-agents-title">
-      <div className="integration-section-heading"><h3 id="connections-agents-title">你的个人 Agent</h3></div>
+      <div className="integration-section-heading"><h3 id="connections-agents-title" tabIndex={-1}>你的个人 Agent</h3></div>
       <p className="integration-intro">使用原有对话；不会导入历史。外发资料仍会先展示具体内容，再由你决定。</p>
       {!nativeAvailable && <p className="integration-note">在 AgentRoom Mac 应用中连接这些助手。</p>}
       {PROVIDERS.map(provider => {
         const instances = (catalog?.instances || []).filter(item => item.service === provider.id);
         const connected = instances.some(item => item.status === "ready" && item.connectionId);
+        const InstanceGroup = instances.length > 2 ? "details" : "div";
+        const needsAttention = instances.filter(item => item.status !== "ready" || !item.connectionId).length;
         return <div key={provider.id} className="integration-provider">
           <Row icon={<img src={provider.icon} alt="" />} name={provider.name} description={provider.description}
             action={<button className="integration-button" data-testid={`personal-service-connect-${provider.id}`} disabled={!nativeAvailable || Boolean(busy) || activeFlow || connected} onClick={() => void beginService(provider.id, provider.name)}>{connected ? <><Check size={14} />已连接</> : busy === `service-${provider.id}` ? "正在打开…" : instances.length ? "重新连接" : "连接"}</button>} />
+          <InstanceGroup className={instances.length > 2 ? "integration-instances" : undefined} data-testid={`personal-service-instances-${provider.id}`}>
+          {instances.length > 2 && <summary data-testid={`personal-service-instances-toggle-${provider.id}`}>{instances.length} 个助手 · 查看与管理{needsAttention > 0 && <small>{needsAttention} 个需要检查</small>}</summary>}
           {instances.map(instance => {
             const instanceId = instance.id || instance.instanceId;
-            return <div key={instanceId || instance.name} className="integration-instance" data-testid="personal-service-instance"><div><strong>{instance.name}</strong><p>{instance.status === "ready" ? (instance.connectionId ? "已连接" : "登录已保存，尚未接入工作间") : instance.status === "needs_login" ? "需要重新登录" : ["starting", "reconnecting"].includes(instance.status || "") ? "正在连接" : "需要检查"}{!instance.canOpen && " · 需要确认时请到原 App 处理"}</p></div><div className="integration-actions">
+            return <div key={instanceId || instance.name} className="integration-instance" data-testid="personal-service-instance"><div><strong title={instance.name}>{instance.name}</strong><p>{instance.status === "ready" ? (instance.connectionId ? "已连接" : "登录已保存，尚未接入工作间") : instance.status === "needs_login" ? "需要重新登录" : ["starting", "reconnecting"].includes(instance.status || "") ? "正在连接" : "需要检查"}{!instance.canOpen && " · 需要确认时请到原 App 处理"}</p></div><div className="integration-actions">
               {instance.status === "ready" && !instance.connectionId && instanceId && <button className="integration-button" data-testid="personal-service-reconnect" disabled={Boolean(busy)} onClick={() => void perform(`reconnect-${instanceId}`, () => nativeAction({ kind: "reconnect", instanceId }))}>继续连接</button>}
               {instance.canOpen && instanceId && <button className="integration-button" disabled={Boolean(busy)} onClick={() => void perform(`open-${instanceId}`, () => nativeAction({ kind: "open", instanceId }), false)}>打开<ArrowUpRight size={13} /></button>}
-              {instanceId && <button className="icon-button" aria-label={`移除 ${instance.name}`} disabled={Boolean(busy)} onClick={() => void perform(`remove-${instanceId}`, () => nativeAction({ kind: "remove", instanceId }))}><Trash2 size={16} /></button>}
+              {instanceId && <button className="icon-button" data-testid={`personal-service-remove-${instanceId}`} aria-label={`移除 ${instance.name}`} disabled={Boolean(busy)} onClick={() => void perform(`remove-${instanceId}`, () => nativeAction({ kind: "remove", instanceId }))}><Trash2 size={16} /></button>}
             </div></div>;
           })}
+          </InstanceGroup>
         </div>;
       })}
       {flow && current && <div className={`integration-flow flow-${current.state}`} data-testid="personal-integration-flow" aria-label={flow.title}>
@@ -241,7 +256,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
     <RemoteNodes nodes={integrations?.nodes || []} onRefresh={() => refresh()} />
 
     <section className="integration-section" aria-labelledby="connections-tools-title">
-      <div className="integration-section-heading"><h3 id="connections-tools-title">常用能力</h3></div>
+      <div className="integration-section-heading"><h3 id="connections-tools-title" tabIndex={-1} data-testid="personal-connections-heading-tools">常用能力</h3></div>
       {(integrations?.presets || []).map(preset => <Row key={preset.id} icon={<Search size={19} />} name={preset.name} description={<>{preset.description}<span className="integration-account">{preset.account}</span></>}
         action={<><button className="integration-button" data-testid={`personal-preset-connect-${preset.id}`} disabled={Boolean(busy) || Boolean(preset.connectionId)} onClick={() => void perform(`preset-${preset.id}`, async () => { await api("/integrations/connect", bodyFor(`preset-${preset.id}`, { presetId: preset.id })); requestBodies.current.delete(`preset-${preset.id}`); })}>{preset.connectionId ? <><Check size={14} />已连接</> : busy === `preset-${preset.id}` ? "正在核对…" : "连接"}</button>{preset.connectionId && <button className="icon-button" aria-label={`断开 ${preset.name}`} disabled={Boolean(busy)} onClick={() => void perform(`disconnect-${preset.id}`, () => api(`/connections/${preset.connectionId}`, undefined, "DELETE"))}><Unplug size={15} /></button>}</>} />)}
       {custom.map(connection => <Row key={connection.id} icon={<Unplug size={18} />} name={connection.name} description={connection.error || "已保存连接；发送资料前会核对本次范围"} action={<button className="icon-button" aria-label={`移除 ${connection.name}`} disabled={Boolean(busy)} onClick={() => void perform(`delete-${connection.id}`, () => api(`/connections/${connection.id}`, undefined, "DELETE"))}><Trash2 size={16} /></button>}>
