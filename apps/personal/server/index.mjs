@@ -18,6 +18,7 @@ import { RemoteNodes } from './remote-nodes.mjs';
 import { DesktopSharing } from './desktop-sharing.mjs';
 import { GroupSharing } from './group-sharing.mjs';
 import { GroupTools } from './group-tools.mjs';
+import { GroupArtifacts } from './group-artifacts.mjs';
 import { createPlayExecutor } from './play-executor.mjs';
 import { PlayNetwork } from './play-network.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
@@ -110,7 +111,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'play-executor.mjs', 'play-network.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -158,6 +159,7 @@ export async function createPersonalServer(options = {}) {
   playrooms = new GroupSharing(store, { messenger, creation, worker, validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, staticDir: guestStaticDir, port: options.playPort });
   creation.options.groupSharing = playrooms;
   creation.options.groupTools = new GroupTools(playrooms);
+  playrooms.artifacts = new GroupArtifacts(playrooms, creation); playrooms.artifacts.migrate();
   const playNetwork = new PlayNetwork(playrooms, { ...options.playNetwork, notify });
   const scheduler = new AgentScheduler(store, messenger, { clock: options.schedulerNow, validateInput: input => validateInput(store, input),
     refresh: async () => messenger.sync(await localAgents()), kick: () => worker.kick(), notify });
@@ -260,6 +262,14 @@ export async function createPersonalServer(options = {}) {
           if (body.action === 'stop') await playNetwork.stop();
           else void playNetwork.start().catch(() => {});
           return json(response, 202, playNetwork.status());
+        }
+      }
+      if ((match = path.match(/^\/api\/chats\/([A-Za-z0-9_-]+)\/artifacts$/))) {
+        if (method === 'GET') return json(response, 200, { artifacts: playrooms.artifacts.list(match[1], 'self') });
+        if (method === 'POST') {
+          const { action, ...body } = await readJSON(request);
+          const result = action === 'create' ? playrooms.artifacts.create(match[1], 'self', body) : action === 'edit' ? playrooms.artifacts.editNote(match[1], 'self', body) : action === 'act' ? playrooms.artifacts.act(match[1], 'self', body) : invalid('请选择作品操作');
+          return json(response, 200, result);
         }
       }
       if (path === '/api/group-rules') {

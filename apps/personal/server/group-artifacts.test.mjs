@@ -1,0 +1,40 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PersonalStore } from './store.mjs';
+import { Messenger } from './messenger.mjs';
+import { CreationService } from './creation-service.mjs';
+import { GroupSharing } from './group-sharing.mjs';
+import { GroupArtifacts } from './group-artifacts.mjs';
+async function fixture(t) {
+  const dir = await mkdtemp(join(tmpdir(), 'group-artifacts-')), store = new PersonalStore(dir), messenger = new Messenger(store), creation = new CreationService(store);
+  const sharing = new GroupSharing(store, { messenger, creation }), artifacts = new GroupArtifacts(sharing, creation); sharing.artifacts = artifacts;
+  t.after(async () => { await sharing.close(); await creation.runtime.close(); store.close(); await rm(dir, { recursive: true, force: true }); });
+  store.put('contact', { id: 'agent_codex', kind: 'agent', name: '搭子', instructions: 'PRIVATE', binding: { type: 'local', localAgentId: 'codex' }, version: 1 });
+  const thread = messenger.createChat({ kind: 'group', title: '一起玩', memberIds: ['agent_codex'] });
+  const room = sharing.prepare(thread.id, { brief: '公开背景', agents: [{ contactId: 'agent_codex', persona: '公开搭子' }], clientId: crypto.randomUUID() }); sharing.publish(thread.id, { version: room.share.version, clientId: crypto.randomUUID() });
+  const enter = name => sharing.join({ invite: sharing.invitation(room.id).token, nickname: name, clientId: crypto.randomUUID() }).room.me.id;
+  return { store, sharing, artifacts, creation, thread, a: enter('甲'), b: enter('乙') };
+}
+test('a shared note is a real Library artifact with immutable, attributed CAS revisions', async t => {
+  const f = await fixture(t), input = { kind: 'note', title: '旅行小抄', text: '不赶路', clientId: crypto.randomUUID() }, note = f.artifacts.create(f.thread.id, 'self', input);
+  assert.equal(f.artifacts.create(f.thread.id, 'self', input).id, note.id); assert.ok(f.store.require('workspace_artifact', note.id));
+  const before = f.artifacts.read(f.thread.id, f.a, note.id), updated = f.artifacts.editNote(f.thread.id, f.a, { artifactId: note.id, revisionId: before.revisionId, hash: before.hash, text: '不赶路，预算 800', clientId: crypto.randomUUID() });
+  assert.notEqual(updated.revisionId, before.revisionId); assert.equal(f.artifacts.read(f.thread.id, f.b, note.id).text, '不赶路，预算 800');
+  const revision = f.creation.artifacts.revision(note.id, updated.revisionId), contribution = f.store.require('artifact_contribution', revision.contributionIds.at(-1)); assert.equal(contribution.contactId, f.a);
+  assert.throws(() => f.artifacts.editNote(f.thread.id, f.b, { artifactId: note.id, revisionId: before.revisionId, hash: before.hash, text: '覆盖', clientId: crypto.randomUUID() }), e => e.status === 409);
+  assert.equal(f.creation.artifacts.read(note.id, before.revisionId, { owner: true }).files[0].text, '不赶路');
+});
+test('poll and quiz actions synchronize by real actor, are replay safe and cannot grant arbitrary file access', async t => {
+  const f = await fixture(t), poll = f.artifacts.create(f.thread.id, 'self', { kind: 'poll', title: '周末去哪', choices: ['山里', '海边'], clientId: crypto.randomUUID() });
+  const action = { artifactId: poll.id, revisionId: poll.revisionId, choiceId: 'choice_1', clientId: crypto.randomUUID() };
+  f.artifacts.act(f.thread.id, f.a, action); f.artifacts.act(f.thread.id, f.a, action);
+  const current = f.artifacts.read(f.thread.id, f.b, poll.id); assert.equal(current.choices[1].votes.length, 1); assert.equal(current.choices[1].votes[0], f.a);
+  assert.throws(() => f.artifacts.act(f.thread.id, f.a, { ...action, clientId: crypto.randomUUID(), actorId: 'self' }), e => e.status === 400);
+  const other = f.sharing.messenger.createChat({ kind: 'group', title: '别的群', memberIds: ['agent_codex'] }); assert.throws(() => f.artifacts.read(other.id, 'self', poll.id), e => e.status === 403);
+  assert.throws(() => f.artifacts.editNote(f.thread.id, f.a, { artifactId: poll.id, revisionId: poll.revisionId, hash: 'x', path: '../../auth.json', text: 'x', clientId: crypto.randomUUID() }), e => e.status === 400);
+  f.sharing.action(f.sharing.current(f.thread.id).id, 'self', { type: 'remove', participantId: f.a, clientId: crypto.randomUUID() });
+  assert.throws(() => f.artifacts.read(f.thread.id, f.a, poll.id), e => e.status === 403);
+});

@@ -95,7 +95,7 @@ export class CreationService {
   }
   authorize(context, capability, artifactId, path, revisionId) {
     if (typeof path === 'string') path = path.normalize('NFC');
-    if (context?.owner && capability !== 'create') return;
+    if (context?.owner && (capability !== 'create' || context.groupArtifact === true)) return;
     if (!context) fail(403, 'permission_required', '缺少作品授权');
     if (capability === 'read') { if (!this.canRead(context, artifactId, revisionId, path)) fail(403, 'permission_required', '这个版本或文件尚未向全部接收者共享'); return; }
     const grant = this.grant(context);
@@ -122,7 +122,8 @@ export class CreationService {
   }
   tools(context) {
     const groups = this.options.groupTools?.tools(context) || [];
-    return context.sharedGroup ? [...groups, ...(this.options.groupSharing?.artifacts?.tools(context) || [])] : [...artifactTools(context.mode), ...groups];
+    const sharedArtifacts = this.options.groupSharing?.artifacts?.tools(context) || [];
+    return context.sharedGroup ? [...groups, ...sharedArtifacts] : [...artifactTools(context.mode), ...groups, ...sharedArtifacts];
   }
   call(original, name, args, callId) {
     if (original.signal?.aborted) fail(403, 'grant_revoked', '本次工具会话已撤销');

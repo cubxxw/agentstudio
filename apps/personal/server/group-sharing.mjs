@@ -129,6 +129,7 @@ export class GroupSharing extends Playrooms {
     const room = this.current(thread.id); if (!room || room.state !== 'published') return null;
     this.active(room); this.member(thread.id, actorId);
     groupText(body.text, 4000);
+    if (thread.messages.filter(m => m.groupShareId === room.id).length >= 300) groupError(429, 'message_limit', '本次邀请的消息已满，请主人结束后重新邀请');
     if (body.attachments?.length || body.memoryIds?.length || body.action) groupError(400, 'public_scope', '公开群聊只接受消息文字；文件请通过群作品明确分享');
     const pending = this.store.list('thread').flatMap(t => t.runs).filter(r => r.sharedGroup && !terminal(r));
     if (pending.length >= 20) groupError(429, 'queue_full', '任务有点多，请稍后再试');
@@ -157,15 +158,17 @@ export class GroupSharing extends Playrooms {
     if (!Object.hasOwn(allowed, body?.type)) groupError(400, 'invalid_input', '不支持这个群聊操作');
     groupFields(body, ['type', 'clientId', ...allowed[body.type]]);
     if (['close', 'remove'].includes(body.type) && actorId !== 'self') groupError(403, 'owner_required', '只有主人可以管理邀请');
+    if (body.type.startsWith('artifact_')) {
+      if (!this.artifacts) groupError(503, 'unavailable', '作品暂时不可用');
+      const { type, ...input } = body;
+      if (type === 'artifact_create') this.artifacts.create(room.threadId, actorId, input);
+      else if (type === 'artifact_edit') this.artifacts.editNote(room.threadId, actorId, input);
+      else this.artifacts.act(room.threadId, actorId, input);
+      return this.project(this.store.require('play_room', roomId), actorId);
+    }
     this.store.idempotent(`group:action:${roomId}:${actorId}`, body.clientId, body, () => {
       if (body.type === 'message') this.send(room.threadId, actorId, { text: body.text, replyTo: body.replyTo });
-      else if (body.type.startsWith('artifact_')) {
-        if (!this.artifacts) groupError(503, 'unavailable', '作品暂时不可用');
-        const { type, clientId, ...input } = body;
-        if (type === 'artifact_create') this.artifacts.create(room.threadId, actorId, { ...input, clientId });
-        else if (type === 'artifact_edit') this.artifacts.editNote(room.threadId, actorId, { ...input, clientId });
-        else this.artifacts.act(room.threadId, actorId, { ...input, clientId });
-      } else {
+      else {
         const current = this.store.require('play_room', roomId), thread = this.store.require('thread', room.threadId);
         const targets = current.participants.filter(p => !p.isOwner && !p.removedAt && (body.type === 'close' || p.id === body.participantId));
         if (body.type === 'remove' && !targets.length) groupError(400, 'invalid_guest', '请选择仍在群中的访客');

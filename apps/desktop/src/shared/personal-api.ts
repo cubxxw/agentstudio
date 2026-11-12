@@ -27,7 +27,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     /^\/api\/group-rules$/,
     /^\/api\/play-network$/,
     new RegExp(`^/api/playrooms(?:/${opaqueId})?$`),
-    new RegExp(`^/api/chats/${opaqueId}/sharing$`),
+    new RegExp(`^/api/chats/${opaqueId}/(sharing|artifacts)$`),
     /^\/api\/sharing$/,
     /^\/api\/im\/settings$/,
     /^\/api\/library\/artifacts$/,
@@ -50,7 +50,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
   POST: [
     /^\/api\/group-rules$/,
     /^\/api\/play-network$/,
-    new RegExp(`^/api/chats/${opaqueId}/sharing$`),
+    new RegExp(`^/api/chats/${opaqueId}/(sharing|artifacts)$`),
     /^\/api\/playrooms$/,
     new RegExp(`^/api/playrooms/${opaqueId}/(invite|actions)$`),
     /^\/api\/sharing(?:\/invite)?$/,

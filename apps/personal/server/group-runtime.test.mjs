@@ -26,7 +26,7 @@ test('shared owner queries use native tools and isolated context with no private
   assert.equal(seen.isolateUserContext, true); assert.ok(seen.toolSession); assert.equal(seen.deps.env.HOME, '/isolated-fixture');
   assert.ok(seen.prompt.includes('PUBLIC_ROLE')); assert.ok(!seen.prompt.includes('PRIVATE_')); assert.ok(seen.prompt.includes('group_info'));
   assert.equal(f.closed(), 1); assert.equal(done.messages.at(-1).text, '公开结果');
-  assert.deepEqual(seen.toolSession.toolNames, ['group_info']);
+  assert.deepEqual(seen.toolSession.toolNames, ['group_info', 'group_artifact_list', 'group_artifact_create', 'group_artifact_edit']);
 });
 test('an unsupported public CLI fails once and never retries through the ordinary private path', async t => {
   let calls = 0;
