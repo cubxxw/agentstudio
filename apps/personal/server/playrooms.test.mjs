@@ -110,3 +110,7 @@ test('a full length Chinese shared note fits the byte limit and persists', async
   const saved = await f.request(`/g-api/${room.id}/actions`, { type: 'notes', version: 1, text: value, clientId: crypto.randomUUID() }, a.cookie);
   assert.equal(saved.status, 200); assert.equal(saved.body.board.notes, value);
 });
+test('digital twin presents the published host identity instead of the underlying CLI brand', async t => {
+  const f = await fixture(t), room = f.create({ template: 'twin', hostName: '小熊' });
+  assert.equal(room.agentName, '小熊的分身');
+});

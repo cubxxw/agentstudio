@@ -41,7 +41,8 @@ export class Playrooms {
       const roomId = id('pr'), token = randomBytes(32).toString('base64url');
       const credential = { id: roomId, type: 'play-invite', url: `https://agentroom.invalid/${roomId}`, credentialVersion: 1 };
       credential.credentialRef = this.store.vault.create(token, credential);
-      return this.store.put('play_room', { id: roomId, template: body.template, title, brief, persona, hostName, agentName: contact.name,
+      const agentName = body.template === 'twin' ? `${hostName}的分身` : body.template === 'travel' ? `${hostName}的旅行搭子` : '共创搭子';
+      return this.store.put('play_room', { id: roomId, template: body.template, title, brief, persona, hostName, agentName,
         backend: contact.binding.localAgentId, configuration: contact.configuration || {}, executionSnapshot: contact.executionSnapshot, inviteHash: digest(token), credential,
         maxGuests, maxTurns, turns: 0, createdAt: this.stamp(), expiresAt: new Date(this.clock() + ttlHours * 3600_000).toISOString(), version: 1,
         participants: [{ id: 'self', name: hostName, isOwner: true, joinedAt: this.stamp() }], messages: [],
@@ -54,7 +55,7 @@ export class Playrooms {
   invitation(roomId) {
     const room = this.store.require('play_room', roomId); this.active(room);
     const token = this.store.vault.authorization(room.credential).Authorization.slice(7);
-    return { token, localUrl: `http://127.0.0.1:${this.server.address()?.port}/g/${room.id}#${token}`, url: this.publicOrigin ? `${this.publicOrigin}/g/${room.id}#${token}` : null };
+    return { roomId, token, localUrl: `http://127.0.0.1:${this.server.address()?.port}/g/${room.id}#${token}`, url: this.publicOrigin ? `${this.publicOrigin}/g/${room.id}#${token}` : null };
   }
   project(room, actorId) {
     const participants = room.participants.filter(p => !p.removedAt).map(({ id, name, isOwner }) => ({ id, name, isOwner: Boolean(isOwner) }));

@@ -51,6 +51,7 @@ export default defineConfig({
       rollupOptions: { input: {
         legacy: resolve(__dirname, "src/renderer/index.html"),
         personal: resolve(__dirname, "src/renderer/personal/index.html"),
+        guest: resolve(__dirname, "src/renderer/guest/index.html"),
       } },
     },
   },
