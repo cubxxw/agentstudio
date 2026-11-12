@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // First-use and profile-reset acceptance, always with isolated synthetic identities.
 import {createRequire} from 'node:module';
 import {mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
@@ -21,7 +21,7 @@ async function request(path,body){
  const r=await fetch(`http://127.0.0.1:${server.address().port}/api${path}`,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(await r.text());return r.json();
 }
 async function launch(args=[resolve('apps/desktop')]){
- app=await _electron.launch({executablePath:require('electron'),args,env,timeout:30000});page=await app.firstWindow();
+ app=await launchDesktopTest(_electron, {executablePath:require('electron'),args,env,timeout:30000});page=await app.firstWindow();
  page.on('pageerror',e=>errors.push(e.message));await expect(page.getByTestId('im-app')).toBeVisible();
  await expect.poll(()=>request('/health').then(r=>r.ok)).toBe(true);
 }

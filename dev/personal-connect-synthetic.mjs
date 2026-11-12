@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Native synthetic acceptance only: reuse the already-running e2e/fakes/agents.ts
 // on 127.0.0.1:19179. Never start/reset that server or use real service accounts.
 // Run after building: AGENTSTUDIO_DESKTOP_EVIDENCE_DIR=<registered artifact> \
@@ -78,12 +78,13 @@ const mainWindow = async operation => application.evaluate(({ BrowserWindow }, o
   const window = BrowserWindow.getAllWindows().find(item => item.webContents.getURL().includes('/renderer/personal/index.html'));
   if (!window) throw new Error('The owned personal window was not found');
   if (operation.kind === 'resize') window.setSize(operation.width, operation.height);
-  window.show(); window.focus();
+  if (process.env.AGENTROOM_AUTOMATION_VISIBLE === '1') { window.show(); window.focus(); }
   return { id: window.getMediaSourceId(), size: window.getSize(), minimum: window.getMinimumSize() };
 }, operation);
 const capture = async name => {
   const info = await mainWindow({ kind: 'focus' });
   await page.screenshot({ path: join(evidence, `${name}-renderer.png`) });
+  if (process.env.AGENTROOM_AUTOMATION_VISIBLE !== '1') { captures.push({ name, nativeWindow: false, renderer: true, size: info.size }); return; }
   const windowId = info.id.split(':')[1];
   if (!/^\d+$/.test(windowId || '')) throw new Error('The owned native window has no capture ID');
   execFileSync('/usr/sbin/screencapture', ['-x', '-l', windowId, join(evidence, `${name}.png`)]);
@@ -192,7 +193,7 @@ const providerSnapshot = async (cueInstanceId, samples) => application.evaluate(
   };
 }, { profile, cueInstanceId, marker, samples, fakeOrigin });
 const launch = async () => {
-  application = await _electron.launch({ executablePath, args: packagedApp ? [] : [join(root, 'apps/desktop')], env });
+  application = await launchDesktopTest(_electron, { executablePath, args: packagedApp ? [] : [join(root, 'apps/desktop')], env });
   page = await application.firstWindow();
   await page.getByTestId("im-app").waitFor();
 

@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {createPersonalServer} from '../apps/personal/server/index.mjs';
-import {cleanDesktopTestEnv} from './desktop-test-env.mjs';
+import {cleanDesktopTestEnv, launchDesktopTest} from './desktop-test-env.mjs';
 
 const require=createRequire(new URL('../apps/desktop/package.json',import.meta.url));
 const {chromium,_electron}=createRequire(require.resolve('@playwright/test'))('playwright');
@@ -29,7 +29,7 @@ const watchPage=target=>{
 };
 const launchNative=async()=>{
  const packaged=process.env.AGENTSTUDIO_PACKAGED_APP;
- application=await _electron.launch({executablePath:packaged?join(packaged,'Contents/MacOS/AgentRoom'):require('electron'),args:packaged?[]:[resolve('apps/desktop')],env,timeout:60000});
+ application=await launchDesktopTest(_electron, {executablePath:packaged?join(packaged,'Contents/MacOS/AgentRoom'):require('electron'),args:packaged?[]:[resolve('apps/desktop')],env,timeout:60000});
  expect(await application.evaluate(({app})=>app.getPath('userData'))).toBe(join(output,'profile'));
  page=await application.firstWindow();
  await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setBounds({width:1120,height:900}));

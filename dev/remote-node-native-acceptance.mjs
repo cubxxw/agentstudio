@@ -1,3 +1,4 @@
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,7 +21,7 @@ for(const k of ['ELECTRON_RUN_AS_NODE','ELECTRON_RENDERER_URL','AGENTSTUDIO_PERS
 let app;const errors=[];
 try{
  const bundle=process.env.AGENTSTUDIO_PACKAGED_APP;
- app=await _electron.launch({executablePath:bundle ? join(bundle,'Contents/MacOS/AgentRoom') : require('electron'),args:bundle ? [] : [join(root,'apps/desktop')],env,timeout:30000});
+ app=await launchDesktopTest(_electron, {executablePath:bundle ? join(bundle,'Contents/MacOS/AgentRoom') : require('electron'),args:bundle ? [] : [join(root,'apps/desktop')],env,timeout:30000});
  await app.evaluate(({ipcMain})=>{ipcMain.removeHandler('agentstudio:personal:integration');ipcMain.handle('agentstudio:personal:integration',()=>new Promise(()=>{}));});
  const page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));
  await page.getByTestId('im-app').waitFor();await page.getByTestId('im-settings').click();

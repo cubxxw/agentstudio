@@ -107,10 +107,27 @@ beforeEach(() => { vi.useFakeTimers(); fake.windows = []; fake.loads = []; });
 afterEach(async () => {
   for (const win of fake.windows) win.destroy();
   await vi.advanceTimersByTimeAsync(1000);
-  vi.clearAllTimers(); vi.useRealTimers();
+  vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllEnvs();
 });
 
 describe("background session startup", () => {
+  it("keeps requested connector, ready login and owned popups hidden during automation", async () => {
+    vi.stubEnv('AGENTROOM_AUTOMATION_MODE', 'background');
+    const session = new WebSession({ partition: 'persist:synthetic-hidden', url: 'https://example.invalid/', title: 'Synthetic', show: true });
+    await session.open(); session.show();
+    expect(fake.windows[0]!.visible).toBe(false);
+    expect(fake.windows[0]!.focus).not.toHaveBeenCalled();
+    fake.windows = [];
+    const f = fixture(); f.load.resolve(); await turn();
+    expect(f.onReady).toHaveBeenCalledTimes(1);
+    expect(f.login().visible).toBe(false);
+    expect(f.login().show).not.toHaveBeenCalled();
+    expect(f.login().focus).not.toHaveBeenCalled();
+    const popup = f.login().openPopup('https://accounts.example.invalid/login')!;
+    expect(popup.visible).toBe(false);
+    f.controller.abort(); await turn();
+    session.close();
+  });
   it("bounds a debugger command that never returns and never executes it late", async () => {
     const session = new WebSession({ partition: "persist:synthetic-websession", url: "https://example.invalid/", title: "Synthetic" });
     await session.open();

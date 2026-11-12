@@ -19,7 +19,7 @@ export default defineConfig<{ platform: Platform }>({
   forbidOnly: !!process.env.CI,
   reporter: [["list"], ["html", { open: "never" }]],
   projects: [
-    { name: "desktop", use: { platform: "desktop" } },
+    { name: "desktop", workers: 1, use: { platform: "desktop" } },
     {
       name: "mobile-web",
       use: {

@@ -29,6 +29,25 @@ GET-493 · 2026-11-11
 
 ## 验收入口
 
+### 不打扰日常桌面的自动验收
+
+优先运行各脚本的浏览器验收。原生入口统一使用 `dev/desktop-test-env.mjs` 的 `launchDesktopTest`，禁止直接调用 `_electron.launch` 绕过版本与互斥检查。默认保持窗口隐藏、不可获得系统焦点，不显示 Dock 图标；页面输入、切页和 renderer 截图仍然执行。自动化窗口标题固定为「AgentRoom · 自动化验收 · 提交前八位」，不与应用内人工使用的测试模式混淆。普通启动行为保持不变。
+
+构建后，启动器读取实际目标内的 `out/main/build-info.json`，默认核对当前 checkout 的完整提交（含 dirty 标识）及未提交内容指纹。过期产物、缺少后台自动化支持的旧包会在启动前被拒绝；只修改版本号或设置 `PERSONAL_BUILD_REF` 不能通过检查。明确需要验证一个特定发布包时，可传 `AGENTROOM_EXPECTED_BUILD_REF=<40位完整clean提交>`；它必须与该包及主进程内嵌提交一致，不能用显式 dirty ref 跳过内容检查。这是指定验收对象，不代表它等于最新远端主分支。判断“最新”前须先 fetch，再比较 `origin/main`。
+
+所有入口共用 `~/.local/state/agentroom-automation/desktop.lock`，已有原生验收时后续入口退出，不同时操纵桌面。窗口关闭、启动失败或脚本正常退出会释放锁；异常强制终止留下锁时，先确认锁内 PID 已不存在，再精确移除该锁文件。
+
+只有确需系统窗口截图、真实窗口焦点或 Dock 行为的验收，才显式传 `AGENTROOM_AUTOMATION_VISIBLE=1`。此模式仍使用隔离资料和互斥锁，可能切换桌面焦点，须与正在使用电脑的人协调；不能把隐藏 renderer 截图称为 macOS 窗口验收。隐藏模式的真实 Electron 验证：
+
+```sh
+pnpm --filter @agentstudio/desktop build
+node dev/native-automation-acceptance.mjs
+```
+
+使用打包目标时传 `AGENTSTUDIO_PACKAGED_APP=/绝对路径/AgentRoom.app`，入口直接启动该文件，不用应用名或 Bundle ID 查找。恢复副本保存为 `.bundle` 或归档，不保留可被 LaunchServices 发现的 `.app` 副本；替换前保留原资料和恢复引用，不能删除唯一证据。
+
+依据：[Electron BrowserWindow 的 show、focus 与后台渲染行为](https://www.electronjs.org/docs/latest/api/browser-window)。
+
 构建 personal 与 desktop 后：
 
 ```sh

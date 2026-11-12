@@ -1,3 +1,4 @@
+import { backgroundAutomation } from "../automation";
 // A connector for agents the user talks to in a web chat (Muse, ChatGPT Dots).
 // It drives the service's own page in a hidden, signed-in window through a page
 // driver (drivers.ts): sending types into the page's composer, and replies are
@@ -100,7 +101,7 @@ export class WebChatConnector implements Connector {
 
   /** "View in Muse": the service in the user's browser. The session window itself never shows. */
   open() {
-    void shell.openExternal(this.cfg.url);
+    if (!backgroundAutomation()) void shell.openExternal(this.cfg.url);
   }
 
   async start(emitter: Emitter): Promise<void> {

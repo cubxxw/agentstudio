@@ -1,4 +1,4 @@
-import { cleanDesktopTestEnv } from './desktop-test-env.mjs';
+import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 // Actual Electron startup with a saved synthetic web connector and an image
 // response that never finishes. Mock keychain applies only to this fresh profile.
 import { createRequire } from 'node:module';
@@ -42,7 +42,7 @@ const api = (path) => page.evaluate(async path => {
 }, path);
 const launch = async () => {
   const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;
-  application = await _electron.launch({ executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 20000 });
+  application = await launchDesktopTest(_electron, { executablePath: packaged ? join(packaged, 'Contents/MacOS/AgentRoom') : requireDesktop('electron'), args: packaged ? [] : [resolve('apps/desktop')], env, timeout: 20000 });
   // Restored connector windows may be created before the personal window.
   // Pick the bundled renderer rather than whichever window appears first.
   await expect.poll(() => application.windows().filter(window => window.url().startsWith('file://')).length).toBe(1);
