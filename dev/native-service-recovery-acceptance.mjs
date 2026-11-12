@@ -62,6 +62,7 @@ try {
  await expect(page.getByTestId('personal-service-instances-grokbot')).toContainText('登录记录未恢复');
  await expect(page.getByTestId('personal-service-instances-muse')).toContainText('登录记录未恢复');
  await expect(page.getByTestId('personal-service-instances-muse').getByTestId('im-avatar-image')).toBeVisible();
+ await page.getByTestId('personal-service-instances-muse').scrollIntoViewIfNeeded();
  await page.screenshot({ path: join(output, 'service-recovery.png') });
  checks.push('connection recovery opens safe original service rows with retained avatars');
  expect(errors).toEqual([]); checks.push('no renderer exceptions');
