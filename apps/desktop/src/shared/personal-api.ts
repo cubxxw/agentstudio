@@ -50,7 +50,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
-    /^\/api\/roomie\/(messages|actions|projects|links)$/,
+    /^\/api\/roomie\/(messages|actions|links)$/,
     /^\/api\/group-rules$/,
     /^\/api\/play-network$/,
     new RegExp(`^/api/chats/${opaqueId}/(sharing|artifacts)$`),

@@ -113,7 +113,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'roomie.mjs', 'roomie-executor.mjs', 'project-resources.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'roomie.mjs', 'roomie-executor.mjs', 'agent-binding-identity.mjs', 'project-resources.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -144,8 +144,8 @@ export async function createPersonalServer(options = {}) {
   const localAgentDeps = { ...(options.localAgentDeps || {}), commands: { ...commands, ...options.localAgentDeps?.commands } };
   const onboarding = new AgentOnboarding(store, messenger, { execute: options.executeLocalAgent, deps: localAgentDeps, notify });
   onboarding.recover();
-  const roomie = new Roomie(store, messenger, { execute: options.executeLocalAgent, deps: localAgentDeps, notify });
-  const projects = new ProjectResources(store);
+  const roomie = new Roomie(store, messenger, { bindingIdentity: options.roomieBindingIdentity, execute: options.executeLocalAgent, deps: localAgentDeps, notify });
+  const projects = new ProjectResources(store, { deps: localAgentDeps, bindingIdentity: options.roomieBindingIdentity });
   roomie.recover();
   const worker = new PersonalWorker(store, { ...options, localAgentDeps, executeOnboarding: (thread, run, signal) => thread.roomieJobId ? roomie.execute(thread, run, signal) : onboarding.execute(thread, run, signal) }, notify);
   creation = new CreationService(store, { ...options, localAgentDeps, notify, cancelRun: (threadId, runId) => worker.cancel(threadId, runId) });
@@ -378,11 +378,15 @@ export async function createPersonalServer(options = {}) {
       if (method === 'POST' && ['/api/roomie/messages', '/api/roomie/actions'].includes(path)) {
         const body = await readJSON(request), detected = await localAgents();
         messenger.sync(detected);
-        const allowed = path.endsWith('/messages') ? ['clientId', 'text', 'agentId', 'configuration'] : ['clientId', 'action', 'recommendationId', 'jobId', 'enabled', 'agentId'];
+        const selectedAgentId = body.agentId !== undefined ? body.agentId : store.get('setting', 'roomie')?.agentId;
+        const targetJob = body.jobId ? store.get('roomie_job', body.jobId) : store.get('setting', 'roomie')?.currentJobId ? store.get('roomie_job', store.get('setting', 'roomie').currentJobId) : null;
+        const identityAgent = ['add_role', 'create_group', 'apply_project'].includes(body.action) ? targetJob?.agentId : body.action === 'add_local' || path.endsWith('/messages') && roomie.needsModel(body) ? selectedAgentId : null;
+        const bindingFingerprint = identityAgent ? await roomie.identity(identityAgent) : null;
+        const allowed = path.endsWith('/messages') ? ['clientId', 'text', 'agentId', 'configuration'] : ['clientId', 'action', 'recommendationId', 'jobId', 'enabled', 'agentId', 'configuration'];
         if (Object.keys(body).some(k => !allowed.includes(k))) invalid('小伴配置包含不支持的选项');
-        const result = store.idempotent(path, body.clientId, body, () => path.endsWith('/messages') ? roomie.message(body, detected)
-          : body.action === 'add_local' ? roomie.start({ agentId: body.agentId, autoAdd: true }, detected)
-          : body.action === 'cancel' ? roomie.cancel(body.jobId) : roomie.action(body, detected));
+        const result = store.idempotent(path, body.clientId, body, () => path.endsWith('/messages') ? roomie.message(body, detected, bindingFingerprint)
+          : body.action === 'add_local' ? roomie.start({ agentId: body.agentId, configuration: body.configuration, autoAdd: true }, detected, bindingFingerprint)
+          : body.action === 'cancel' ? roomie.cancel(body.jobId) : roomie.action(body, detected, bindingFingerprint));
         if (body.action === 'cancel') { const job = store.require('roomie_job', body.jobId); const thread = store.require('thread', job.threadId); worker.cancel(thread.id, thread.runs[0].id); }
         notify({ roomie: true }); worker.kick(); return json(response, 200, result);
       }

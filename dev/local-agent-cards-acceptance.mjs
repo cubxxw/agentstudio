@@ -85,7 +85,8 @@ try {
   await page.reload();
   if (server) {
     expect(server.store.list('contact').filter(c => c.added).map(c => c.id).sort()).toEqual(before);
-    expect(server.store.list('thread').length).toBe(1);
+    expect(server.store.list('thread').filter(t => t.purpose !== 'roomie').length).toBe(1);
+    expect(server.store.list('thread').filter(t => t.purpose === 'roomie').length).toBe(1);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByTestId('im-nav-contacts').click();

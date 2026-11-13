@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { APIError, connectionIdentity, id, now } from './store.mjs';
 import { executeLocalAgent } from './local-agents.mjs';
+import { agentBindingIdentity } from './agent-binding-identity.mjs';
 import { guestCodexSession } from './play-executor.mjs';
 import { nativeSource } from './native-services.mjs';
 import { parseGoalDecision } from './agent-scheduler.mjs';
@@ -110,6 +111,7 @@ async function executeCodex(store, thread, run, options, signal, customPrompt, o
     const deps = { commands: { codex: options.codexCommand || 'codex' }, ...(options.localAgentDeps || {}) };
     let isolated;
     try {
+    if (run.projectSnapshot?.executorFingerprints?.[run.localAgentId]) { const identity = await (options.roomieBindingIdentity || agentBindingIdentity)(run.localAgentId, deps); store.put('local_binding_identity', { id: run.localAgentId, fingerprint: identity }); if (identity !== run.projectSnapshot.executorFingerprints[run.localAgentId]) throw new APIError(409, 'binding_changed', '认证或传输配置已变化，请重新核对项目授权'); }
     if ((run.sharedGroup || run.projectSnapshot) && run.localAgentId === 'codex') isolated = await (options.guestSession || guestCodexSession)(workspace, deps);
     return await (options.executeLocalAgent || executeLocalAgent)({ id: run.localAgentId,
       prompt: store.vault.redactString(customPrompt || codexPrompt(store, thread, run, false, options.creationService)),

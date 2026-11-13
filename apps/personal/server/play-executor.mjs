@@ -13,7 +13,7 @@ const tools = [{ name: 'room_read', description: 'Read the published context of 
 export async function guestCodexSession(workspace, deps = {}) {
   if (process.platform === 'win32') throw new Error('当前系统暂不能建立隔离的访客认证');
   const sourceEnv = deps.env || process.env, source = join(sourceEnv.CODEX_HOME || join(deps.home || homedir(), '.codex'), 'auth.json');
-  if (['CODEX_API_KEY', 'CODEX_ACCESS_TOKEN', 'OPENAI_API_KEY'].some(key => sourceEnv[key])) throw new Error('访客模式需要明确的文件认证；没有选择环境变量中的其他账号');
+  if (['CODEX_API_KEY', 'CODEX_ACCESS_TOKEN', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORG_ID', 'OPENAI_PROJECT_ID'].some(key => sourceEnv[key])) throw new Error('隔离执行需要明确的文件认证和默认传输；没有选择其他账号，也没有忽略环境变量中的服务地址');
   if ((await readAgentProfile('codex', deps)).guestCompatible === false) throw new Error('访客模式暂不支持当前 Codex 配置；没有切换配置');
   const info = await stat(source); if (!info.isFile() || info.size > 65536 || (info.mode & 0o077) || (process.getuid && info.uid !== process.getuid())) throw new Error('访客模式需要私有的当前认证文件');
   const original = JSON.parse(await readFile(source, 'utf8'));

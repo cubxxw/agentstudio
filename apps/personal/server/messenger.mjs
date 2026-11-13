@@ -241,7 +241,7 @@ export class Messenger {
         localAgentId: binding.localAgentId || contact.chatBackend?.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
       const goal = this.store.get('agent_control', contact.id)?.goal;
       const prepared = { ...input, resourceLinksSnapshot: (thread.resourceLinkIds || (thread.kind === 'direct' ? contact.resourceLinkIds : []) || []).slice(0,20).map(id => this.store.get('workspace_link', id)).filter(Boolean).map(({ id, label, url }) => ({ id, label, url })), ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
-        ...((thread.projectId || (thread.kind === 'direct' && contact.projectId)) ? { projectSnapshot: { projectId: thread.projectId || contact.projectId, version: this.store.require('project_resource', thread.projectId || contact.projectId).version, audienceIds: [...thread.memberIds] } } : {}),
+        ...((['codex', 'pi'].includes(input.localAgentId) && binding.type === 'local' && !publication && (thread.projectGrant || (thread.kind === 'direct' && contact.projectGrant))) ? { projectSnapshot: structuredClone(thread.projectGrant || contact.projectGrant) } : {}),
         imPolicy: { allowSilence: (thread.responsePolicies[contact.id] !== 'always') && (thread.allowSilence ?? imSettings(this.store).allowSilence), allowReactions: true },
         participantMemberships: structuredClone(thread.members),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
