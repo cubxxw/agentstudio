@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowUp, Check, ChevronRight, Compass, FolderOpen, Link2, Lo
 import { api, key } from './api';
 import { desktopBridge } from './native';
 import { AgentOptions } from './AgentOptions';
+import { Avatar } from './ContactAvatar';
 import type { AgentConfiguration } from './types';
 import type { RoomieState, RoomieCard } from './roomie-types';
 import './roomie.css';
@@ -35,7 +36,7 @@ export function RoomieChat({onOpenThread,onConnect,onChanged,onBack,onSkip,toolb
   :item.kind==='group'?<button className="im-secondary" data-testid="roomie-create-group" disabled={Boolean(busy)} onClick={()=>item.threadId?onOpenThread(item.threadId):void action('create_group',{recommendationId:item.id,jobId:item.jobId})}>{item.threadId?'打开群聊':'创建群聊并配好成员'}<ChevronRight size={15}/></button>
   :<button className="im-secondary" data-testid="roomie-open-existing" disabled={Boolean(busy)} onClick={()=>void openContact(item.contactId!)}>打开聊天<ChevronRight size={15}/></button>}</article>;
  return <section className="roomie-chat" data-testid="roomie-chat">
-  <header className="im-header"><button className="im-icon" aria-label="返回会话列表" data-testid="roomie-back" onClick={onBack}><ArrowLeft size={20}/></button>{toolbar}<span className="roomie-mark"><Compass size={22}/></span><div className="im-header-copy"><strong>Roomie 小伴</strong><small>{agentId&&state?.job?.probe.status==='passed'?`由 ${state.job.executionSnapshot.model} 提供 · 工作区管家`:'本机配置助手 · 先把工作区准备好'}</small></div><button className="im-icon" data-testid="roomie-refresh" aria-label="检查本机配置" onClick={()=>void refresh()}><RefreshCw size={18}/></button><button className="im-icon" data-testid="roomie-connections" aria-label="管理连接" onClick={onConnect}><Settings2 size={18}/></button></header>
+  <header className="im-header"><button className="im-icon" aria-label="返回会话列表" data-testid="roomie-back" onClick={onBack}><ArrowLeft size={20}/></button>{toolbar}<Avatar contact={{ id: "agentroom_roomie", name: "Roomie 小伴", kind: "agent", color: "teal" }} size="small" /><div className="im-header-copy"><strong>Roomie 小伴</strong><small>{agentId&&state?.job?.probe.status==='passed'?`由 ${state.job.executionSnapshot.model} 提供 · 工作区管家`:'本机配置助手 · 先把工作区准备好'}</small></div><button className="im-icon" data-testid="roomie-refresh" aria-label="检查本机配置" onClick={()=>void refresh()}><RefreshCw size={18}/></button><button className="im-icon" data-testid="roomie-connections" aria-label="管理连接" onClick={onConnect}><Settings2 size={18}/></button></header>
   <div className="roomie-scroll" ref={scroll} data-testid="roomie-timeline">
    {!state&&<p role="status"><Loader2 className="working" size={16}/> 正在认识这台 Mac…</p>}
    {state?.messages.map(message=><div key={message.id} className={`roomie-message ${message.role==='user'?'from-owner':''}`} data-testid="roomie-message"><p>{message.text}</p></div>)}

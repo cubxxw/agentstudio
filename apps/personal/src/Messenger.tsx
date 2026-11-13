@@ -1,3 +1,4 @@
+import agentroomIcon from "@agentstudio/brand/assets/agentstudio.png";
 import { groupAvatarMembers } from "./ContactAvatar";
 import { useConversationRead } from "./use-conversation-read";
 import { presenceText } from "./contact-presence";
@@ -379,7 +380,7 @@ function Messenger() {
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-local-add-entry" onClick={() => setLocalPickerOpen(true)}><Plus size={18} /><span>快速添加本机助手<small>选择常用 Agent，添加后开始聊天</small></span><ChevronRight size={16} /></button>}
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-discovery-entry" onClick={() => setDiscoveryOpen(true)}><Search size={18} /><span>发现本机助手<small>使用已安装或已连接的伙伴</small></span><ChevronRight size={16} /></button>}
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-onboarding-open" onClick={() => setOnboardingOpen(true)}><Bot size={18} /><span>让助手建议角色<small>测试连接，了解已有伙伴和群聊</small></span><ChevronRight size={16} /></button>}
-      {(screen === "chats" || screen === "contacts") && <button className="im-onboarding-entry" data-testid="roomie-open" onClick={() => { setRoomieOpen(true); setScreen("chats"); setMobileDetail(true); }}><Bot size={18}/><span>Roomie 小伴<small>配置助手、整理项目与组织群聊</small></span><ChevronRight size={16}/></button>}
+      {(screen === "chats" || screen === "contacts") && <button className="im-onboarding-entry" data-testid="roomie-open" onClick={() => { setRoomieOpen(true); setScreen("chats"); setMobileDetail(true); }}><img className="roomie-entry-icon" src={agentroomIcon} alt=""/><span>Roomie 小伴<small>配置助手、整理项目与组织群聊</small></span><ChevronRight size={16}/></button>}
     </aside>
     <main className="im-main" id="im-main" data-testid="im-main">
       {(!connected && !loading) && <div className="im-connection-warning" role="status"><WifiOff size={16} />连接中断，草稿和已加载的消息仍保留。<button disabled={busy === "reconnect"} onClick={() => void reconnect()}>{busy === "reconnect" ? "正在恢复…" : "重新连接"}</button></div>}
