@@ -7,7 +7,7 @@ import { cleanDesktopTestEnv, launchDesktopTest } from './desktop-test-env.mjs';
 const require=createRequire(new URL('../apps/desktop/package.json',import.meta.url));
 const {chromium,_electron}=createRequire(require.resolve('@playwright/test'))('playwright'),{expect}=require('@playwright/test');
 const native=process.argv.includes('--native'),real=process.argv.includes('--real');
-const parent=process.env.ROOMIE_EVIDENCE_DIR;if(!parent)throw new Error('ROOMIE_EVIDENCE_DIR must be a managed artifact directory');
+if(!process.env.ROOMIE_EVIDENCE_DIR)throw new Error('ROOMIE_EVIDENCE_DIR must be a managed artifact directory');const parent=resolve(process.env.ROOMIE_EVIDENCE_DIR);
 await mkdir(parent,{recursive:true});
 const output=await mkdtemp(join(parent,real?'roomie-real-':native?'roomie-native-':'roomie-browser-'));
 const project=join(output,'selected-project');await mkdir(project);await writeFile(join(project,'acceptance.md'),'ROOMIE_SELECTED_PROJECT_ONLY');
