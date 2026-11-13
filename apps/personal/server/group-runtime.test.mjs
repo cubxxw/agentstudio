@@ -12,7 +12,8 @@ async function fixture(t, execute) {
   await host.listen(); host.playrooms.messenger.sync(detected);
   t.after(async () => { await host.close(); await rm(dir, { recursive: true, force: true }); });
   const contact = host.store.require('contact', 'agent_codex'); host.store.put('contact', { ...contact, instructions: 'PRIVATE_ROLE' });
-  const thread = host.playrooms.messenger.createChat({ kind: 'group', title: '共享周末', memberIds: ['agent_codex'] });
+  host.store.put('contact',{id:'group_peer',kind:'human',name:'讨论伙伴',handle:'group-peer',color:'teal',version:1});
+  const thread = host.playrooms.messenger.createChat({ kind: 'group', title: '共享周末', memberIds: ['agent_codex','group_peer'] });
   thread.messages.push({ id: 'old', role: 'user', text: 'PRIVATE_HISTORY', contactId: 'self' }); host.store.put('thread', thread);
   const room = host.playrooms.prepare(thread.id, { brief: 'PUBLIC_BRIEF', agents: [{ contactId: contact.id, persona: 'PUBLIC_ROLE' }], clientId: crypto.randomUUID() }); host.playrooms.publish(thread.id, { shareId: room.id, clientId: crypto.randomUUID(), version: room.share.version });
   const wait = predicate => new Promise((resolve, reject) => { const check = () => { const current = host.store.require('thread', thread.id); if (predicate(current)) { clearTimeout(timer); changes.off('change', check); resolve(current); } }; const timer = setTimeout(() => { changes.off('change', check); reject(new Error(JSON.stringify(host.store.require('thread', thread.id).runs))); }, 5000); changes.on('change', check); check(); });

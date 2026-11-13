@@ -8,7 +8,7 @@ import type {GroupAvatar as Appearance} from "./types";
 export function GroupAvatarEditor({value,onChange,onBusyChange,disabled,description,members}:{value:Appearance|null;onChange:(value:Appearance|null)=>void;onBusyChange:(busy:boolean)=>void;disabled:boolean;description:string;members:readonly AvatarContact[]}){
  const [loading,setLoading]=useState(false),[error,setError]=useState("");
  const generation=useRef(0),hint=useId();
- useEffect(()=>()=>{generation.current++;},[]);
+ useEffect(()=>()=>{generation.current++;onBusyChange(false);},[onBusyChange]);
  const preset=value?.kind==="preset"?value:{kind:"preset" as const,icon:"room" as const,color:"teal" as const};
  const choose=(next:Appearance|null)=>{generation.current++;setLoading(false);onBusyChange(false);setError("");onChange(next);};
  return <fieldset className="im-group-avatar-editor" disabled={disabled} data-testid="im-group-avatar-editor">

@@ -44,3 +44,5 @@ Codex 公开执行沿用验证过的 **0.163.0** 内置 OpenAI 文件认证适�
 `dev/integrated-groups-acceptance.mjs` 验证两个访客、两个 Agent、普通聊天同步、共享作品、390px/1280px 和身份恢复。`dev/integrated-groups-native-acceptance.mjs` 验证 Electron 固定 IPC 与剪贴板，默认合成 CLI；`--real` 使用实际已配置 Codex，`--public` 检查真实临时 HTTPS。设置受管 `AGENTROOM_EVIDENCE_DIR`，真实账号和合成传输分别记录；旧 `playrooms-*acceptance` 命令保留为别名。
 
 未确认发送会保存完整请求信封，刷新后可核对上一条发送，沿用原标识而不重复派工。单件旧作品转换若中断，工作区继续启动；「大家」中保留原计划供核对和恢复，不自动重做不确定修改。
+
+New ordinary groups start with at least three members including the owner. Select one contact to start/reuse a direct conversation, or at least two contacts to create a group and prepare its invitation. Existing smaller groups/invitations remain usable; they keep their history and show one full peer portrait until a third member joins. The retired standalone creation route no longer creates a new two-member group. Owner and guest human portraits are local identity-based illustrations, not name initials.
