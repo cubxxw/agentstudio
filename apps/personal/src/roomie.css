@@ -1,5 +1,5 @@
 .roomie-chat{display:flex;flex-direction:column;height:100%;min-height:0;width:100%;background:var(--im-paper);color:var(--im-ink)}
-.roomie-mark{display:grid;place-items:center;flex-shrink:0;width:35px;height:35px;border-radius:12px;color:var(--im-blue);background:var(--im-hover)}
+.roomie-entry-icon{width:24px;height:24px;flex-shrink:0;border-radius:7px;object-fit:cover}
 .roomie-scroll{flex:1;min-height:0;overflow:auto;padding:30px max(24px,calc((100% - 740px)/2));scrollbar-width:thin;overscroll-behavior:contain}
 .roomie-message{display:flex;margin:0 0 16px}.roomie-message p{max-width:90%;margin:0;background:var(--im-hover);border-radius:5px 18px 18px 18px;padding:14px 17px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.85}
 .roomie-message.from-owner{justify-content:flex-end}.roomie-message.from-owner p{background:var(--im-blue);color:white;border-radius:18px 5px 18px 18px}
