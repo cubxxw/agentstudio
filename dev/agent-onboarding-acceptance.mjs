@@ -53,7 +53,7 @@ try {
  await page.screenshot({path:join(output,'suggestions.png')});
  await page.reload();await page.getByTestId('im-nav-contacts').click();await page.getByTestId('im-onboarding-open').click();await expect(page.getByTestId('im-role-suggestion').first()).toBeVisible();check('reload recovers the durable suggestion and its evidence');
  const before=(await request('/contacts')).contacts.length;await page.getByTestId('im-adopt-role').first().click();await expect(page.getByTestId('im-adopt-role').first()).toContainText('已添加');expect((await request('/contacts')).contacts.length).toBe(before+1);check('explicit adoption creates one model-bound contact without joining existing groups');
- const job=(await request('/agent-onboarding')).jobs[0];expect((await request(`/threads/${group.id}`)).memberIds).toHaveLength(2);expect((await request('/bootstrap')).threads.some(t=>t.id===job.threadId)).toBe(false);
+ const job=(await request('/agent-onboarding')).jobs[0];expect((await request(`/threads/${group.id}`)).memberIds).toEqual(group.memberIds);expect((await request('/bootstrap')).threads.some(t=>t.id===job.threadId)).toBe(false);
  await page.screenshot({path:join(output,'adopted.png')});
  if(!native){await page.setViewportSize({width:390,height:844});await page.emulateMedia({colorScheme:'dark'});await expect(page.getByTestId('im-role-suggestion').first()).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:join(output,'narrow-dark.png')});check('narrow dark view keeps the role preview readable');}
  expect(errors).toEqual([]);await writeFile(join(output,'runtime.json'),JSON.stringify(await request('/health'),null,2));
