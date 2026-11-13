@@ -62,7 +62,7 @@ const releaseRead=async()=>{await expect.poll(()=>page.evaluate(()=>typeof windo
 
 try{
  if(native)await launchNative();else{
-  server=await createPersonalServer({dataDir:join(output,'data'),port:0,staticDir:resolve('apps/personal/dist'),codexCommand:'/missing-group-avatar-agent',discoverLocalAgents:async()=>({agents:[]})});await server.listen();
+  server=await createPersonalServer({dataDir:join(output,'data'),port:0,staticDir:resolve('apps/personal/dist'),codexCommand:'/missing-group-avatar-agent',discoverLocalAgents:async()=>({agents:[{id:'codex',name:'Codex',installed:false,auth:{status:'unknown'},execution:{supported:false}}]})});await server.listen();
   browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});
   page=await browser.newPage({viewport:{width:1120,height:900}});watchPage(page);await page.goto(`http://127.0.0.1:${server.address().port}`);
  }
@@ -72,8 +72,11 @@ try{
  const person=await request('/contacts',{kind:'human',name:'设计伙伴',handle:'avatar-partner',clientId:randomUUID()});
  await page.getByTestId('im-refresh').click();
  await page.getByTestId('im-new').click();await page.getByTestId('im-new-group').click();
- await expect(preview()).toHaveAttribute('data-group-avatar-kind','default');
+ await expect(preview()).toHaveAttribute('data-group-avatar-kind','members');
+ await expect(preview()).toHaveAttribute('data-member-count','1');
  await page.getByTestId('im-group-name').fill('周末创作室');await page.getByTestId('im-member-'+person.id).check();
+ await expect(preview()).toHaveAttribute('data-member-count','2');
+ await expect(preview().getByTestId('im-group-avatar-member')).toHaveCount(2);
  const green=await preview().evaluate(e=>getComputedStyle(e).backgroundColor);
  await capture('group-default-editor-light');
  await page.getByTestId('im-group-motif-coffee').click();await page.getByTestId('im-group-color-violet').click();
@@ -148,10 +151,38 @@ try{
  await editor();await holdRead();await page.getByTestId('im-group-avatar-file').setInputFiles(file());await page.getByTestId('personal-modal-close').click();await releaseRead();await editor();
  await expect(preview()).toHaveAttribute('data-group-icon','compass');
  check('closing the editor discards a pending image read');
- await page.getByTestId('im-group-avatar-reset').click();await expect(preview()).toHaveAttribute('data-group-avatar-kind','default');await save();
+ await page.getByTestId('im-group-avatar-reset').click();await expect(preview()).toHaveAttribute('data-group-avatar-kind','members');await save();
  expect((await request('/threads/'+id)).groupAvatar).toBeNull();
- for(const avatar of surfaces())await expect(avatar).toHaveAttribute('data-group-avatar-kind','default');
- check('restore default affects only the group portrait');
+ for(const avatar of surfaces())await expect(avatar).toHaveAttribute('data-group-avatar-kind','members');
+ check('restore default returns to the live member collage');
+
+ const additions=[];
+ for(let index=0;index<8;index++)additions.push(await request('/contacts',{kind:index%2?'agent':'human',name:['阿青','Mia','旅行','手作','小林','Robin','阿橙','Nova'][index],handle:'mosaic-'+index,...(index%2?{binding:{type:'local',localAgentId:'codex'}}:{}),color:['teal','blue','violet','orange','rose'][index%5],clientId:randomUUID()}));
+ await page.getByTestId('im-refresh').click();await editor();
+ for(let index=0;index<additions.length;index++){
+  await page.getByTestId('im-member-'+additions[index].id).check();
+  const count=Math.min(index+3,9);
+  await expect(preview()).toHaveAttribute('data-member-count',String(count));
+  const tiles=preview().getByTestId('im-group-avatar-member');await expect(tiles).toHaveCount(count);
+  const boxes=await tiles.evaluateAll(elements=>elements.map(e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height};}));
+  for(const box of boxes){expect(box.w).toBeGreaterThan(15);expect(Math.abs(box.w-box.h)).toBeLessThan(1);}
+  if([3,5,7,9].includes(index+3)){await preview().scrollIntoViewIfNeeded();await capture('mosaic-'+(index+3)+'-members');}
+ }
+ await save();
+ for(const avatar of surfaces()){await expect(avatar).toHaveAttribute('data-member-count','9');await expect(avatar.getByTestId('im-group-avatar-member')).toHaveCount(9);}
+ await capture('mosaic-saved-nine');
+ await page.reload();await expect(page.getByTestId('im-chat-info')).toBeVisible();
+ for(const avatar of surfaces())await expect(avatar).toHaveAttribute('data-member-count','9');
+ await editor();
+ for(const contact of additions)await page.getByTestId('im-member-'+contact.id).uncheck();
+ await save();
+ for(const avatar of surfaces())await expect(avatar).toHaveAttribute('data-member-count','2');
+ const contact=(await request('/contacts')).contacts.find(contact=>contact.id===person.id);
+ await request('/contacts/'+person.id,{kind:'human',name:'新伙伴',handle:contact.handle,color:'rose',version:contact.version,clientId:randomUUID()});
+ await page.getByTestId('im-refresh').click();
+ await expect(page.getByTestId('im-chat-info').getByTestId('im-group-avatar-member').last()).toHaveClass(/rose/);
+ await expect(page.getByTestId('im-chat-info').getByTestId('im-group-avatar-member').last()).toHaveText('新伙');
+ check('one to nine centered portraits, capped membership, reload, removal and contact changes stay live');
 
  await editor();await page.emulateMedia({colorScheme:'dark'});await capture('group-editor-dark');
  if(!native){await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await capture('group-editor-narrow-dark');await page.setViewportSize({width:1120,height:900});}
