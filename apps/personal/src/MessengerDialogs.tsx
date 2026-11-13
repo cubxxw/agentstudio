@@ -6,7 +6,7 @@ import { api, key } from "./api";
 import { Modal } from "./ConversationPanels";
 import { GroupAvatarEditor } from "./GroupAvatarEditor";
 import type { GroupAvatar as GroupAppearance } from "./types";
-import { Avatar, avatarIcons, avatarLabels } from "./ContactAvatar";
+import { Avatar, groupAvatarMembers, avatarIcons, avatarLabels } from "./ContactAvatar";
 import { AgentOptions } from "./AgentOptions";
 export { Avatar } from "./ContactAvatar";
 import type { AgentAvatar, AgentConfiguration, Contact, ResponsePolicy, Thread } from "./types";
@@ -125,7 +125,7 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
       } catch (e) { setError(e instanceof Error ? e.message : "群聊尚未保存"); }
       finally { setBusy(false); }
     }}>
-      <GroupAvatarEditor value={groupAvatar} onChange={setGroupAvatar} onBusyChange={setAvatarBusy} disabled={busy} description={`你 + ${members.length} 位联系人`} />
+      <GroupAvatarEditor members={groupAvatarMembers(["self", ...members], contacts)} value={groupAvatar} onChange={setGroupAvatar} onBusyChange={setAvatarBusy} disabled={busy} description={`你 + ${members.length} 位联系人`} />
       <label>群名称<input autoFocus required maxLength={80} placeholder="例如：产品讨论" value={title} onChange={e => setTitle(e.target.value)} data-testid="im-group-name" /></label>
       <label>允许静默<select data-testid="im-group-silence" value={silence} onChange={event => setSilence(event.target.value)}><option value="inherit">跟随 IM 设置</option><option value="allow">允许：按角色选择回复、表情或保持安静</option><option value="require">关闭：需要文字或表情回应</option></select></label>
       <label>选择联系人<input type="search" placeholder="搜索名称或用户名" value={search} onChange={e => setSearch(e.target.value)} data-testid="im-group-search" /></label>
