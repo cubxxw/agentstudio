@@ -41,8 +41,10 @@ page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 const checks = [];
 try {
   if (!native) await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await expect(page.getByTestId('workspace-welcome')).toBeVisible();
-  await page.getByTestId('workspace-welcome-local').click();
+  await expect(page.getByTestId('roomie-chat')).toBeVisible();
+  await page.getByTestId('roomie-skip').click();
+  await page.getByTestId('im-nav-contacts').click();
+  await page.getByTestId('im-local-add-entry').click();
   await expect(page.getByTestId('im-local-picker')).toBeVisible();
   if (!native) await expect(page.getByTestId('im-local-select-gemini')).toBeDisabled();
   await page.getByTestId('im-local-select-codex').check();

@@ -11,6 +11,8 @@ import { discoverLocalAgents } from './local-agents.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 import { Messenger } from './messenger.mjs';
 import { AgentOnboarding } from './agent-onboarding.mjs';
+import { Roomie } from './roomie.mjs';
+import { ProjectResources } from './project-resources.mjs';
 import { CreationService } from './creation-service.mjs';
 import { ArtifactAPI } from './artifact-api.mjs';
 import { AgentScheduler } from './agent-scheduler.mjs';
@@ -111,7 +113,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'roomie.mjs', 'roomie-executor.mjs', 'project-resources.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -142,15 +144,27 @@ export async function createPersonalServer(options = {}) {
   const localAgentDeps = { ...(options.localAgentDeps || {}), commands: { ...commands, ...options.localAgentDeps?.commands } };
   const onboarding = new AgentOnboarding(store, messenger, { execute: options.executeLocalAgent, deps: localAgentDeps, notify });
   onboarding.recover();
-  const worker = new PersonalWorker(store, { ...options, localAgentDeps, executeOnboarding: (thread, run, signal) => onboarding.execute(thread, run, signal) }, notify);
+  const roomie = new Roomie(store, messenger, { execute: options.executeLocalAgent, deps: localAgentDeps, notify });
+  const projects = new ProjectResources(store);
+  roomie.recover();
+  const worker = new PersonalWorker(store, { ...options, localAgentDeps, executeOnboarding: (thread, run, signal) => thread.roomieJobId ? roomie.execute(thread, run, signal) : onboarding.execute(thread, run, signal) }, notify);
   creation = new CreationService(store, { ...options, localAgentDeps, notify, cancelRun: (threadId, runId) => worker.cancel(threadId, runId) });
   worker.options.creationService = creation;
+  creation.options.projects = projects;
   creation.artifacts.recover(); creation.runtime.recover();
   const artifactAPI = new ArtifactAPI(creation, () => worker.kick());
   const providerApprovals = new ProviderApprovals(store, messenger, notify, () => worker.kick(), options.providerApprovals);
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
+  roomie.options.discover = () => localAgents(true);
+  let roomieMonitoring = false;
+  const roomieTimer = setInterval(() => {
+    if (roomieMonitoring || !store.get('setting', 'roomie')?.monitor) return;
+    roomieMonitoring = true;
+    void localAgents(true).then(detected => roomie.observe(detected)).catch(() => {}).finally(() => { roomieMonitoring = false; });
+  }, 60000);
+  roomieTimer.unref();
   const sharing = new DesktopSharing(store, messenger, { refresh: async () => messenger.sync(await localAgents()), validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, addresses: options.sharingAddresses, port: options.sharingPort });
   const playExecutor = createPlayExecutor(store, { deps: localAgentDeps, authorize: job => {
     const room = store.require('play_room', job.roomId); playrooms.active(room);
@@ -348,6 +362,30 @@ export async function createPersonalServer(options = {}) {
         response.end(JSON.stringify(invitation)); return;
       }
       if (method === 'GET' && path === '/api/contacts') return json(response, 200, { contacts: messenger.sync(await localAgents()) });
+      if (method === 'GET' && path === '/api/roomie') return json(response, 200, roomie.snapshot(await localAgents()));
+      if (method === 'POST' && ['/api/roomie/projects', '/api/roomie/links'].includes(path)) {
+        const body = await readJSON(request), project = path.endsWith('/projects');
+        if (Object.keys(body).some(k => !(project ? ['clientId', 'path'] : ['clientId', 'url', 'label']).includes(k))) invalid('资料配置包含不支持的选项');
+        const replay = store.replay(path, body.clientId, body); if (replay.found) return json(response, 200, replay.value);
+        const resource = project ? await projects.add(body.path) : null;
+        const result = store.idempotent(path, body.clientId, body, () => {
+          roomie.ensure();
+          if (project) { roomie.bindProject(resource.id); return resource; }
+          const link = projects.addLink(body); roomie.save({ linkIds: [...new Set([...(roomie.settings().linkIds || []), link.id])] }); return link;
+        });
+        notify({ roomie: true }); return json(response, 200, result);
+      }
+      if (method === 'POST' && ['/api/roomie/messages', '/api/roomie/actions'].includes(path)) {
+        const body = await readJSON(request), detected = await localAgents();
+        messenger.sync(detected);
+        const allowed = path.endsWith('/messages') ? ['clientId', 'text', 'agentId', 'configuration'] : ['clientId', 'action', 'recommendationId', 'jobId', 'enabled', 'agentId'];
+        if (Object.keys(body).some(k => !allowed.includes(k))) invalid('小伴配置包含不支持的选项');
+        const result = store.idempotent(path, body.clientId, body, () => path.endsWith('/messages') ? roomie.message(body, detected)
+          : body.action === 'add_local' ? roomie.start({ agentId: body.agentId, autoAdd: true }, detected)
+          : body.action === 'cancel' ? roomie.cancel(body.jobId) : roomie.action(body, detected));
+        if (body.action === 'cancel') { const job = store.require('roomie_job', body.jobId); const thread = store.require('thread', job.threadId); worker.cancel(thread.id, thread.runs[0].id); }
+        notify({ roomie: true }); worker.kick(); return json(response, 200, result);
+      }
       if (method === 'GET' && path === '/api/host/discovery') {
         const detected = await localAgents();
         return json(response, 200, collectHostDiscovery({ contacts: messenger.sync(detected), integrations: store.list('connection'), localAgents: detected }));
@@ -679,12 +717,13 @@ export async function createPersonalServer(options = {}) {
     async close() {
       if (shuttingDown) return;
       shuttingDown = true;
+      clearInterval(roomieTimer);
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
       await playNetwork.stop(); await playrooms.close(); await playExecutor.close();
       await sharing.close(); await remoteNodes.close();
-      stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await creation.close(); artifactAPI.close(); await stopped; store.close();
+      stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await roomie.close(); await creation.close(); artifactAPI.close(); await stopped; store.close();
     },
   };
 }

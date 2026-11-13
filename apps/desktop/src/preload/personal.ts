@@ -8,6 +8,7 @@ const api: AgentStudioPersonal = {
   platform: info.platform,
   version: info.version,
   testMode: info.testMode,
+  chooseProject: () => ipcRenderer.invoke(PERSONAL_IPC.chooseProject),
   testWorkspace: (action) => ipcRenderer.invoke(PERSONAL_IPC.testWorkspace, action),
   request: (input) => ipcRenderer.invoke(PERSONAL_IPC.request, input),
   saveArtifact: (id) => ipcRenderer.invoke(PERSONAL_IPC.saveArtifact, id),

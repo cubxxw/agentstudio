@@ -7,6 +7,7 @@ import { api, key, RequestError } from "./api";
 import { desktopBridge } from "./native";
 import { DecisionView, Modal, Preferences, Reader } from "./ConversationPanels";
 import { WorkspaceWelcome } from "./WorkspaceTools";
+import { RoomieChat } from "./RoomieChat";
 import { LocalAgentPicker } from "./LocalAgentPicker";
 import { AgentCard } from "./AgentCard";
 import { AgentOnboarding } from "./AgentOnboarding";
@@ -108,6 +109,8 @@ function Messenger() {
     return () => window.removeEventListener("agentroom:open-device-request", open);
   }, []);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [roomieOpen, setRoomieOpen] = useState(false);
+  useEffect(() => { if (data?.workspace?.onboardingCompleted === false && !selected) setMobileDetail(true); }, [data?.workspace?.onboardingCompleted, selected]);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
   const [localPickerOpen, setLocalPickerOpen] = useState(false);
   const [contactEditor, setContactEditor] = useState<Contact | "new" | null>(null);
@@ -182,6 +185,7 @@ function Messenger() {
   }, [desktop, loadThread]);
   const refreshSafely = useCallback(() => void refresh().catch(e => { if (mounted.current) { setConnected(false); setError(errorText(e)); } }), [refresh]);
   const openThread = useCallback((id: string, push = true) => {
+    setRoomieOpen(false);
     viewEpoch.current += 1;
     currentId.current = id; setSelected(id); setScreen("chats"); setMobileDetail(true);
     if (screen !== "chats") { setFilter("all"); setSearch(""); }
@@ -375,11 +379,12 @@ function Messenger() {
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-local-add-entry" onClick={() => setLocalPickerOpen(true)}><Plus size={18} /><span>快速添加本机助手<small>选择常用 Agent，添加后开始聊天</small></span><ChevronRight size={16} /></button>}
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-discovery-entry" onClick={() => setDiscoveryOpen(true)}><Search size={18} /><span>发现本机助手<small>使用已安装或已连接的伙伴</small></span><ChevronRight size={16} /></button>}
       {screen === "contacts" && <button className="im-onboarding-entry" data-testid="im-onboarding-open" onClick={() => setOnboardingOpen(true)}><Bot size={18} /><span>让助手建议角色<small>测试连接，了解已有伙伴和群聊</small></span><ChevronRight size={16} /></button>}
+      {(screen === "chats" || screen === "contacts") && <button className="im-onboarding-entry" data-testid="roomie-open" onClick={() => { setRoomieOpen(true); setScreen("chats"); setMobileDetail(true); }}><Bot size={18}/><span>Roomie 小伴<small>配置助手、整理项目与组织群聊</small></span><ChevronRight size={16}/></button>}
     </aside>
     <main className="im-main" id="im-main" data-testid="im-main">
       {(!connected && !loading) && <div className="im-connection-warning" role="status"><WifiOff size={16} />连接中断，草稿和已加载的消息仍保留。<button disabled={busy === "reconnect"} onClick={() => void reconnect()}>{busy === "reconnect" ? "正在恢复…" : "重新连接"}</button></div>}
       {error && <div className="im-error-banner" role="alert">{error}<IconButton label="关闭提示" onClick={() => setError("")}><X size={16} /></IconButton></div>}
-      {screen === "library" && artifactId ? <ArtifactWorkspace key={`${artifactId}:${artifactRevision || "head"}`} artifactId={artifactId} initialRevisionId={artifactRevision || undefined} contacts={contacts} threads={data?.threads || []} toolbar={focusControl} onBack={() => setMobileDetail(false)} onOpenThread={openThread} onChanged={refresh} /> : screen === "contacts" && contact ? <>
+      {screen === "chats" && (roomieOpen || directContact?.id === "agentroom_roomie" || (!thread && data?.workspace?.onboardingCompleted === false)) ? <RoomieChat toolbar={focusControl} onOpenThread={openThread} onConnect={() => setPreferences(true)} onChanged={refresh} onBack={() => { setRoomieOpen(false); setMobileDetail(false); }} onSkip={async () => { await api("/workspace/onboarding", { action: "complete", name: data?.workspace?.displayName || "你", clientId: key() }); setRoomieOpen(false); currentId.current = null; setSelected(null); setThread(null); await refresh(); }} /> : screen === "library" && artifactId ? <ArtifactWorkspace key={`${artifactId}:${artifactRevision || "head"}`} artifactId={artifactId} initialRevisionId={artifactRevision || undefined} contacts={contacts} threads={data?.threads || []} toolbar={focusControl} onBack={() => setMobileDetail(false)} onOpenThread={openThread} onChanged={refresh} /> : screen === "contacts" && contact ? <>
         <header className="im-header"><IconButton label="返回联系人" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<strong>联系人信息</strong></header>
         <div className="im-contact-detail" key={contact.id} data-testid="im-contact-detail"><div className="im-contact-summary"><Avatar contact={contact} size="hero" /><div><h2>{contact.name}</h2><span className="im-handle">@{contact.handle}</span><p>{contact.description || (contact.kind === "agent" ? "你的 Agent 伙伴" : "保存在这台 Mac 的联系人")}</p><div className="im-contact-status"><span className={contact.availability === "ready" ? "im-online-dot" : "im-offline-dot"} />{presenceText(contact) || availabilityText[contact.availability]}{contact.presence?.lastSeenAt && contact.presence.state !== "online" && <small>上次在线 {new Date(contact.presence.lastSeenAt).toLocaleString("zh-CN")}</small>}</div></div></div>
           <div className="im-profile-actions"><button className="im-primary" onClick={() => void startChat(contact)} disabled={busy === contact.id} data-testid="im-start-chat"><MessageCircle size={18} />{contact.kind === "human" ? "打开本地对话" : "发送消息"}</button><button className="im-secondary" onClick={() => setContactEditor(contact)} data-testid="im-edit-contact">编辑身份</button>{contact.kind === "agent" && <button className="im-text-button" onClick={() => setProfileId(contact.id)} data-testid="im-agent-profile-open">目标与运行安排<ChevronRight size={15} /></button>}</div>

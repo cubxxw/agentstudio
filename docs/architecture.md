@@ -168,3 +168,7 @@ The personal desktop can enroll several owned Tailscale servers. Each server run
 
 
 Installed desktops can opt into a separate device-sharing listener on a locally assigned Tailscale IPv4 address, port 18750. It exposes selected contact metadata and authenticated A2A messages, never the personal API. Local CLI contacts execute in independent `device_request` conversations without AgentRoom creation tool sessions; other owned Agent contacts are directory-only until provider-side session isolation exists. Imported peers are not re-exported. Manifests are checked every 15 seconds, with a 60-second success lease and distinct activity, readiness and connection state. See [device setup](personal/peer-devices.md).
+
+### Roomie personal setup
+
+`apps/personal/server/roomie.mjs` owns the persistent system conversation, metadata discovery recommendations and transactional contact/group adoption. `roomie-executor.mjs` uses the existing restricted CLI/tool transport; jobs retain the `agent_onboarding` worker purpose and are dispatched by `roomieJobId`, with no extra model worker pool. `project-resources.mjs` owns explicit read-only canonical project roots and fixed bounded project tools. The normal Messenger stores accepted project/link snapshots and the creation kernel enforces project audience provenance alongside artifact reads. Optional 60-second local metadata monitoring only updates cards; it never schedules model execution.

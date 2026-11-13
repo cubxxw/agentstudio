@@ -356,6 +356,17 @@ function registerIpc() {
 }
 
 function registerPersonalIpc() {
+  ipcMain.handle(PERSONAL_IPC.chooseProject, async event => {
+    if (!fromPersonal(event) || !personalHost || switchingWorkspace || quitting) throw new Error("forbidden");
+    nativeOperations++;
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, { title: "选择小伴可以读取的项目目录", properties: ["openDirectory"] });
+      if (result.canceled || !result.filePaths[0]) return { cancelled: true };
+      const reply = await personalHost.request({ path: "/api/roomie/projects", method: "POST", body: { clientId: randomUUID(), path: result.filePaths[0] } });
+      if (reply.status >= 400) throw new Error((reply.body as { error?: { message?: string } })?.error?.message || "项目目录尚未保存");
+      return { cancelled: false };
+    } finally { nativeOperations--; }
+  });
   ipcMain.on(PERSONAL_IPC.info, (event) => {
     event.returnValue = fromPersonal(event) ? { platform: process.platform, version: __APP_VERSION__, testMode: workspaceProfile.testMode } : null;
   });
