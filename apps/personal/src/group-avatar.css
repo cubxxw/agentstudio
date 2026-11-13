@@ -49,9 +49,9 @@
 }
 
 /* A quiet square of current members, with the incomplete first row centered. */
-.im-avatar.im-group-mosaic { border-radius: 8px; overflow: hidden; background: #e6e6e6; }
-.im-avatar.im-group-mosaic.small { border-radius: 6px; }
-.im-avatar.im-group-mosaic.large, .im-avatar.im-group-mosaic.hero { border-radius: 14px; }
+.im-avatar.im-avatar-group.im-group-mosaic { border-radius: 8px; overflow: hidden; background: #e6e6e6; }
+.im-avatar.im-avatar-group.im-group-mosaic.small { border-radius: 6px; }
+.im-avatar.im-avatar-group.im-group-mosaic.large, .im-avatar.im-avatar-group.im-group-mosaic.hero { border-radius: 14px; }
 .im-group-collage { --group-cell: calc((100% - (var(--group-columns) - 1) * 3%) / var(--group-columns)); display: flex; flex-direction: column; justify-content: center; width: 100%; height: 100%; box-sizing: border-box; padding: 5%; gap: 3%; container-type: inline-size; }
 .im-group-collage-row { display: flex; flex: 0 0 var(--group-cell); justify-content: center; width: 100%; min-height: 0; gap: 3%; }
 .im-group-collage .im-avatar.im-group-member { flex: 0 0 var(--group-cell); width: var(--group-cell); height: 100%; min-width: 0; overflow: hidden; border-radius: 2px; box-shadow: none; font-size: calc(47cqw / var(--group-columns)); line-height: 1; }
@@ -60,4 +60,4 @@
 .im-group-members-choice[aria-pressed="true"] { border-color: var(--im-blue); background: var(--im-blue-soft); }
 .im-group-members-choice > span:last-child { display: grid; gap: 4px; font-size: 12px; }
 .im-group-members-choice small { color: var(--im-muted); font-size: 11px; }
-@media (prefers-color-scheme: dark) { .im-avatar.im-group-mosaic { background: #35383b; } }
+@media (prefers-color-scheme: dark) { .im-avatar.im-avatar-group.im-group-mosaic { background: #35383b; } }
