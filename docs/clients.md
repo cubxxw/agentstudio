@@ -409,4 +409,16 @@ Opening a visible focused chat clears unread only after its latest incoming repl
 
 Generated images report `data-avatar-source="bottts"`. Current portraits expose `data-activity` (idle, queued, thinking, working, waiting, completed, attention); history retains accepted appearance and stays still. Thinking breathes, execution or verification orbits, waiting pulses amber, completion confirms once for 1.7 seconds. Uncertain/failed states stay still. Reduced/disabled motion, offscreen portraits and hidden documents stop animation. No percentage or inferred tool call is displayed.
 
+### Roomie chat-first setup
+
+Fresh personal workspaces open the persistent Roomie system chat rather than requiring an owner-name form. Existing workspaces can open it from the sidebar. Legacy `WorkspaceWelcome` controls are retained in source for compatibility but are superseded on fresh entry.
+
+| Surface | Test IDs |
+| --- | --- |
+| Chat and navigation | `roomie-chat`, `roomie-open`, `roomie-back`, `roomie-input`, `roomie-send`, `roomie-skip`, `roomie-timeline`, `roomie-message` |
+| Guidance and backend | `roomie-goal-choice`, `roomie-no-backend`, `roomie-model-options`, `roomie-backend`, `roomie-connections`, `roomie-refresh` |
+| Progress and recommendations | `roomie-status`, `roomie-cancel`, `roomie-error`, `roomie-recommendations`, `roomie-local-card`, `roomie-role-card`, `roomie-group-card`, `roomie-existing-card` |
+| Adoption | `roomie-add-local-<agentId>`, `roomie-add-role`, `roomie-create-group`, `roomie-open-existing`, `roomie-dismiss` |
+| Resources and proactive choices | `roomie-resources`, `roomie-project-choose`, `roomie-link-add`, `roomie-resource-input`, `roomie-resource-save`, `roomie-monitor`, `roomie-auto-groups`, `roomie-monitor-guidance`, `roomie-monitor-enable`, `roomie-monitor-later` |
+
 The new-chat member picker starts/reuses a direct conversation for one selected contact, with no group title or group settings. Two or more selected contacts reveal those group controls. `im-pair-hint` identifies the pair explanation. Avatar tiles expose `data-avatar-source="person"` for local human illustrations; owner rail, member collage and guest projections share the same identity seed.

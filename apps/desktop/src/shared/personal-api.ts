@@ -19,11 +19,13 @@ export const PERSONAL_IPC = {
   copyPlayInvitation: "agentstudio:personal:copy-play-invitation",
   integration: "agentstudio:personal:integration",
   testWorkspace: "agentstudio:personal:test-workspace",
+  chooseProject: "agentstudio:personal:choose-project",
 } as const;
 
 const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
+    /^\/api\/roomie$/,
     /^\/api\/group-rules$/,
     /^\/api\/play-network$/,
     new RegExp(`^/api/playrooms(?:/${opaqueId})?$`),
@@ -48,6 +50,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
+    /^\/api\/roomie\/(messages|actions|links)$/,
     /^\/api\/group-rules$/,
     /^\/api\/play-network$/,
     new RegExp(`^/api/chats/${opaqueId}/(sharing|artifacts)$`),

@@ -85,7 +85,7 @@ async function executableFor(agent, deps) {
 }
 
 // Private bounded capture; only parsed whitelisted values leave this module.
-function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId, piCapture = false } = {}) {
+function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId, piCapture = false, onSpawn } = {}) {
   if (signal?.aborted) return Promise.reject(new LocalAgentError('cancelled'));
   return new Promise((resolveRun, reject) => {
     let child, deadline, escalation, reaping, closed = false, failure = null;
@@ -169,9 +169,10 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false, onLi
       }
     });
     child.stdin.on('error', () => {});
+    try { onSpawn?.({ pid: child.pid }); } catch { stop('spawn_failed'); }
     signal?.addEventListener('abort', abort, { once: true });
     deadline = setTimeout(() => stop('timeout'), probe ? deps.probeTimeoutMs : deps.executionTimeoutMs);
-    if (responseId) child.stdin.write(input); else child.stdin.end(input);
+    if (failure) child.stdin.end(); else if (responseId) child.stdin.write(input); else child.stdin.end(input);
     if (signal?.aborted) abort();
   });
 }
@@ -292,7 +293,7 @@ function finalMarkdown(id, result, selection) {
   throw new LocalAgentError('execution_failed');
 }
 
-export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, executionSnapshot, toolSession, isolateUserContext = false, deps: injected = {} } = {}) {
+export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, onProcess, executionSnapshot, toolSession, isolateUserContext = false, deps: injected = {} } = {}) {
   const agent = definition(id), deps = options(injected);
   if (isolateUserContext && id === 'codex') {
     const allowed = new Set(['PATH', 'HOME', 'CODEX_HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR']);
@@ -376,7 +377,7 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   const emit = (type, data = {}) => { try { onEvent?.({ type, agentId: id, ...data }); } catch { /* Observer failures do not change execution. */ } };
   emit('started');
   const stream = liveEvents(id, emit);
-  const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream, piCapture: id === 'pi' });
+  const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream, piCapture: id === 'pi', onSpawn: onProcess });
   const markdown = finalMarkdown(id, result, selection);
   emit('completed');
   return { markdown, identity, verification: { scope: 'cli_document_output', externalEffectsVerified: false } };

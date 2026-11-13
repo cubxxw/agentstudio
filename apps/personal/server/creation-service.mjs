@@ -3,6 +3,7 @@ import { ArtifactStore } from './artifact-store.mjs';
 import { artifactTools, validateArtifactInput } from './artifact-tools.mjs';
 import { CollaborationRuntime } from './collaboration-runtime.mjs';
 import { resolveExecution } from './agent-profiles.mjs';
+import { projectTools } from './project-resources.mjs';
 
 const fail = (status, code, message) => { throw new APIError(status, code, message); };
 const matches = (paths, path) => path === undefined || paths.some(pattern => pattern === '**' || pattern === path || (pattern.endsWith('/**') && path.startsWith(`${pattern.slice(0, -3)}/`)));
@@ -58,7 +59,7 @@ export class CreationService {
   }
   readDependenciesAllowed(threadId, reads, audienceIds) {
     const context = { mode: 'conversation', threadId, audienceIds };
-    return (reads || []).every(read => read.kind === 'metadata' ? this.canRead(context, read.artifactId, read.revisionId) : (read.paths || []).every(path => this.canRead(context, read.artifactId, read.revisionId, path)));
+    return (reads || []).every(read => read.kind === 'project' ? Boolean(this.options.projects?.permits(read, audienceIds)) : read.kind === 'metadata' ? this.canRead(context, read.artifactId, read.revisionId) : (read.paths || []).every(path => this.canRead(context, read.artifactId, read.revisionId, path)));
   }
   canReadMessage(threadId, run, message) {
     const thread = this.store.require('thread', threadId), source = thread.messages.find(item => item.id === run.messageId);
@@ -123,11 +124,19 @@ export class CreationService {
   tools(context) {
     const groups = this.options.groupTools?.tools(context) || [];
     const sharedArtifacts = this.options.groupSharing?.artifacts?.tools(context) || [];
-    return context.sharedGroup ? [...groups, ...sharedArtifacts] : [...artifactTools(context.mode), ...groups, ...sharedArtifacts];
+    let projects = [];
+    if (!context.sharedGroup && this.options.projects) { try { this.options.projects.scope(context); projects = projectTools; } catch { /* No project grant for this audience. */ } }
+    return context.sharedGroup ? [...groups, ...sharedArtifacts] : [...artifactTools(context.mode), ...groups, ...sharedArtifacts, ...projects];
   }
   call(original, name, args, callId) {
     if (original.signal?.aborted) fail(403, 'grant_revoked', '本次工具会话已撤销');
     const context = this.context(original.threadId, original.runId), tool = this.tools(context).find(item => item.name === name);
+    if (name.startsWith('project_')) {
+      if (!tool) fail(403, 'project_scope', '本次会话没有项目读取权限');
+      validateArtifactInput(tool.inputSchema, args);
+      const snapshot = this.options.projects.scope(context);
+      return this.options.projects.call(context, name, args).then(result => { this.context(context.threadId, context.runId); this.recordRead(context, { kind: 'project', ...snapshot }); return result; });
+    }
     if (name.startsWith('group_artifact_')) return this.options.groupSharing.artifacts.call(context, name, args, callId);
     if (name.startsWith('group_')) return this.options.groupTools.call(context, name, args, callId);
     if (!tool) fail(403, 'tool_unavailable', '本次会话没有这个工具；需要先提出计划并由用户批准');
@@ -171,6 +180,7 @@ export class CreationService {
   validateSessionCall(threadId, runId, name, args, callId) {
     const operation = this.store.get('artifact_tool_operation', `tool_${digest(`${runId}:${callId}`).slice(0, 40)}`);
     const context = this.context(threadId, runId, { allowYielded: name === 'task_yield' && operation?.ok === true });
+    if (name.startsWith('project_')) { this.options.projects.scope(context); const tool = this.tools(context).find(item => item.name === name); if (!tool) fail(403, 'project_scope', '本次会话没有项目读取权限'); validateArtifactInput(tool.inputSchema, args); return context; }
     if (name.startsWith('group_')) {
       if (name.startsWith('group_artifact_')) this.options.groupSharing.artifacts.validate(context, name, args);
       else this.options.groupTools.validate(context, name, args, callId);

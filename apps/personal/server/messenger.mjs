@@ -50,6 +50,7 @@ export class Messenger {
   putDiscovered(value) { const previous = this.store.get('contact', value.id); if (JSON.stringify(previous) !== JSON.stringify(value)) this.store.put('contact', value); }
 
   publicContact(contact) {
+    if (contact.systemRole === 'roomie' && !contact.binding) return { ...contact, availability: 'configuration_required', providerName: '本机配置向导 · 尚未连接模型', profile: null, execution: null, configurationError: '' };
     const binding = contact.binding;
     const connection = binding?.type === 'connection' ? this.store.get('connection', binding.connectionId) : null;
     const native = connection && nativeSource(this.store, connection);
@@ -105,6 +106,7 @@ export class Messenger {
 
   saveContact(body, contactId) {
     const previous = contactId ? this.store.require('contact', contactId) : null;
+    if (previous?.systemRole === 'roomie') fail('请在小伴对话中更换配置，系统身份不能通过普通联系人编辑');
     if (contactId === SELF) fail('本机本人身份不能通过联系人编辑');
     if (previous && body.version !== previous.version) fail('联系人已更新，请重新打开后编辑', 409, 'version_conflict');
     const kind = body.kind ?? previous?.kind;
@@ -168,6 +170,10 @@ export class Messenger {
     if (body.kind === 'direct' && memberIds.length !== 2) fail('私聊只能有你和一位联系人');
     if (body.kind === 'direct') {
       const peer = this.store.require('contact', memberIds.find(x => x !== SELF));
+      if (peer.systemRole === 'roomie') {
+        const original = this.store.list('thread').find(t => t.purpose === 'roomie');
+        if (original) return original;
+      }
       if (peer.added === false) this.store.put('contact', { ...peer, added: true, addedAt: now() });
       const existing = this.store.list('thread').find(t => !t.purpose && t.kind === 'direct' && t.memberIds.includes(memberIds.find(x => x !== SELF)));
       if (existing) return existing;
@@ -207,6 +213,7 @@ export class Messenger {
   }
 
   appendMessage(thread, body, validateInput, actorId = SELF) {
+    if (thread.purpose === 'roomie') fail('请使用小伴的配置对话入口', 409, 'roomie_route');
     if (!thread.memberIds.includes(actorId)) fail('你已不在这个群聊中', 403, 'membership_required');
     const publication = this.options.groupSharing?.prepareMessage(thread, body, actorId);
     const basic = validateInput({ ...body, mode: 'local', localAgentId: 'codex', action: undefined });
@@ -233,7 +240,8 @@ export class Messenger {
       const input = validateInput({ ...body, mode: binding.type === 'local' ? 'codex' : 'connection',
         localAgentId: binding.localAgentId || contact.chatBackend?.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
       const goal = this.store.get('agent_control', contact.id)?.goal;
-      const prepared = { ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
+      const prepared = { ...input, resourceLinksSnapshot: (thread.resourceLinkIds || (thread.kind === 'direct' ? contact.resourceLinkIds : []) || []).slice(0,20).map(id => this.store.get('workspace_link', id)).filter(Boolean).map(({ id, label, url }) => ({ id, label, url })), ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
+        ...((['codex', 'pi'].includes(input.localAgentId) && binding.type === 'local' && !publication && (thread.projectGrant || (thread.kind === 'direct' && contact.projectGrant))) ? { projectSnapshot: structuredClone(thread.projectGrant || contact.projectGrant) } : {}),
         imPolicy: { allowSilence: (thread.responsePolicies[contact.id] !== 'always') && (thread.allowSilence ?? imSettings(this.store).allowSilence), allowReactions: true },
         participantMemberships: structuredClone(thread.members),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),

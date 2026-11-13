@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { APIError, connectionIdentity, id, now } from './store.mjs';
 import { executeLocalAgent } from './local-agents.mjs';
+import { agentBindingIdentity } from './agent-binding-identity.mjs';
 import { guestCodexSession } from './play-executor.mjs';
 import { nativeSource } from './native-services.mjs';
 import { parseGoalDecision } from './agent-scheduler.mjs';
@@ -68,7 +69,7 @@ export function threadContext(store, thread, run, creation) {
     if (activeStates.includes(selected.status)) selected.inputReceipt = { state: 'supplied', messageIds: messages.map(message => message.id), suppliedAt: now() };
   });
   const memories = run.memoryIds.map((key) => store.get('memory', key)).filter(Boolean).map(({ id: memoryId, text }) => ({ id: memoryId, text }));
-  return { ...(groupContext ? { group: groupContext } : {}), currentMessageId: run.messageId,
+  return { ...(groupContext ? { group: groupContext } : {}), currentMessageId: run.messageId, resources: { links: run.resourceLinksSnapshot || [], ...(run.projectSnapshot ? { project: { id: run.projectSnapshot.projectId, name: store.get('project_resource', run.projectSnapshot.projectId)?.name, access: 'read_only_via_project_tools' } } : {}) },
     ...(run.agentSchedule ? { goal: run.agentSchedule.goal, schedule: { mode: run.agentSchedule.mode, trigger: run.agentSchedule.trigger } } : {}),
     ...(run.contactSnapshot ? { agentIdentity: run.contactSnapshot, participants: run.participantSnapshot,
       conversation: run.conversationSnapshot || { kind: thread.kind, title: thread.title }, responsePolicy: run.responsePolicy, ...(run.imPolicy ? { imPolicy: run.imPolicy } : {}),
@@ -105,16 +106,17 @@ async function executeCodex(store, thread, run, options, signal, customPrompt, o
   store.assertExecutorReady(run.localAgentId || 'codex');
   const workspace = join(store.dataDir, 'workspaces', run.id);
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
-  if (run.sharedGroup && !toolSession) throw new APIError(409, 'public_tools_required', '公开群聊需要受限的原生工具，不能回退为普通执行');
+  if ((run.sharedGroup || run.projectSnapshot) && !toolSession) throw new APIError(409, 'public_tools_required', '公开群聊需要受限的原生工具，不能回退为普通执行');
   if (toolSession || (run.localAgentId && run.localAgentId !== 'codex') || run.executionSnapshot) {
     const deps = { commands: { codex: options.codexCommand || 'codex' }, ...(options.localAgentDeps || {}) };
     let isolated;
     try {
-    if (run.sharedGroup && run.localAgentId === 'codex') isolated = await (options.guestSession || guestCodexSession)(workspace, deps);
+    if (run.projectSnapshot?.executorFingerprints?.[run.localAgentId]) { const identity = await (options.roomieBindingIdentity || agentBindingIdentity)(run.localAgentId, deps); store.put('local_binding_identity', { id: run.localAgentId, fingerprint: identity }); if (identity !== run.projectSnapshot.executorFingerprints[run.localAgentId]) throw new APIError(409, 'binding_changed', '认证或传输配置已变化，请重新核对项目授权'); }
+    if ((run.sharedGroup || run.projectSnapshot) && run.localAgentId === 'codex') isolated = await (options.guestSession || guestCodexSession)(workspace, deps);
     return await (options.executeLocalAgent || executeLocalAgent)({ id: run.localAgentId,
       prompt: store.vault.redactString(customPrompt || codexPrompt(store, thread, run, false, options.creationService)),
       workspace, signal, executionSnapshot: run.executionSnapshot, toolSession, onEvent: event => { if (event.type === 'progress') onProgress?.(event); },
-      ...(run.sharedGroup ? { isolateUserContext: true } : {}),
+      ...(run.sharedGroup || run.projectSnapshot ? { isolateUserContext: true } : {}),
       deps: isolated?.deps || deps,
     }).then(result => {
       if (signal.aborted) throw signal.reason || new Error('Cancelled');
@@ -603,7 +605,7 @@ export class PersonalWorker {
       } catch (error) {
         // Only a pre-execution capability failure can retain ordinary read-only chat.
         // Approved work never uses this path and execution/provider failures never retry.
-        if (run.sharedGroup || !session || error.code !== 'unsupported_cli_version') throw error;
+        if (run.sharedGroup || run.projectSnapshot || !session || error.code !== 'unsupported_cli_version') throw error;
         session.close(); session = null;
         this.change(threadId, runId, (_item, selected) => { selected.nativeToolsUnavailable = error.message; });
         body = await executeCodex(this.store, thread, run, this.options, signal, undefined, progress);

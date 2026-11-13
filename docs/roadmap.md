@@ -344,3 +344,5 @@ Personal workspaces support authenticated server-node enrollment, multiple agent
 ### Integrated group collaboration (2026-11-12)
 
 Normal groups now own nickname invitations, member/status cards and shared note/activity artifacts. Owner-request agents can select contacts, create groups and prepare reviewed or rule-authorized invitations through native tools. The guest frontend reuses the Messenger timeline; public runs use explicit context and strict CLI isolation. Automatic recursive group dispatch, unrestricted public website/game execution and permanent verified friend identities remain outside this slice.
+
+- GET-524: Roomie chat-first workspace setup, actual CLI challenge verification, clickable contact applications/topic groups, project/link bindings and opt-in metadata discovery. See `docs/personal/roomie.md` for adapter limits and acceptance; installed/real-account evidence is recorded separately from CI.

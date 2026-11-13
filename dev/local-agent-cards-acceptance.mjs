@@ -38,11 +38,14 @@ if (native) {
 }
 const errors = []; page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('response', response => { if (response.status() >= 500) console.log('HTTP failure', response.status(), response.url()); });
 const checks = [];
 try {
   if (!native) await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await expect(page.getByTestId('workspace-welcome')).toBeVisible();
-  await page.getByTestId('workspace-welcome-local').click();
+  await expect(page.getByTestId('roomie-chat')).toBeVisible();
+  await page.getByTestId('roomie-skip').click();
+  await page.getByTestId('im-nav-contacts').click();
+  await page.getByTestId('im-local-add-entry').click();
   await expect(page.getByTestId('im-local-picker')).toBeVisible();
   if (!native) await expect(page.getByTestId('im-local-select-gemini')).toBeDisabled();
   await page.getByTestId('im-local-select-codex').check();
@@ -83,7 +86,8 @@ try {
   await page.reload();
   if (server) {
     expect(server.store.list('contact').filter(c => c.added).map(c => c.id).sort()).toEqual(before);
-    expect(server.store.list('thread').length).toBe(1);
+    expect(server.store.list('thread').filter(t => t.purpose !== 'roomie').length).toBe(1);
+    expect(server.store.list('thread').filter(t => t.purpose === 'roomie').length).toBe(1);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByTestId('im-nav-contacts').click();
