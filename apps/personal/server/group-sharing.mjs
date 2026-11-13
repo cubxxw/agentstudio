@@ -287,15 +287,7 @@ export class GroupSharing extends Playrooms {
   create(body, contact) {
     groupFields(body, ['clientId', 'template', 'title', 'brief', 'persona', 'hostName', 'maxGuests', 'maxTurns', 'ttlHours', 'contactId']);
     const replay = this.store.replay('group:legacy-create', body.clientId, body); if (replay.found) return this.owner(replay.value.id);
-    const title = groupText(body.title, 80), brief = groupText(body.brief, 6000), persona = groupText(body.persona, 1500), hostName = groupText(body.hostName, 40, this.store.require('contact', 'self').name);
-    const maxGuests = integer(body.maxGuests, 5, 10), maxTurns = integer(body.maxTurns, 30, 30), ttlHours = integer(body.ttlHours, 24, 72);
-    if (!['twin', 'travel', 'project'].includes(body.template) || contact?.kind !== 'agent' || contact.binding?.type !== 'local' || !['codex', 'pi'].includes(contact.binding.localAgentId)) groupError(400, 'invalid_input', '请选择支持的玩法和本机 Codex/Pi');
-    const created = this.store.idempotent('group:legacy-create', body.clientId, body, () => {
-      if (!contact.id) { const contactId = id('contact'); contact = { ...contact, id: contactId, name: contact.name || '公开搭子', handle: contactId.replaceAll('-', '').slice(0, 31), instructions: '', version: 1 }; this.store.put('contact', contact); }
-      const thread = this.messenger.createChat({ kind: 'group', title, memberIds: [contact.id] });
-      const room = this.prepare(thread.id, { clientId: body.clientId, brief, hostName, agents: [{ contactId: contact.id, persona }], template: body.template, maxGuests, maxTurns, ttlHours }, true);
-      this.publish(thread.id, { shareId: room.id, clientId: body.clientId, version: room.share.version }, true); return { id: room.id };
-    }); return this.owner(created.id);
+    groupError(400, 'group_min_members', '请从普通聊天选择至少两位联系人建群；两人请使用私聊。已有邀请仍可继续使用。');
   }
   migrate() {
     for (const room of this.store.list('play_room')) {
@@ -303,7 +295,7 @@ export class GroupSharing extends Playrooms {
       this.store.transaction(() => {
       const contactId = `shared_agent_${room.id}`;
       this.store.put('contact', { id: contactId, name: room.agentName, handle: `shared_${room.id.replaceAll('-', '').slice(-20)}`, kind: 'agent', instructions: '', description: '旧邀请中的公开角色', binding: { type: 'local', localAgentId: room.backend }, configuration: room.configuration || {}, version: 1, groupLegacy: true });
-      const thread = this.messenger.createChat({ kind: 'group', title: room.title, memberIds: [contactId] });
+      const thread = this.messenger.createChat({ kind: 'group', title: room.title, memberIds: [contactId] }, { legacyRoomId: room.id });
       for (const p of room.participants.filter(p => !p.isOwner && !p.removedAt)) {
         this.store.put('contact', { id: p.id, name: p.name, kind: 'human', externalGuest: true, groupId: thread.id, version: 1 }); thread.memberIds.push(p.id); thread.members.push({ contactId: p.id, membershipId: id('membership'), visibleAfterMessageId: null });
       }

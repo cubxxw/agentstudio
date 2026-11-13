@@ -7,18 +7,20 @@ export const groupMotifs=[{id:"room",label:"同处一室"},{id:"spark",label:"�
 export const groupColors=[{id:"teal",label:"森林绿"},{id:"blue",label:"雾蓝"},{id:"violet",label:"鸢尾紫"},{id:"orange",label:"暖杏"},{id:"rose",label:"蔷薇粉"}] as const;
 const motifs={spark:Sparkles,code:Code2,compass:Compass,leaf:Leaf,coffee:Coffee};
 
-export function GroupAvatar({avatar,size="",members=[]}:{avatar?:Appearance|null;size?:string;members?:ReactNode[]}){
+export function GroupAvatar({avatar,size="",members=[],peer}:{avatar?:Appearance|null;size?:string;members?:ReactNode[];peer?:ReactNode}){
  const [failed,setFailed]=useState<string|null>(null);
  const image=avatar?.kind==="image"&&avatar.dataUrl!==failed?avatar.dataUrl:null;
  const collage=avatar?.kind!=="preset"&&!image&&members.length>0;
+ const single=collage&&members.length<3;
+ const triangle=collage&&members.length===3;
  const columns=members.length===1?1:members.length<=4?2:3;
  const rows:ReactNode[][]=[];
  for(let offset=0;offset<members.length;){const length=offset===0?(members.length%columns||columns):columns;rows.push(members.slice(offset,offset+length));offset+=length;}
  const color=avatar?.kind==="preset"?avatar.color:"teal";
  const motif=avatar?.kind==="preset"?avatar.icon:"room";
  const Icon=motif==="room"?null:motifs[motif];
- return <span className={`im-avatar im-avatar-group im-group-portrait ${color} ${size} ${collage?"im-group-mosaic":""}`} data-testid="im-avatar" data-avatar-source="group" data-group-avatar-kind={image?"image":collage?"members":avatar?.kind==="preset"?"preset":"default"} data-group-icon={image||collage?undefined:motif} data-member-count={collage?members.length:undefined} data-group-color={color} aria-hidden="true">
-  {collage?<span className="im-group-collage" data-testid="im-group-avatar-collage" style={{"--group-columns":columns} as CSSProperties}>{rows.map((row,index)=><span className="im-group-collage-row" key={index}>{row}</span>)}</span>:image?<img className="im-group-picture" data-testid="im-group-avatar-image" src={image} alt="" draggable={false} onError={()=>setFailed(image)}/>:Icon?<Icon className="im-group-symbol" strokeWidth={1.8}/>:<svg className="im-group-art" viewBox="0 0 64 64" fill="none">
+ return <span className={`im-avatar im-avatar-group im-group-portrait ${color} ${size} ${collage?"im-group-mosaic":""} ${single?"im-group-peer":""}`} data-testid="im-avatar" data-avatar-source="group" data-group-avatar-kind={image?"image":single?"peer":collage?"members":avatar?.kind==="preset"?"preset":"default"} data-group-icon={image||collage?undefined:motif} data-member-count={collage?members.length:undefined} data-group-color={color} aria-hidden="true">
+  {single?<span className="im-group-single">{peer||members[0]}</span>:collage?<span className={`im-group-collage ${triangle?"im-group-triangle":""}`} data-testid="im-group-avatar-collage" style={{"--group-columns":columns} as CSSProperties}>{triangle?members:rows.map((row,index)=><span className="im-group-collage-row" key={index}>{row}</span>)}</span>:image?<img className="im-group-picture" data-testid="im-group-avatar-image" src={image} alt="" draggable={false} onError={()=>setFailed(image)}/>:Icon?<Icon className="im-group-symbol" strokeWidth={1.8}/>:<svg className="im-group-art" viewBox="0 0 64 64" fill="none">
    <rect x="10" y="15" width="29" height="33" rx="10" transform="rotate(-14 24 31)" fill="currentColor" opacity=".18"/>
    <rect x="26" y="12" width="27" height="34" rx="10" transform="rotate(14 39 29)" fill="currentColor" opacity=".32"/>
    <path d="M17 29a10 10 0 0 1 10-10h12a10 10 0 0 1 10 10v10a10 10 0 0 1-10 10h-9l-8 5v-7a10 10 0 0 1-5-8Z" fill="currentColor"/>

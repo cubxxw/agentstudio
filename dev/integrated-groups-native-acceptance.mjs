@@ -36,7 +36,8 @@ try {
   page = await app.firstWindow(); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ width: 1240, height: 900 }));
   await expect(page.getByTestId('im-app')).toBeVisible();
   const contacts = (await request('/contacts')).contacts; assert.ok(contacts.some(c => c.id === 'agent_codex'), 'Codex contact missing');
-  const thread = await request('/chats', { kind: 'group', title: '小熊的邀请测试', memberIds: ['agent_codex'], clientId: crypto.randomUUID() });
+  const groupPeer=await request('/contacts',{kind:'human',name:'同行朋友',handle:'acceptance-peer',clientId:crypto.randomUUID()});
+  const thread = await request('/chats', { kind: 'group', title: '小熊的邀请测试', memberIds: ['agent_codex',groupPeer.id], clientId: crypto.randomUUID() });
   await page.evaluate(id => { location.hash = `#${id}`; location.reload(); }, thread.id);
   await page.getByTestId('group-sharing-open').click(); await page.getByTestId('group-tab-invite').click();
   await page.getByTestId('group-recipe-twin').click(); await page.getByTestId('group-prepare').click(); await page.getByTestId('group-publish').click();

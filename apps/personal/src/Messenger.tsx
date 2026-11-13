@@ -365,7 +365,7 @@ function Messenger() {
     <span className="workspace-mode-indicator" data-testid="workspace-mode" data-test-mode={desktop?.testMode || false} hidden={!desktop?.testMode} role="status">测试模式 · 独立资料</span>
     <a className="skip-link" data-testid="im-skip" href="#im-main">跳到聊天内容</a>
 
-    <NavigationRail screen={screen} owner={data?.workspace?.displayName || contacts.find(c => c.id === "self")?.name || "我"} pending={pending.length} unread={(data?.threads || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0)} onScreen={switchScreen} onSettings={() => setPreferences(true)} onRefresh={() => void refreshContacts()} />
+    <NavigationRail ownerContact={contacts.find(c => c.id === "self")} screen={screen} owner={data?.workspace?.displayName || contacts.find(c => c.id === "self")?.name || "我"} pending={pending.length} unread={(data?.threads || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0)} onScreen={switchScreen} onSettings={() => setPreferences(true)} onRefresh={() => void refreshContacts()} />
     <aside className="im-list-panel" id="im-list" data-testid="im-list-panel" aria-label={screen === "chats" ? "会话列表" : screen === "contacts" ? "联系人列表" : screen === "library" ? "作品列表" : "审批列表"}>
       <ListToolbar screen={screen} search={search} filter={filter} pending={pending.length} inputRef={searchInput} onSearch={setSearch} onFilter={setFilter} onNew={() => screen === "contacts" ? setContactEditor("new") : setNewChat(true)} />
       <div className="im-list-scroll" key={screen} data-testid="im-list-scroll">

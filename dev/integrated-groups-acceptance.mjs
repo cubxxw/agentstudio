@@ -41,6 +41,11 @@ try {
     await expect(page.getByTestId('group-guest-chat')).toBeVisible(); await expect(page.getByTestId('im-timeline')).not.toContainText('PRIVATE_');
   }
   const [a, b] = pages;
+  const portraitImages=page=>page.getByTestId('group-guest-chat').getByTestId('im-group-avatar-member').evaluateAll(elements=>elements.map(e=>({id:e.dataset.memberId,src:e.querySelector('img')?.getAttribute('src'),text:e.textContent})));
+  const images=await portraitImages(b), guests=images.filter(p=>p.id.startsWith('guest_'));
+  assert.equal(guests.length,2);assert.notEqual(guests[0].src,guests[1].src);assert.ok(guests.every(p=>p.src.startsWith('data:image/svg+xml')&&!p.text));
+  const ownerPortrait=await owner.getByTestId('im-profile').getByTestId('im-avatar-image').getAttribute('src');assert.equal(images.find(p=>p.id==='self').src,ownerPortrait);
+
   let release;
   await a.route(`**/g-api/${room.id}/actions`, async route => {
     if (route.request().postDataJSON().type !== 'message') return route.continue();
@@ -70,6 +75,7 @@ try {
   assert.ok(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Mobile overflow');
   const identity = await b.evaluate(() => fetch(location.pathname.replace('/g/', '/g-api/')).then(r => r.json()).then(r => r.me.id));
   await b.reload(); await expect(b.getByTestId('group-guest-chat')).toBeVisible();
+  assert.deepEqual((await portraitImages(b)).filter(p=>p.id.startsWith('guest_')),guests);
   assert.equal(await b.evaluate(() => fetch(location.pathname.replace('/g/', '/g-api/')).then(r => r.json()).then(r => r.me.id)), identity);
   await a.getByTestId('group-message').fill('响应丢失后也只发送一次');
   await a.route(`**/g-api/${room.id}/actions`, async route => { if (route.request().postDataJSON().type !== 'message') return route.continue(); await route.fetch(); await route.abort(); });

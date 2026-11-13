@@ -13,7 +13,8 @@ async function fixture(t) {
   const sharing = new GroupSharing(store, { messenger, creation }), artifacts = new GroupArtifacts(sharing, creation); sharing.artifacts = artifacts;
   t.after(async () => { await sharing.close(); await creation.runtime.close(); store.close(); await rm(dir, { recursive: true, force: true }); });
   store.put('contact', { id: 'agent_codex', kind: 'agent', name: '搭子', instructions: 'PRIVATE', binding: { type: 'local', localAgentId: 'codex' }, version: 1 });
-  const thread = messenger.createChat({ kind: 'group', title: '一起玩', memberIds: ['agent_codex'] });
+  store.put('contact',{id:'group_peer',kind:'human',name:'讨论伙伴',handle:'group-peer',color:'teal',version:1});
+  const thread = messenger.createChat({ kind: 'group', title: '一起玩', memberIds: ['agent_codex','group_peer'] });
   const room = sharing.prepare(thread.id, { brief: '公开背景', agents: [{ contactId: 'agent_codex', persona: '公开搭子' }], clientId: crypto.randomUUID() }); sharing.publish(thread.id, { shareId: room.id, version: room.share.version, clientId: crypto.randomUUID() });
   const enter = name => sharing.join({ invite: sharing.invitation(room.id).token, nickname: name, clientId: crypto.randomUUID() }).room.me.id;
   return { store, sharing, artifacts, creation, thread, a: enter('甲'), b: enter('乙') };
@@ -33,14 +34,14 @@ test('poll and quiz actions synchronize by real actor, are replay safe and canno
   f.artifacts.act(f.thread.id, f.a, action); f.artifacts.act(f.thread.id, f.a, action);
   const current = f.artifacts.read(f.thread.id, f.b, poll.id); assert.equal(current.choices[1].votes.length, 1); assert.equal(current.choices[1].votes[0], f.a);
   assert.throws(() => f.artifacts.act(f.thread.id, f.a, { ...action, clientId: crypto.randomUUID(), actorId: 'self' }), e => e.status === 400);
-  const other = f.sharing.messenger.createChat({ kind: 'group', title: '别的群', memberIds: ['agent_codex'] }); assert.throws(() => f.artifacts.read(other.id, 'self', poll.id), e => e.status === 403);
+  const other = f.sharing.messenger.createChat({ kind: 'group', title: '别的群', memberIds: ['agent_codex','group_peer'] }); assert.throws(() => f.artifacts.read(other.id, 'self', poll.id), e => e.status === 403);
   assert.throws(() => f.artifacts.editNote(f.thread.id, f.a, { artifactId: poll.id, revisionId: poll.revisionId, hash: 'x', path: '../../auth.json', text: 'x', clientId: crypto.randomUUID() }), e => e.status === 400);
   f.sharing.action(f.sharing.current(f.thread.id).id, 'self', { type: 'remove', participantId: f.a, clientId: crypto.randomUUID() });
   assert.throws(() => f.artifacts.read(f.thread.id, f.a, poll.id), e => e.status === 403);
 });
 test('publication cannot promote private in-flight tools or draft-era artifacts into the guest audience', async t => {
   const f = await fixture(t); f.creation.options.groupSharing = f.sharing;
-  const group = f.sharing.messenger.createChat({ kind: 'group', title: '原私有群', memberIds: ['agent_codex'] });
+  const group = f.sharing.messenger.createChat({ kind: 'group', title: '原私有群', memberIds: ['agent_codex','group_peer'] });
   const run = f.store.appendRun(group, { text: 'PRIVATE_REQUEST', mode: 'codex', localAgentId: 'codex', contactId: 'agent_codex', contactSnapshot: { instructions: 'PRIVATE_ROLE' } }); run.status = 'running'; f.store.put('thread', group);
   const room = f.sharing.prepare(group.id, { brief: '公开简介', agents: [{ contactId: 'agent_codex', persona: '公开搭子' }], clientId: crypto.randomUUID() });
   const privateNote = f.artifacts.create(group.id, 'self', { kind: 'note', title: '未审核便笺', text: 'PRIVATE_DRAFT_NOTE', clientId: crypto.randomUUID() });
