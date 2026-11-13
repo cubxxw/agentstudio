@@ -6,7 +6,7 @@ const CONTACT='agentroom_roomie',active=['queued','probing','analyzing'];
 const fail=(message,code='invalid_roomie',status=400)=>{throw new APIError(status,code,message);};
 const text=(value,max=1500)=>{if(typeof value!=='string'||value.length>max||!value.trim())fail(`请输入 1–${max} 字`);return value.trim();};
 const parse=value=>{if(typeof value!=='string'||value.length>20000)fail('助手建议超过上限');try{return JSON.parse(value.replace(/^```(?:json)?\s*|\s*```$/g,''));}catch{fail('助手没有返回有效建议');}};
-const key=value=>digest(JSON.stringify(value)).slice(0,20);
+const key=value=>digest(JSON.stringify(value ?? null)).slice(0,20);
 export class Roomie {
  constructor(store,messenger,options={}) {
   this.store=store;this.messenger=messenger;this.options=options;this.executor=createRoomieExecutor(store,options);

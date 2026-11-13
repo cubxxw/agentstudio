@@ -19,6 +19,10 @@ test('first chat is durable and honest without a model; discovery never invokes 
  let calls=0;const f=await fixture(t,async()=>{calls++;});
  const a=f.roomie.snapshot({agents:[]}),b=f.roomie.snapshot({agents:[]});assert.equal(a.threadId,b.threadId);assert.match(a.messages[0].text,/小伴/);assert.equal(a.job,null);assert.equal(calls,0);assert.equal(f.messenger.publicContact(f.store.require('contact','agentroom_roomie')).availability,'configuration_required');
 });
+test('installed agents without a model profile remain visible as configuration-needed recommendations',async t=>{
+ const f=await fixture(t,execute);const discovery={agents:[{id:'pi',name:'Pi',installed:true,auth:{status:'required'},execution:{supported:true}}]};
+ const state=f.roomie.snapshot(discovery);assert.equal(state.agents[0].configurationError.length>0,true);assert.equal(state.recommendations[0].canTest,false);assert.equal(state.recommendations[0].id,f.roomie.snapshot(discovery).recommendations[0].id);
+});
 test('verified add binds the actual backend once and proposes adoptable contacts and a topic group',async t=>{
  const f=await fixture(t,execute);f.roomie.snapshot(detected);const job=f.roomie.start({agentId:'pi',text:'研究本地项目',autoAdd:true},detected);
  assert.equal(f.store.require('contact','agent_pi').added,false);const state=await finish(f,job);
