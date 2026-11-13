@@ -102,8 +102,9 @@ try {
   await page.getByTestId('im-send').click();
   await expect.poll(() => new URL(page.url()).searchParams.get('thread')).toBe(accepted.id);
   const chats = (await request('/bootstrap')).threads;
-  expect(chats.filter(thread => thread.purpose !== 'roomie').length).toBe(2);
-  expect(chats.filter(thread => thread.purpose === 'roomie').length).toBe(1);
+  const roomieId = (await request('/roomie')).threadId;
+  expect(chats.filter(thread => thread.id !== roomieId).length).toBe(2);
+  expect(chats.filter(thread => thread.id === roomieId).length).toBe(1);
   check('unconfirmed draft.new resumes the original creation without a duplicate conversation');
   await page.evaluate(({ acceptedId, scratch }) => {
     localStorage.removeItem('agentstudio.messenger.draft.new');
