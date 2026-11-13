@@ -11,7 +11,7 @@ import opencodeIcon from "@agentstudio/brand/assets/opencode.png";
 import grokIcon from "@agentstudio/brand/assets/grokbot.png";
 import museIcon from "@agentstudio/brand/assets/muse-mark.png";
 import cueIcon from "@agentstudio/brand/assets/cue.png";
-import agentroomIcon from "@agentstudio/brand/assets/agentstudio.png";
+import roomiePortrait from "@agentstudio/brand/assets/roomie-anime-v1.png";
 import { presenceText } from "./contact-presence";
 import { GroupAvatar } from "./GroupAvatar";
 import type { GroupAvatar as GroupAppearance } from "./types";
@@ -19,7 +19,7 @@ import type { AvatarActivity, Contact } from "./types";
 
 export const avatarIcons = { auto: SquareTerminal, spark: Sparkles, code: Code2, research: Search, write: PenLine, compass: Compass, brain: Brain, person: UserRound };
 export const avatarLabels: Record<string, string> = { auto: "助手头像", spark: "灵感", code: "代码", research: "研究", write: "写作", compass: "探索", brain: "思考", person: "伙伴" };
-const agentImages: Record<string, string> = { agentroom: agentroomIcon, codex: codexIcon, claude: claudeIcon, pi: piIcon, gemini: geminiIcon, opencode: opencodeIcon, grokbot: grokIcon, muse: museIcon, dots: codexIcon, cue: cueIcon };
+const agentImages: Record<string, string> = { roomie: roomiePortrait, codex: codexIcon, claude: claudeIcon, pi: piIcon, gemini: geminiIcon, opencode: opencodeIcon, grokbot: grokIcon, muse: museIcon, dots: codexIcon, cue: cueIcon };
 export type AvatarContact = Pick<Contact, "name" | "color" | "kind"> & Partial<Pick<Contact, "icon" | "binding" | "avatarAgent" | "avatarService" | "avatarDataUrl" | "presence" | "id" | "handle" | "discovered" | "avatar" | "avatarActivity">>;
 
 export function groupAvatarMembers(ids: readonly string[] | undefined, contacts: readonly AvatarContact[]): AvatarContact[] {
@@ -37,7 +37,7 @@ export function Avatar({ contact, group, groupAvatar, members = [], embedded = f
   const automatic = !contact?.icon || contact.icon === "auto";
   const botImage = contact?.avatarDataUrl && contact.avatarDataUrl.length <= 683_000 && /^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(contact.avatarDataUrl) ? contact.avatarDataUrl : undefined;
   const roomie = contact?.kind === "agent" && contact.id === "agentroom_roomie";
-  const source = roomie ? "agentroom" : contact?.kind === "agent" && automatic ? botImage ? "bot" : agent || contact.avatarService : undefined;
+  const source = roomie ? "roomie" : contact?.kind === "agent" && automatic ? botImage ? "bot" : agent || contact.avatarService : undefined;
   const providerImage = source === "bot" ? botImage : source && agentImages[source];
   const generated = !roomie && contact?.kind === "agent" && automatic ? contact.avatar || ((!providerImage || (contact.id && !contact.discovered && !contact.avatarService && contact.avatar !== null)) ? defaultAgentAvatar(contact) : null) : null;
   const human = contact?.kind === "human";
