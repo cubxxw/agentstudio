@@ -37,7 +37,8 @@ try {
  else{server=await createPersonalServer({dataDir:join(output,'data'),port:0,...(!real?{codexCommand:cli,localAgentDeps:{env,commands:{claude:'/synthetic-missing-claude',pi:'/synthetic-missing-pi'}}}:{}),staticDir:resolve('apps/personal/dist')});await server.listen();browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});page=await browser.newPage({viewport:{width:1200,height:850}});await page.goto(`http://127.0.0.1:${server.address().port}`);}
  page.on('pageerror',e=>errors.push(e.message));await expect(page.getByTestId('im-app')).toBeVisible();
  const contacts=await request('/contacts');expect(contacts.contacts.find(c=>c.id==='agent_codex').availability).toBe('ready');
- const group=await request('/chats',{kind:'group',title:'合成发布讨论',memberIds:['agent_codex'],clientId:crypto.randomUUID()});
+ const groupPeer=await request('/contacts',{kind:'human',name:'同行朋友',handle:'acceptance-peer',clientId:crypto.randomUUID()});
+  const group=await request('/chats',{kind:'group',title:'合成发布讨论',memberIds:['agent_codex',groupPeer.id],clientId:crypto.randomUUID()});
  await request(`/threads/${group.id}/messages`,{text:'这是隔离验收。请保持安静，无需公开回复。',clientId:crypto.randomUUID()});
  let completed;await expect.poll(async()=>{completed=await request(`/threads/${group.id}`);return completed.runs[0]?.status;},{timeout:real?180000:15000}).toBe('completed');
  expect(completed.runs[0].participation.action).toBe('silence');expect(completed.messages).toHaveLength(1);expect(completed.artifacts).toHaveLength(0);check('ambient group message reaches the agent, which can complete silently');

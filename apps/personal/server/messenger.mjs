@@ -157,12 +157,14 @@ export class Messenger {
     if (ids.length < 2) fail('请选择至少一位其他联系人');
     return ids;
   }
-  createChat(body) {
+  createChat(body, { legacyRoomId } = {}) {
     if (body.allowSilence !== undefined && body.allowSilence !== null && typeof body.allowSilence !== 'boolean') fail('允许静默必须是开关或跟随 IM 设置');
     if (!['direct', 'group'].includes(body.kind)) fail('请选择私聊或群聊');
     if (body.kind !== 'group' && body.groupAvatar !== undefined) fail('只有群聊可以设置群图标');
     const groupAvatar = body.kind === 'group' ? validateGroupAvatar(body.groupAvatar) : null;
     const memberIds = this.members(body.memberIds);
+    const legacyRoom = legacyRoomId ? this.store.get('play_room', legacyRoomId) : null;
+    if (body.kind === 'group' && memberIds.length < 3 && !(legacyRoom && !legacyRoom.threadId)) fail('群聊至少三位成员；只有你和一位联系人时请开始私聊', 400, 'group_min_members');
     if (body.kind === 'direct' && memberIds.length !== 2) fail('私聊只能有你和一位联系人');
     if (body.kind === 'direct') {
       const peer = this.store.require('contact', memberIds.find(x => x !== SELF));

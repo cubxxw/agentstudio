@@ -1,3 +1,4 @@
+import { humanAvatarUrl } from "./human-avatar";
 import type { CSSProperties } from "react";
 import { robotAvatarUrl, defaultAgentAvatar, avatarPalettes, activityLabels, observeAvatar } from "./agent-avatar";
 import "./agent-avatar.css";
@@ -26,7 +27,10 @@ export function groupAvatarMembers(ids: readonly string[] | undefined, contacts:
 }
 
 export function Avatar({ contact, group, groupAvatar, members = [], embedded = false, activity, size = "" }: { contact?: AvatarContact; members?: readonly AvatarContact[]; embedded?: boolean; activity?: AvatarActivity; group?: boolean; groupAvatar?: GroupAppearance | null; size?: string }) {
-  if (group) return <GroupAvatar avatar={groupAvatar} size={size} members={members.slice(0, 9).map((member, index) => <Avatar key={member.id || index} contact={member} embedded />)} />;
+  if (group) {
+    const peer = members.find(member => member.id !== "self") || members[0];
+    return <GroupAvatar avatar={groupAvatar} size={size} peer={peer ? <Avatar contact={peer} embedded /> : undefined} members={members.slice(0, 9).map((member, index) => <Avatar key={member.id || index} contact={member} embedded />)} />;
+  }
   const agent = contact?.avatarAgent || (contact?.binding?.type === "local" ? contact.binding.localAgentId : null);
   const Icon = avatarIcons[(contact?.icon || "auto") as keyof typeof avatarIcons] || SquareTerminal;
   const automatic = !contact?.icon || contact.icon === "auto";
@@ -34,15 +38,15 @@ export function Avatar({ contact, group, groupAvatar, members = [], embedded = f
   const source = contact?.kind === "agent" && automatic ? botImage ? "bot" : agent || contact.avatarService : undefined;
   const providerImage = source === "bot" ? botImage : source && agentImages[source];
   const generated = contact?.kind === "agent" && automatic ? contact.avatar || ((!providerImage || (contact.id && !contact.discovered && !contact.avatarService && contact.avatar !== null)) ? defaultAgentAvatar(contact) : null) : null;
-  const image = generated ? robotAvatarUrl(generated) : providerImage;
+  const human = contact?.kind === "human";
+  const image = human ? humanAvatarUrl(contact) : generated ? robotAvatarUrl(generated) : providerImage;
   const live = embedded ? { state: "idle" as const } : activity || contact?.avatarActivity || { state: contact?.presence?.waiting ? "waiting" : contact?.presence?.running ? "working" : "idle" };
   const state = live.state === "completed" && (!live.completedAt || Date.now() - Date.parse(live.completedAt) > 5000) ? "idle" : live.state;
   const palette = generated ? avatarPalettes[generated.palette] : avatarPalettes[(contact?.color || "blue") as keyof typeof avatarPalettes] || avatarPalettes.blue;
   const variables = { "--avatar-accent": palette.color, "--avatar-soft": palette.soft } as CSSProperties;
-  const initials = Array.from(contact?.name.trim() || "?").slice(0, /^[\x00-\x7f]/.test(contact?.name || "") ? 1 : 2).join("").toUpperCase();
-  return <span ref={embedded ? undefined : observeAvatar} className={`im-avatar ${contact?.color || "blue"} ${size} ${embedded ? "im-group-member" : ""} ${contact?.kind === "agent" ? "im-avatar-agent" : ""} ${generated ? "im-avatar-robot" : image ? `im-avatar-brand im-avatar-${source}` : !contact ? "im-avatar-group" : ""}`} data-testid={embedded ? "im-group-avatar-member" : "im-avatar"} data-member-id={embedded ? contact?.id : undefined} style={variables} data-activity={state} data-motion={embedded || generated?.motion === false ? "off" : "on"} title={contact?.kind === "agent" ? activityLabels[state] : undefined} data-avatar-source={generated ? "bottts" : image ? source : !contact ? "notes" : automatic || contact.kind === "human" ? "initials" : "custom"} role="img" aria-label={contact ? `${contact.name}${contact.kind === "agent" ? `：${activityLabels[state]}` : ""}` : "资料"}>
+  return <span ref={embedded ? undefined : observeAvatar} className={`im-avatar ${contact?.color || "blue"} ${size} ${embedded ? "im-group-member" : ""} ${contact?.kind === "agent" ? "im-avatar-agent" : ""} ${human ? "im-avatar-human" : generated ? "im-avatar-robot" : image ? `im-avatar-brand im-avatar-${source}` : !contact ? "im-avatar-group" : ""}`} data-testid={embedded ? "im-group-avatar-member" : "im-avatar"} data-member-id={embedded ? contact?.id : undefined} style={variables} data-activity={state} data-motion={embedded || generated?.motion === false ? "off" : "on"} title={contact?.kind === "agent" ? activityLabels[state] : undefined} data-avatar-source={human ? "person" : generated ? "bottts" : image ? source : !contact ? "notes" : automatic || contact.kind === "human" ? "initials" : "custom"} role="img" aria-label={contact ? `${contact.name}${contact.kind === "agent" ? `：${activityLabels[state]}` : ""}` : "资料"}>
     {!embedded && contact?.kind === "agent" && <span className="im-avatar-orbit" aria-hidden="true" key={`${state}-${live.runId || "preview"}`} />}
-    {!contact ? <FileText size={23} strokeWidth={1.6} /> : image ? <img src={image} alt="" draggable={false} data-testid="im-avatar-image" /> : contact.kind === "human" || automatic ? initials : <Icon size={23} strokeWidth={1.8} />}
+    {!contact ? <FileText size={23} strokeWidth={1.6} /> : image ? <img src={image} alt="" draggable={false} data-testid="im-avatar-image" /> : <Icon size={23} strokeWidth={1.8} />}
     {!embedded && contact?.kind === "agent" && ["waiting", "attention", "queued", "completed"].includes(state) && <span className="im-avatar-state-mark" aria-hidden="true">{state === "waiting" ? "!" : state === "attention" ? "?" : state === "queued" ? "·" : "✓"}</span>}
     {!embedded && contact?.presence && <span className={`im-presence-dot ${contact.presence.state}`} title={presenceText(contact)} data-testid="im-presence-dot" data-state={contact.presence.state} />}
   </span>;

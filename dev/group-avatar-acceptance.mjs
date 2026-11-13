@@ -62,7 +62,7 @@ const releaseRead=async()=>{await expect.poll(()=>page.evaluate(()=>typeof windo
 
 try{
  if(native)await launchNative();else{
-  server=await createPersonalServer({dataDir:join(output,'data'),port:0,staticDir:resolve('apps/personal/dist'),codexCommand:'/missing-group-avatar-agent',discoverLocalAgents:async()=>({agents:[{id:'codex',name:'Codex',installed:false,auth:{status:'unknown'},execution:{supported:false}}]})});await server.listen();
+  server=await createPersonalServer({dataDir:join(output,'data'),port:0,staticDir:process.env.AGENTROOM_STATIC_DIR||resolve('apps/personal/dist'),codexCommand:'/missing-group-avatar-agent',discoverLocalAgents:async()=>({agents:[{id:'codex',name:'Codex',installed:false,auth:{status:'unknown'},execution:{supported:false}}]})});await server.listen();
   browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});
   page=await browser.newPage({viewport:{width:1120,height:900}});watchPage(page);await page.goto(`http://127.0.0.1:${server.address().port}`);
  }
@@ -70,13 +70,30 @@ try{
  await expect(page.getByTestId('im-app')).toBeVisible();
  await request('/workspace/onboarding',{action:'complete',name:'图标验收',clientId:randomUUID()});
  const person=await request('/contacts',{kind:'human',name:'设计伙伴',handle:'avatar-partner',clientId:randomUUID()});
+ const second=await request('/contacts',{kind:'human',name:'旅行搭子',handle:'avatar-second',clientId:randomUUID()});
  await page.getByTestId('im-refresh').click();
  await page.getByTestId('im-new').click();await page.getByTestId('im-new-group').click();
+ await expect(page.getByTestId('im-pair-hint')).toBeVisible();
+ await expect(page.getByTestId('im-group-name')).toHaveCount(0);
+ await page.getByTestId('im-member-'+person.id).check();await expect(page.getByTestId('im-group-save')).toHaveText('开始私聊');await save();
+ const directId=new URL(page.url()).searchParams.get('thread');expect((await request('/threads/'+directId)).kind).toBe('direct');
+ await page.getByTestId('im-new').click();await page.getByTestId('im-new-group').click();await page.getByTestId('im-member-'+person.id).check();await save();
+ expect(new URL(page.url()).searchParams.get('thread')).toBe(directId);
+ check('one selected contact starts and reuses a direct chat');
+ await page.getByTestId('im-new').click();await page.getByTestId('im-new-group').click();
+ await page.getByTestId('im-member-'+person.id).check();await page.getByTestId('im-member-'+second.id).check();
+ await page.getByTestId('im-group-name').fill('周末创作室');
+ await expect(preview()).toHaveAttribute('data-member-count','3');
+ const trio=preview().getByTestId('im-group-avatar-member');await expect(trio).toHaveCount(3);
+ for(const ratio of await trio.evaluateAll(elements=>elements.map(e=>e.getBoundingClientRect().width/e.parentElement.getBoundingClientRect().width)))expect(ratio).toBeGreaterThan(.5);
+ await expect(trio.getByTestId('im-avatar-image')).toHaveCount(3);expect(await trio.allTextContents()).toEqual(['','','']);
+ await capture('three-human-portraits');
+ await holdRead();await page.getByTestId('im-group-avatar-file').setInputFiles({name:'pending.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+k2w0AAAAASUVORK5CYII=','base64')});
+ await expect(page.getByTestId('im-group-save')).toBeDisabled();
+ await page.getByTestId('im-member-'+second.id).uncheck();await expect(page.getByTestId('im-group-save')).toBeEnabled();
+ await releaseRead();await page.getByTestId('im-member-'+second.id).check();await expect(page.getByTestId('im-group-save')).toBeEnabled();
  await expect(preview()).toHaveAttribute('data-group-avatar-kind','members');
- await expect(preview()).toHaveAttribute('data-member-count','1');
- await page.getByTestId('im-group-name').fill('周末创作室');await page.getByTestId('im-member-'+person.id).check();
- await expect(preview()).toHaveAttribute('data-member-count','2');
- await expect(preview().getByTestId('im-group-avatar-member')).toHaveCount(2);
+ check('an interrupted group-picture read cannot block the direct chat or later group creation');
  const green=await preview().evaluate(e=>getComputedStyle(e).backgroundColor);
  await capture('group-default-editor-light');
  await page.getByTestId('im-group-motif-coffee').click();await page.getByTestId('im-group-color-violet').click();
@@ -161,12 +178,12 @@ try{
  await page.getByTestId('im-refresh').click();await editor();
  for(let index=0;index<additions.length;index++){
   await page.getByTestId('im-member-'+additions[index].id).check();
-  const count=Math.min(index+3,9);
+  const count=Math.min(index+4,9);
   await expect(preview()).toHaveAttribute('data-member-count',String(count));
   const tiles=preview().getByTestId('im-group-avatar-member');await expect(tiles).toHaveCount(count);
   const boxes=await tiles.evaluateAll(elements=>elements.map(e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height};}));
   for(const box of boxes){expect(box.w).toBeGreaterThan(15);expect(Math.abs(box.w-box.h)).toBeLessThan(1);}
-  if([3,5,7,9].includes(index+3)){await preview().scrollIntoViewIfNeeded();await capture('mosaic-'+(index+3)+'-members');}
+  if([4,5,7,9].includes(index+4)){await preview().scrollIntoViewIfNeeded();await capture('mosaic-'+(index+4)+'-members');}
  }
  await save();
  for(const avatar of surfaces()){await expect(avatar).toHaveAttribute('data-member-count','9');await expect(avatar.getByTestId('im-group-avatar-member')).toHaveCount(9);}
@@ -176,17 +193,31 @@ try{
  await editor();
  for(const contact of additions)await page.getByTestId('im-member-'+contact.id).uncheck();
  await save();
- for(const avatar of surfaces())await expect(avatar).toHaveAttribute('data-member-count','2');
+ for(const avatar of surfaces())await expect(avatar).toHaveAttribute('data-member-count','3');
  const contact=(await request('/contacts')).contacts.find(contact=>contact.id===person.id);
- await request('/contacts/'+person.id,{kind:'human',name:'新伙伴',handle:contact.handle,color:'rose',version:contact.version,clientId:randomUUID()});
- await page.getByTestId('im-refresh').click();
- await expect(page.getByTestId('im-chat-info').getByTestId('im-group-avatar-member').last()).toHaveClass(/rose/);
- await expect(page.getByTestId('im-chat-info').getByTestId('im-group-avatar-member').last()).toHaveText('新伙');
- check('one to nine centered portraits, capped membership, reload, removal and contact changes stay live');
+ const portraits=()=>page.getByTestId('im-chat-info').getByTestId('im-group-avatar-member').getByTestId('im-avatar-image');
+ const originalFace=await portraits().nth(1).getAttribute('src');
+ await request('/contacts/'+person.id,{kind:'human',name:'新伙伴',handle:contact.handle,version:contact.version,clientId:randomUUID()});
+ await page.getByTestId('im-refresh').click();await expect(portraits().nth(1)).toHaveAttribute('src',originalFace);
+ expect(await page.getByTestId('im-chat-info').getByTestId('im-group-avatar-member').allTextContents()).toEqual(['','','']);
+ check('three-to-nine layouts, membership changes and text-free human portraits stay stable after rename and reload');
 
  await editor();await page.emulateMedia({colorScheme:'dark'});await capture('group-editor-dark');
  if(!native){await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await capture('group-editor-narrow-dark');await page.setViewportSize({width:1120,height:900});}
  await page.getByTestId('personal-modal-close').click();
+ await editor();await page.getByTestId('im-member-'+second.id).uncheck();await save();
+ for(const avatar of surfaces()){await expect(avatar).toHaveAttribute('data-group-avatar-kind','peer');await expect(avatar.getByTestId('im-group-avatar-member')).toHaveCount(1);}
+ expect((await request('/threads/'+id)).id).toBe(id);await capture('pair-after-member-leaves');
+ check('an existing group keeps its ID when reduced to a pair and shows one full portrait');
+ if(!native){
+  const saved=structuredClone(server.store.require('thread',id));
+  try{
+   server.store.put('thread',{...saved,memberIds:['self'],members:saved.members.filter(member=>member.contactId==='self')});
+   await page.reload();await expect(page.getByTestId('im-chat-info').getByTestId('im-avatar-image')).toHaveCount(1);
+   await expect(page.getByTestId('im-chat-info').getByTestId('im-avatar')).toHaveAttribute('data-group-avatar-kind','peer');
+  }finally{server.store.put('thread',saved);await page.reload();}
+  check('an imported owner-only group has a full owner portrait rather than a blank square');
+ }
  if(native){
   await editor();await page.getByTestId('im-group-avatar-file').setInputFiles(file());await expect(preview()).toHaveAttribute('data-group-avatar-kind','image');await save();
   await application.close();application=null;await launchNative();

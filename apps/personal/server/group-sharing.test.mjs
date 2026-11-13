@@ -13,7 +13,8 @@ async function fixture(t) {
   const profile = { agentId: 'codex', defaults: { provider: 'openai', model: 'fixture', thinking: 'medium' }, models: [], providers: ['openai'], thinkingLevels: ['medium'], version: 'fixture' };
   store.put('contact', { id: 'agent_codex', name: 'Codex', kind: 'agent', discovered: true, binding: { type: 'local', localAgentId: 'codex' }, availability: 'ready', profile, version: 1 });
   store.put('contact', { id: 'agent_fixture', name: '旅行规划', handle: 'planner', kind: 'agent', instructions: 'PRIVATE_PERSONA', description: '旅行分工', binding: { type: 'local', localAgentId: 'codex' }, availability: 'ready', configuration: {}, profile, version: 1 });
-  const thread = messenger.createChat({ kind: 'group', title: '朋友的旅行', memberIds: ['agent_fixture'] });
+  store.put('contact',{id:'group_peer',kind:'human',name:'讨论伙伴',handle:'group-peer',color:'teal',version:1});
+  const thread = messenger.createChat({ kind: 'group', title: '朋友的旅行', memberIds: ['agent_fixture','group_peer'] });
   thread.messages.push({ id: 'private_before', role: 'user', contactId: 'self', text: 'PRIVATE_OLD_HISTORY', createdAt: new Date().toISOString() }); thread.memoryIds = ['private_memory']; store.put('thread', thread);
   store.put('memory', { id: 'private_memory', text: 'PRIVATE_MEMORY' });
   const validateInput = body => ({ text: body.text || '', attachments: body.attachments || [], memoryIds: body.memoryIds || [], mode: body.mode || 'codex', localAgentId: body.localAgentId || 'codex' });
@@ -97,11 +98,10 @@ test('shared execution recovery holds the backend until the owner confirms the o
   thread = f.store.require('thread', thread.id); assert.equal(thread.runs[0].stopUnconfirmed, true); assert.throws(() => f.store.assertExecutorReady('codex'), e => e.status === 409);
   f.sharing.acknowledgeRun(thread.id, { runId: thread.runs[0].id, confirmedStopped: true, clientId: crypto.randomUUID() }); assert.doesNotThrow(() => f.store.assertExecutorReady('codex'));
 });
-test('compatibility creation validates before writing and preserves its requested limits', async t => {
-  const f = await fixture(t), before = f.store.list('thread').length, contact = f.store.require('contact', 'agent_fixture');
-  assert.throws(() => f.sharing.create({ title: '无效', template: 'travel', brief: '', persona: '角色', clientId: crypto.randomUUID() }, contact)); assert.equal(f.store.list('thread').length, before);
-  const body = { title: '旧入口', template: 'travel', brief: '共同背景', persona: '公共角色', clientId: crypto.randomUUID(), maxGuests: 1, maxTurns: 1, ttlHours: 1 }, room = f.sharing.create(body, contact);
-  assert.equal(room.share.maxGuests, 1); assert.equal(room.share.maxTurns, 1); assert.equal(f.sharing.create(body, contact).id, room.id);
+test('the retired single-agent room entry cannot create a new two-person group', async t => {
+  const f=await fixture(t), before=f.store.list('thread').length;
+  assert.throws(()=>f.sharing.create({title:'旧入口',template:'travel',brief:'共同背景',persona:'公共角色',clientId:crypto.randomUUID()},f.store.require('contact','agent_fixture')),e=>e.code==='group_min_members');
+  assert.equal(f.store.list('thread').length,before);
 });
 test('queued public prompts remain anchored to the accepted message while roster stays fresh', async t => {
   const f = await fixture(t); f.prepare(); f.publish(); f.sharing.send(f.thread.id, 'self', { text: '第一个问题' }); f.sharing.send(f.thread.id, 'self', { text: '第二个问题' });
@@ -126,7 +126,7 @@ test('the exact proposed fanout cannot overflow the global public queue', async 
   const f = await fixture(t); f.store.put('contact', { ...f.store.require('contact', 'agent_fixture'), id: 'second', handle: 'second' });
   const current = f.store.require('thread', f.thread.id); f.messenger.updateChat(current.id, { version: current.version, memberIds: [...current.memberIds, 'second'] });
   f.prepare({ agents: [{ contactId: 'agent_fixture', persona: '公开一' }, { contactId: 'second', persona: '公开二' }] }); f.publish();
-  const backlog = f.messenger.createChat({ kind: 'group', title: '合成排队', memberIds: ['agent_fixture'] });
+  const backlog = f.messenger.createChat({ kind: 'group', title: '合成排队', memberIds: ['agent_fixture','group_peer'] });
   for (let i = 0; i < 19; i++) f.store.appendRun(backlog, { text: '排队', contactId: 'agent_fixture', mode: 'codex', sharedGroup: { id: 'fixture' } }); f.store.put('thread', backlog);
   assert.throws(() => f.sharing.send(f.thread.id, 'self', { text: '超过队列' }), e => e.code === 'queue_full'); assert.equal(f.store.require('thread', f.thread.id).runs.length, 0);
 });
